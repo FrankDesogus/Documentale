@@ -522,7 +522,12 @@ class PolicyUITests(TestCase):
         self.client.post(
             reverse('version_submit', args=[version.pk]),
             {
-                'approvers': [self.a1.pk, self.a2.pk],
+                'approver-TOTAL_FORMS': '2',
+                'approver-INITIAL_FORMS': '0',
+                'approver-MIN_NUM_FORMS': '0',
+                'approver-MAX_NUM_FORMS': '1000',
+                'approver-0-approver': str(self.a1.pk),
+                'approver-1-approver': str(self.a2.pk),
                 'approval_policy': 'any',
             },
         )

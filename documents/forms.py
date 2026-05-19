@@ -93,12 +93,40 @@ class DocumentVersionEditForm(forms.Form):
     )
 
 
-class SubmitForApprovalForm(forms.Form):
-    approvers = forms.ModelMultipleChoiceField(
+class ApproverRowForm(forms.Form):
+    approver = forms.ModelChoiceField(
         queryset=User.objects.filter(is_active=True).order_by('last_name', 'first_name', 'username'),
-        widget=forms.CheckboxSelectMultiple,
-        label='Approvatori',
+        label='Approvatore',
+        empty_label='— seleziona utente —',
+        required=False,
     )
+
+
+class BaseApproverFormSet(forms.BaseFormSet):
+    def clean(self):
+        if any(self.errors):
+            return
+        selected = []
+        for form in self.forms:
+            if form.cleaned_data and form.cleaned_data.get('approver'):
+                approver = form.cleaned_data['approver']
+                if approver in selected:
+                    raise forms.ValidationError(
+                        f"L'utente '{approver}' è selezionato più di una volta."
+                    )
+                selected.append(approver)
+        if not selected:
+            raise forms.ValidationError("Devi selezionare almeno un approvatore.")
+
+
+ApproverFormSet = forms.formset_factory(
+    ApproverRowForm,
+    formset=BaseApproverFormSet,
+    extra=0,
+)
+
+
+class SubmitForApprovalForm(forms.Form):
     approval_policy = forms.ChoiceField(
         choices=[
             ('any', 'Basta un approvatore'),

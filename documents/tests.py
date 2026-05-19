@@ -338,7 +338,14 @@ class AuthorWorkflowViewTests(TestCase):
 
         response = self.client.post(
             reverse('version_submit', args=[version.pk]),
-            {'approvers': [self.approver.pk], 'approval_policy': 'all'},
+            {
+                'approver-TOTAL_FORMS': '1',
+                'approver-INITIAL_FORMS': '0',
+                'approver-MIN_NUM_FORMS': '0',
+                'approver-MAX_NUM_FORMS': '1000',
+                'approver-0-approver': str(self.approver.pk),
+                'approval_policy': 'all',
+            },
         )
         self.assertRedirects(response, reverse('dashboard'))
         version.refresh_from_db()
@@ -732,3 +739,125 @@ class EditVersionTests(TestCase):
         self.client.login(username='ev_author', password='pw')
         response = self.client.get(reverse('version_edit', args=[self.draft.pk]))
         self.assertEqual(response.status_code, 403)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class ApproverFormSetTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.author = User.objects.create_user('fs_author', email='a@t.com', password='pw')
+        self.a1 = User.objects.create_user('fs_a1', password='pw')
+        self.a2 = User.objects.create_user('fs_a2', password='pw')
+        self.a3 = User.objects.create_user('fs_a3', password='pw')
+        Group.objects.get_or_create(name='Document Authors')[0].user_set.add(self.author)
+        self.doc = make_document(code='FS-DOC', owner=self.author)
+
+    def _make_draft(self):
+        return create_new_revision(
+            document=self.doc,
+            created_by=self.author,
+            revision_label='01',
+            revision_number=1,
+        )
+
+    def _post_submit(self, version, approver_pks, policy='all'):
+        data = {
+            'approver-TOTAL_FORMS': str(len(approver_pks)),
+            'approver-INITIAL_FORMS': '0',
+            'approver-MIN_NUM_FORMS': '0',
+            'approver-MAX_NUM_FORMS': '1000',
+            'approval_policy': policy,
+        }
+        for i, pk in enumerate(approver_pks):
+            data[f'approver-{i}-approver'] = str(pk)
+        return self.client.post(reverse('version_submit', args=[version.pk]), data)
+
+    def test_formset_valid_single_approver(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        response = self._post_submit(draft, [self.a1.pk])
+        self.assertEqual(response.status_code, 302)
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, DocumentVersion.Status.IN_APPROVAL)
+
+    def test_formset_valid_multiple_approvers(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        response = self._post_submit(draft, [self.a1.pk, self.a2.pk, self.a3.pk])
+        self.assertEqual(response.status_code, 302)
+        from approvals.models import ApprovalRequest
+        ar = ApprovalRequest.objects.get(document_version=draft)
+        self.assertEqual(ar.approvers.count(), 3)
+
+    def test_formset_rejects_empty_list(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        data = {
+            'approver-TOTAL_FORMS': '0',
+            'approver-INITIAL_FORMS': '0',
+            'approver-MIN_NUM_FORMS': '0',
+            'approver-MAX_NUM_FORMS': '1000',
+            'approval_policy': 'all',
+        }
+        response = self.client.post(reverse('version_submit', args=[draft.pk]), data)
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, DocumentVersion.Status.DRAFT)
+
+    def test_formset_rejects_duplicates(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        response = self._post_submit(draft, [self.a1.pk, self.a1.pk])
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, DocumentVersion.Status.DRAFT)
+
+    def test_blank_rows_ignored_if_others_present(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        data = {
+            'approver-TOTAL_FORMS': '2',
+            'approver-INITIAL_FORMS': '0',
+            'approver-MIN_NUM_FORMS': '0',
+            'approver-MAX_NUM_FORMS': '1000',
+            'approval_policy': 'all',
+            'approver-0-approver': str(self.a1.pk),
+            'approver-1-approver': '',
+        }
+        response = self.client.post(reverse('version_submit', args=[draft.pk]), data)
+        self.assertEqual(response.status_code, 302)
+        from approvals.models import ApprovalRequest
+        ar = ApprovalRequest.objects.get(document_version=draft)
+        self.assertEqual(ar.approvers.count(), 1)
+
+    def test_submit_creates_approvers_with_order_starting_at_1(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        self._post_submit(draft, [self.a1.pk, self.a2.pk])
+        from approvals.models import ApprovalRequest
+        ar = ApprovalRequest.objects.get(document_version=draft)
+        orders = list(ar.approvers.order_by('order').values_list('order', flat=True))
+        self.assertEqual(orders, [1, 2])
+
+    def test_submit_preserves_approver_order(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        self._post_submit(draft, [self.a3.pk, self.a1.pk, self.a2.pk])
+        from approvals.models import ApprovalRequest, ApprovalRequestApprover
+        ar = ApprovalRequest.objects.get(document_version=draft)
+        slots = list(ar.approvers.order_by('order').values_list('approver_id', flat=True))
+        self.assertEqual(slots, [self.a3.pk, self.a1.pk, self.a2.pk])
+
+    def test_sequential_respects_form_order(self):
+        self.client.login(username='fs_author', password='pw')
+        draft = self._make_draft()
+        self._post_submit(draft, [self.a2.pk, self.a1.pk], policy='sequential')
+        from approvals.models import ApprovalRequest
+        from approvals.services import approve_version
+        ar = ApprovalRequest.objects.get(document_version=draft)
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        with self.assertRaises(DjangoValidationError):
+            approve_version(ar, self.a1)
+        approve_version(ar, self.a2)
+        ar.refresh_from_db()
+        self.assertEqual(ar.status, ApprovalRequest.Status.PENDING)

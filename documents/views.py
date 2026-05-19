@@ -197,7 +197,7 @@ def new_revision(request, document_id):
 
 @login_required
 def submit_for_approval(request, version_id):
-    from documents.forms import SubmitForApprovalForm
+    from documents.forms import ApproverFormSet, SubmitForApprovalForm
     from documents.services import submit_version_for_approval
 
     version = get_object_or_404(DocumentVersion, pk=version_id)
@@ -215,13 +215,19 @@ def submit_for_approval(request, version_id):
 
     if request.method == 'POST':
         form = SubmitForApprovalForm(request.POST)
-        if form.is_valid():
+        approver_formset = ApproverFormSet(request.POST, prefix='approver')
+        if form.is_valid() and approver_formset.is_valid():
             d = form.cleaned_data
+            ordered_approvers = [
+                f.cleaned_data['approver']
+                for f in approver_formset.forms
+                if f.cleaned_data and f.cleaned_data.get('approver')
+            ]
             try:
                 submit_version_for_approval(
                     version=version,
                     requested_by=request.user,
-                    approvers=list(d['approvers']),
+                    approvers=ordered_approvers,
                     due_date=d.get('due_date'),
                     approval_policy=d['approval_policy'],
                 )
@@ -236,9 +242,11 @@ def submit_for_approval(request, version_id):
                     messages.error(request, msg)
     else:
         form = SubmitForApprovalForm()
+        approver_formset = ApproverFormSet(prefix='approver', initial=[{}])
 
     return render(request, 'documents/submit_for_approval.html', {
         'form': form,
+        'approver_formset': approver_formset,
         'version': version,
         'document': version.document,
     })

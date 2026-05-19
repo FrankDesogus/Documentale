@@ -20,23 +20,9 @@
   </dl>
 </div>
 
-<form method="post">
+<form method="post" id="submit-form">
   {% csrf_token %}
   <div class="card">
-
-    <div style="margin-bottom:1.25rem">
-      <label>
-        {{ form.approvers.label }} <span style="color:#dc3545">*</span>
-      </label>
-      <div style="margin-top:.4rem;columns:2;column-gap:1.5rem">
-        {% for choice in form.approvers %}
-        <div style="break-inside:avoid;margin-bottom:.3rem">{{ choice }}</div>
-        {% endfor %}
-      </div>
-      {% for error in form.approvers.errors %}
-      <div style="color:#dc3545;font-size:.85rem;margin-top:.3rem">{{ error }}</div>
-      {% endfor %}
-    </div>
 
     <div style="margin-bottom:1.25rem">
       <label for="{{ form.approval_policy.id_for_label }}">{{ form.approval_policy.label }}</label>
@@ -45,6 +31,56 @@
       <div style="color:#dc3545;font-size:.85rem;margin-top:.3rem">{{ error }}</div>
       {% endfor %}
     </div>
+
+    <div id="sequential-hint" style="display:none;padding:.5rem .75rem;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;margin-bottom:1rem;font-size:.9rem">
+      In modalità sequenziale gli approvatori firmeranno nell'ordine mostrato.
+    </div>
+
+    <div style="margin-bottom:.5rem">
+      <strong>Firmatari / approvatori <span style="color:#dc3545">*</span></strong>
+    </div>
+
+    {{ approver_formset.management_form }}
+
+    {% if approver_formset.non_form_errors %}
+    <div style="color:#dc3545;font-size:.9rem;margin-bottom:.75rem">
+      {% for error in approver_formset.non_form_errors %}
+      <div>{{ error }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:.75rem">
+      <thead>
+        <tr>
+          <th style="width:2.5rem;text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">#</th>
+          <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Approvatore</th>
+          <th style="width:7rem;text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Azioni</th>
+        </tr>
+      </thead>
+      <tbody id="approver-rows">
+        {% for approver_form in approver_formset %}
+        <tr class="approver-row">
+          <td style="padding:.3rem .5rem;vertical-align:middle" class="row-number">{{ forloop.counter }}.</td>
+          <td style="padding:.3rem .5rem">
+            {{ approver_form.approver }}
+            {% for error in approver_form.approver.errors %}
+            <div style="color:#dc3545;font-size:.8rem">{{ error }}</div>
+            {% endfor %}
+          </td>
+          <td style="padding:.3rem .5rem;white-space:nowrap">
+            <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↑</button>
+            <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↓</button>
+            <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn btn-danger" style="padding:.15rem .45rem;font-size:.8rem">✕</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <button type="button" onclick="addRow()" class="btn btn-secondary" style="margin-bottom:1rem">
+      + Aggiungi approvatore
+    </button>
 
     <div style="max-width:240px">
       <label for="{{ form.due_date.id_for_label }}">{{ form.due_date.label }}</label>
@@ -59,4 +95,88 @@
   <button type="submit" class="btn btn-primary">Invia in approvazione</button>
   <a href="{% url 'my_drafts' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
 </form>
+
+{# Template per nuove righe: il server renderizza il widget con __prefix__; il JS lo clona e rimpiazza #}
+<script type="text/x-approver-template" id="empty-approver-row">
+  <td style="padding:.3rem .5rem;vertical-align:middle" class="row-number"></td>
+  <td style="padding:.3rem .5rem">{{ approver_formset.empty_form.approver }}</td>
+  <td style="padding:.3rem .5rem;white-space:nowrap">
+    <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↑</button>
+    <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↓</button>
+    <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn btn-danger" style="padding:.15rem .45rem;font-size:.8rem">✕</button>
+  </td>
+</script>
+
+<script>
+(function () {
+  var PREFIX = 'approver';
+
+  function rows() {
+    return Array.from(document.querySelectorAll('#approver-rows tr.approver-row'));
+  }
+
+  function updateFormset() {
+    var allRows = rows();
+    // Aggiorna TOTAL_FORMS
+    document.getElementById('id_' + PREFIX + '-TOTAL_FORMS').value = allRows.length;
+    // Rinumera nomi/id dei campi e il numero visibile
+    allRows.forEach(function (row, idx) {
+      var numCell = row.querySelector('.row-number');
+      if (numCell) numCell.textContent = (idx + 1) + '.';
+      row.querySelectorAll('select, input, label, textarea').forEach(function (el) {
+        if (el.name) el.name = el.name.replace(new RegExp(PREFIX + '-\\d+-'), PREFIX + '-' + idx + '-');
+        if (el.id)   el.id   = el.id.replace(new RegExp('id_' + PREFIX + '-\\d+-'), 'id_' + PREFIX + '-' + idx + '-');
+        if (el.htmlFor) el.htmlFor = el.htmlFor.replace(new RegExp('id_' + PREFIX + '-\\d+-'), 'id_' + PREFIX + '-' + idx + '-');
+      });
+    });
+  }
+
+  window.addRow = function () {
+    var tbody = document.getElementById('approver-rows');
+    var count = rows().length;
+    var tplHtml = document.getElementById('empty-approver-row').innerHTML
+      .replace(/__prefix__/g, String(count));
+    var tr = document.createElement('tr');
+    tr.className = 'approver-row';
+    tr.innerHTML = tplHtml;
+    tbody.appendChild(tr);
+    updateFormset();
+  };
+
+  window.removeRow = function (btn) {
+    var row = btn.closest('tr.approver-row');
+    row.parentNode.removeChild(row);
+    updateFormset();
+  };
+
+  window.moveRowUp = function (btn) {
+    var row = btn.closest('tr.approver-row');
+    var prev = row.previousElementSibling;
+    if (prev && prev.classList.contains('approver-row')) {
+      row.parentNode.insertBefore(row, prev);
+      updateFormset();
+    }
+  };
+
+  window.moveRowDown = function (btn) {
+    var row = btn.closest('tr.approver-row');
+    var next = row.nextElementSibling;
+    if (next && next.classList.contains('approver-row')) {
+      row.parentNode.insertBefore(next, row);
+      updateFormset();
+    }
+  };
+
+  // Mostra/nascondi hint SEQUENTIAL
+  var policySelect = document.getElementById('id_approval_policy');
+  var hint = document.getElementById('sequential-hint');
+  function syncHint() {
+    hint.style.display = policySelect.value === 'sequential' ? 'block' : 'none';
+  }
+  if (policySelect) {
+    policySelect.addEventListener('change', syncHint);
+    syncHint();
+  }
+}());
+</script>
 {% endblock %}

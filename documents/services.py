@@ -92,7 +92,7 @@ def submit_version_for_approval(version, requested_by, approvers, due_date=None,
             approval_policy=approval_policy,
         )
 
-        for i, approver in enumerate(approvers):
+        for i, approver in enumerate(approvers, start=1):
             ApprovalRequestApprover.objects.create(
                 approval_request=approval_request,
                 approver=approver,
