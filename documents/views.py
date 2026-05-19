@@ -77,10 +77,29 @@ def document_detail(request, document_id):
             'created_by', 'approved_by'
         ).order_by('-revision_number')
 
+    latest_approval_request = None
+    latest_approval_approvers = []
+    if doc.current_version:
+        from approvals.models import ApprovalRequest
+        latest_approval_request = (
+            doc.current_version.approval_requests
+            .filter(status=ApprovalRequest.Status.APPROVED)
+            .order_by('-completed_at')
+            .first()
+        )
+        if latest_approval_request:
+            latest_approval_approvers = list(
+                latest_approval_request.approvers
+                .select_related('approver')
+                .order_by('order')
+            )
+
     return render(request, 'documents/document_detail.html', {
         'document': doc,
         'versions': versions,
         'show_history': show_history,
+        'latest_approval_request': latest_approval_request,
+        'latest_approval_approvers': latest_approval_approvers,
     })
 
 

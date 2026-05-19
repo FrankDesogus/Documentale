@@ -13,6 +13,7 @@
       <th>Categoria</th>
       <th>Tipo</th>
       <th>Revisione corrente</th>
+      <th>Approvata il</th>
       <th>Stato</th>
       <th></th>
     </tr>
@@ -25,6 +26,7 @@
       <td>{{ doc.get_category_display }}</td>
       <td>{{ doc.document_type|default:"—" }}</td>
       <td>Rev. {{ doc.current_version.revision_label }}</td>
+      <td>{{ doc.current_version.approved_at|date:"d/m/Y"|default:"—" }}</td>
       <td><span class="badge badge-{{ doc.current_version.status }}">{{ doc.current_version.get_status_display }}</span></td>
       <td>
         {% if doc.current_version.file %}

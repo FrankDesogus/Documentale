@@ -861,3 +861,97 @@ class ApproverFormSetTests(TestCase):
         approve_version(ar, self.a2)
         ar.refresh_from_db()
         self.assertEqual(ar.status, ApprovalRequest.Status.PENDING)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class DocumentDetailApprovalTests(TestCase):
+    """Verifica la sezione approvazione nel dettaglio documento."""
+
+    def setUp(self):
+        mail.outbox = []
+        self.author = User.objects.create_user('dd_author', email='a@t.com', password='pw')
+        self.a1 = User.objects.create_user('dd_a1', email='a1@t.com', password='pw')
+        self.a2 = User.objects.create_user('dd_a2', email='a2@t.com', password='pw')
+        self.viewer = User.objects.create_user('dd_viewer', email='v@t.com', password='pw')
+        self.doc = make_document(code='DD-DOC', owner=self.author)
+
+    def _approve_version(self, version, approvers, policy='all'):
+        from approvals.services import approve_version
+        req = submit_version_for_approval(version, self.author, approvers, approval_policy=policy)
+        for ap in approvers:
+            req.refresh_from_db()
+            if req.status != 'APPROVED':
+                approve_version(req, ap)
+        return req
+
+    def test_document_list_shows_approval_date(self):
+        v = create_new_revision(self.doc, self.author, '01', 1)
+        self._approve_version(v, [self.a1])
+        v.refresh_from_db()
+
+        self.client.login(username='dd_viewer', password='pw')
+        response = self.client.get(reverse('document_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, v.approved_at.strftime('%d/%m/%Y'))
+
+    def test_document_detail_shows_multiple_approvers_for_all_policy(self):
+        v = create_new_revision(self.doc, self.author, '01', 1)
+        self._approve_version(v, [self.a1, self.a2], policy='all')
+
+        self.client.login(username='dd_viewer', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('latest_approval_request', response.context)
+        self.assertIsNotNone(response.context['latest_approval_request'])
+        approvers_in_ctx = response.context['latest_approval_approvers']
+        self.assertEqual(len(approvers_in_ctx), 2)
+        self.assertContains(response, 'dd_a1')
+        self.assertContains(response, 'dd_a2')
+
+    def test_document_detail_shows_approvers_in_correct_order_for_sequential(self):
+        v = create_new_revision(self.doc, self.author, '01', 1)
+        from approvals.services import approve_version
+        req = submit_version_for_approval(v, self.author, [self.a2, self.a1], approval_policy='sequential')
+        approve_version(req, self.a2)
+        req.refresh_from_db()
+        approve_version(req, self.a1)
+
+        self.client.login(username='dd_viewer', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        approvers_in_ctx = response.context['latest_approval_approvers']
+        self.assertEqual(len(approvers_in_ctx), 2)
+        self.assertEqual(approvers_in_ctx[0].approver, self.a2)
+        self.assertEqual(approvers_in_ctx[1].approver, self.a1)
+
+    def test_document_detail_shows_all_approvers_not_just_approved_by(self):
+        v = create_new_revision(self.doc, self.author, '01', 1)
+        self._approve_version(v, [self.a1, self.a2], policy='all')
+        v.refresh_from_db()
+
+        self.client.login(username='dd_viewer', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        approvers_in_ctx = response.context['latest_approval_approvers']
+        self.assertEqual(len(approvers_in_ctx), 2)
+        approver_users = {slot.approver for slot in approvers_in_ctx}
+        self.assertIn(self.a1, approver_users)
+        self.assertIn(self.a2, approver_users)
+
+    def test_document_detail_no_approval_request_still_works(self):
+        """Versione approvata manualmente (senza ApprovalRequest) non causa errori."""
+        v = create_new_revision(self.doc, self.author, '01', 1)
+        # Approva direttamente, senza passare per submit_version_for_approval
+        from django.utils import timezone
+        v.status = 'approved'
+        v.approved_at = timezone.now()
+        v.approved_by = self.a1
+        v.is_current = True
+        v.save(update_fields=['status', 'approved_at', 'approved_by', 'is_current'])
+        self.doc.current_version = v
+        self.doc.save(update_fields=['current_version'])
+
+        self.client.login(username='dd_viewer', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context['latest_approval_request'])
+        self.assertContains(response, 'Nessun dettaglio approvativo disponibile.')

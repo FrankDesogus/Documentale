@@ -29,8 +29,7 @@
     <dt>Revisione</dt>       <dd>{{ document.current_version.revision_label }} (n. {{ document.current_version.revision_number }})</dd>
     <dt>Stato</dt>           <dd><span class="badge badge-{{ document.current_version.status }}">{{ document.current_version.get_status_display }}</span></dd>
     <dt>Autore</dt>          <dd>{{ document.current_version.created_by.get_full_name|default:document.current_version.created_by.username }}</dd>
-    {% if document.current_version.approved_by %}
-    <dt>Approvato da</dt>    <dd>{{ document.current_version.approved_by.get_full_name|default:document.current_version.approved_by.username }}</dd>
+    {% if document.current_version.approved_at %}
     <dt>Data approvazione</dt><dd>{{ document.current_version.approved_at|date:"d/m/Y H:i" }}</dd>
     {% endif %}
     {% if document.current_version.change_summary %}
@@ -44,6 +43,49 @@
     </dd>
     {% endif %}
   </dl>
+</div>
+{% endif %}
+
+{% if document.current_version and document.current_version.status == 'approved' %}
+<h2>Approvazione ultima revisione</h2>
+<div class="card">
+  {% if latest_approval_request %}
+  <dl class="dl-grid" style="margin-bottom:1rem">
+    <dt>Modalità</dt>       <dd>{{ latest_approval_request.get_approval_policy_display }}</dd>
+    <dt>Approvata il</dt>   <dd>{{ latest_approval_request.completed_at|date:"d/m/Y H:i"|default:"—" }}</dd>
+    {% if latest_approval_request.due_date %}
+    <dt>Scadenza</dt>       <dd>{{ latest_approval_request.due_date|date:"d/m/Y" }}</dd>
+    {% endif %}
+  </dl>
+  {% if latest_approval_approvers %}
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr>
+        <th style="width:2.5rem;text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">#</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Approvatore</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Email</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Stato</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Deciso il</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for slot in latest_approval_approvers %}
+      <tr>
+        <td style="padding:.3rem .5rem;color:#6c757d">{{ slot.order }}</td>
+        <td style="padding:.3rem .5rem">{{ slot.approver.get_full_name|default:slot.approver.username }}</td>
+        <td style="padding:.3rem .5rem;color:#6c757d">{{ slot.approver.email|default:"—" }}</td>
+        <td style="padding:.3rem .5rem">
+          <span class="badge badge-{{ slot.status }}">{{ slot.get_status_display }}</span>
+        </td>
+        <td style="padding:.3rem .5rem;color:#6c757d">{{ slot.decided_at|date:"d/m/Y H:i"|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% else %}
+  <p class="meta">Nessun dettaglio approvativo disponibile.</p>
+  {% endif %}
 </div>
 {% endif %}
 
