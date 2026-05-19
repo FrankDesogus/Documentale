@@ -7,7 +7,7 @@ from approvals.services import approve_version, reject_version
 from auditlog.models import AuditLog
 from documents.models import Document, DocumentVersion
 from documents.permissions import GROUP_APPROVERS, GROUP_AUTHORS, GROUP_READERS
-from projects.models import ProjectFolder
+from projects.models import ProjectFolder, ProjectFolderMembership
 from documents.services import (
     create_new_revision,
     reopen_rejected_version_as_draft,
@@ -106,7 +106,22 @@ class Command(BaseCommand):
         )
         self._step(f'Cartelle: {cartella_ing} → {cartella_std}')
 
-        # 3. Documento demo
+        # 3. Membership per-cartella su ING-STD
+        ProjectFolderMembership.objects.get_or_create(
+            folder=cartella_std, user=autore,
+            defaults={'role': ProjectFolderMembership.Role.AUTHOR, 'created_by': autore},
+        )
+        ProjectFolderMembership.objects.get_or_create(
+            folder=cartella_std, user=approvatore,
+            defaults={'role': ProjectFolderMembership.Role.APPROVER, 'created_by': autore},
+        )
+        ProjectFolderMembership.objects.get_or_create(
+            folder=cartella_std, user=lettore,
+            defaults={'role': ProjectFolderMembership.Role.READER, 'created_by': autore},
+        )
+        self._step('Membership ING-STD: autore=author, approvatore=approver, lettore=reader')
+
+        # 5. Documento demo
         if Document.objects.filter(code=DEMO_DOCUMENT_CODE).exists():
             self.stdout.write(
                 self.style.WARNING(
@@ -127,7 +142,7 @@ class Command(BaseCommand):
         )
         self._step(f'Documento creato: {doc}')
 
-        # 3. Crea Rev.00
+        # 6. Crea Rev.00
         rev00 = create_new_revision(
             doc, autore,
             revision_label='00',

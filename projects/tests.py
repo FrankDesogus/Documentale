@@ -1,8 +1,10 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from projects.models import ProjectFolder
+from projects.models import ProjectFolder, ProjectFolderMembership
+
+EMAIL_LOCMEM = 'django.core.mail.backends.locmem.EmailBackend'
 
 
 def make_folder(code='F-001', name='Test', kind=ProjectFolder.FolderKind.GENERIC, owner=None, parent=None):
@@ -17,9 +19,11 @@ def make_folder(code='F-001', name='Test', kind=ProjectFolder.FolderKind.GENERIC
 
 
 class FolderListViewTests(TestCase):
+    """folder_list: visibile a tutti gli autenticati; utenti normali vedono solo le proprie cartelle."""
 
     def setUp(self):
-        self.user = User.objects.create_user('fl_user', password='pw')
+        # fl_user è staff: vede tutte le cartelle senza membership
+        self.user = User.objects.create_user('fl_user', password='pw', is_staff=True)
         self.owner = User.objects.create_user('fl_owner', password='pw')
 
     def test_folder_list_requires_login(self):
@@ -51,6 +55,24 @@ class FolderListViewTests(TestCase):
         codes = [f.code for f in response.context['folders']]
         self.assertNotIn('F-ARC', codes)
 
+    def test_normal_user_without_membership_sees_no_folders(self):
+        normal = User.objects.create_user('fl_normal', password='pw')
+        make_folder(code='F-PRIV', owner=self.owner)
+        self.client.login(username='fl_normal', password='pw')
+        response = self.client.get(reverse('folder_list'))
+        self.assertEqual(response.status_code, 200)
+        codes = [f.code for f in response.context['folders']]
+        self.assertNotIn('F-PRIV', codes)
+
+    def test_normal_user_with_membership_sees_own_folder(self):
+        normal = User.objects.create_user('fl_member', password='pw')
+        folder = make_folder(code='F-MINE', owner=self.owner)
+        ProjectFolderMembership.objects.create(folder=folder, user=normal, role='reader')
+        self.client.login(username='fl_member', password='pw')
+        response = self.client.get(reverse('folder_list'))
+        codes = [f.code for f in response.context['folders']]
+        self.assertIn('F-MINE', codes)
+
 
 class FolderDetailViewTests(TestCase):
 
@@ -59,6 +81,8 @@ class FolderDetailViewTests(TestCase):
         self.owner = User.objects.create_user('fd_owner', password='pw')
         self.root = make_folder(code='FD-ROOT', name='Radice', owner=self.owner)
         self.child = make_folder(code='FD-CHILD', name='Figlia', owner=self.owner, parent=self.root)
+        # fd_user ha membership reader su FD-ROOT per poter accedere
+        ProjectFolderMembership.objects.create(folder=self.root, user=self.user, role='reader')
 
     def test_folder_detail_requires_login(self):
         response = self.client.get(reverse('folder_detail', args=[self.root.pk]))
@@ -76,7 +100,7 @@ class FolderDetailViewTests(TestCase):
         from django.contrib.auth.models import User as AuthUser
         from documents.models import Document
         doc_owner = AuthUser.objects.create_user('fd_doc_owner', password='pw')
-        doc = Document.objects.create(
+        Document.objects.create(
             code='FD-DOC-001',
             title='Documento in cartella',
             category=Document.Category.QUALITY,
@@ -90,6 +114,12 @@ class FolderDetailViewTests(TestCase):
         self.assertContains(response, 'FD-DOC-001')
         doc_codes = [d.code for d in response.context['documents']]
         self.assertIn('FD-DOC-001', doc_codes)
+
+    def test_user_without_membership_gets_403(self):
+        outsider = User.objects.create_user('fd_outsider', password='pw')
+        self.client.login(username='fd_outsider', password='pw')
+        response = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        self.assertEqual(response.status_code, 403)
 
 
 class FolderCreateViewTests(TestCase):
@@ -138,3 +168,178 @@ class FolderCreateViewTests(TestCase):
             'status': 'active',
         })
         self.assertTrue(ProjectFolder.objects.filter(code='FC-STAFF').exists())
+
+
+@override_settings(EMAIL_BACKEND=EMAIL_LOCMEM)
+class MembershipPermissionTests(TestCase):
+    """Test permessi per-cartella tramite ProjectFolderMembership."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('mp_owner', password='pw')
+        self.reader = User.objects.create_user('mp_reader', password='pw')
+        self.author = User.objects.create_user('mp_author', password='pw')
+        self.approver_user = User.objects.create_user('mp_approver', password='pw')
+        self.manager_user = User.objects.create_user('mp_manager', password='pw')
+        self.outsider = User.objects.create_user('mp_outsider', password='pw')
+
+        self.folder = make_folder(code='MP-FOLD', owner=self.owner)
+        self.other_folder = make_folder(code='MP-OTHER', owner=self.owner)
+
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.reader, role='reader')
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.author, role='author')
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.approver_user, role='approver')
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.manager_user, role='manager')
+
+    # -- unique_together --
+
+    def test_duplicate_membership_raises(self):
+        from django.db import IntegrityError
+        with self.assertRaises(IntegrityError):
+            ProjectFolderMembership.objects.create(
+                folder=self.folder, user=self.reader, role='author'
+            )
+
+    # -- can_view_folder --
+
+    def test_reader_can_view_folder(self):
+        from projects.permissions import can_view_folder
+        self.assertTrue(can_view_folder(self.reader, self.folder))
+
+    def test_outsider_cannot_view_folder(self):
+        from projects.permissions import can_view_folder
+        self.assertFalse(can_view_folder(self.outsider, self.folder))
+
+    def test_approver_can_view_folder(self):
+        from projects.permissions import can_view_folder
+        self.assertTrue(can_view_folder(self.approver_user, self.folder))
+
+    # -- can_manage_folder --
+
+    def test_folder_manager_can_manage(self):
+        from projects.permissions import can_manage_folder
+        self.assertTrue(can_manage_folder(self.manager_user, self.folder))
+
+    def test_reader_cannot_manage_folder(self):
+        from projects.permissions import can_manage_folder
+        self.assertFalse(can_manage_folder(self.reader, self.folder))
+
+    def test_outsider_cannot_manage_folder(self):
+        from projects.permissions import can_manage_folder
+        self.assertFalse(can_manage_folder(self.outsider, self.folder))
+
+    # -- can_create_revision --
+
+    def test_author_can_create_revision_in_own_folder(self):
+        from documents.models import Document
+        from documents.permissions import can_create_revision
+        doc = Document.objects.create(
+            code='MP-CR-001', title='T', category=Document.Category.QUALITY,
+            project_folder=self.folder, owner=self.owner, created_by=self.owner,
+        )
+        self.assertTrue(can_create_revision(self.author, doc))
+
+    def test_reader_cannot_create_revision(self):
+        from documents.models import Document
+        from documents.permissions import can_create_revision
+        doc = Document.objects.create(
+            code='MP-CR-002', title='T', category=Document.Category.QUALITY,
+            project_folder=self.folder, owner=self.owner, created_by=self.owner,
+        )
+        self.assertFalse(can_create_revision(self.reader, doc))
+
+    def test_author_cannot_create_revision_in_other_folder(self):
+        from documents.models import Document
+        from documents.permissions import can_create_revision
+        doc = Document.objects.create(
+            code='MP-CR-003', title='T', category=Document.Category.QUALITY,
+            project_folder=self.other_folder, owner=self.owner, created_by=self.owner,
+        )
+        self.assertFalse(can_create_revision(self.author, doc))
+
+    def test_folder_manager_can_create_revision(self):
+        from documents.models import Document
+        from documents.permissions import can_create_revision
+        doc = Document.objects.create(
+            code='MP-CR-004', title='T', category=Document.Category.QUALITY,
+            project_folder=self.folder, owner=self.owner, created_by=self.owner,
+        )
+        self.assertTrue(can_create_revision(self.manager_user, doc))
+
+    # -- can_view_document --
+
+    def _make_approved_doc(self, code):
+        from documents.models import Document, DocumentVersion
+        doc = Document.objects.create(
+            code=code, title='Approved', category=Document.Category.QUALITY,
+            project_folder=self.folder, owner=self.owner, created_by=self.owner,
+            status=Document.Status.ACTIVE,
+        )
+        version = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.owner,
+        )
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        return doc
+
+    def test_reader_can_view_approved_doc_in_own_folder(self):
+        from documents.permissions import can_view_document
+        doc = self._make_approved_doc('MP-VD-001')
+        self.assertTrue(can_view_document(self.reader, doc))
+
+    def test_outsider_cannot_view_approved_doc_in_folder(self):
+        from documents.permissions import can_view_document
+        doc = self._make_approved_doc('MP-VD-002')
+        self.assertFalse(can_view_document(self.outsider, doc))
+
+    def test_approver_can_view_approved_doc_in_own_folder(self):
+        from documents.permissions import can_view_document
+        doc = self._make_approved_doc('MP-VD-003')
+        self.assertTrue(can_view_document(self.approver_user, doc))
+
+    # -- document_list view --
+
+    def test_document_list_shows_folder_doc_to_member(self):
+        self._make_approved_doc('MP-LS-001')
+        self.client.login(username='mp_reader', password='pw')
+        response = self.client.get(reverse('document_list'))
+        self.assertEqual(response.status_code, 200)
+        codes = [d.code for d in response.context['documents']]
+        self.assertIn('MP-LS-001', codes)
+
+    def test_document_list_hides_folder_doc_from_outsider(self):
+        self._make_approved_doc('MP-LS-002')
+        self.client.login(username='mp_outsider', password='pw')
+        response = self.client.get(reverse('document_list'))
+        self.assertEqual(response.status_code, 200)
+        codes = [d.code for d in response.context['documents']]
+        self.assertNotIn('MP-LS-002', codes)
+
+    # -- can_download_version_file (permesso, senza file fisico) --
+
+    def test_reader_can_download_approved_version_in_folder(self):
+        from documents.permissions import can_download_version_file
+        doc = self._make_approved_doc('MP-DL-001')
+        version = doc.current_version
+        version.file_id = 1  # id fittizio: testa solo il permesso, non l'esistenza del file
+        self.assertTrue(can_download_version_file(self.reader, version))
+
+    def test_outsider_cannot_download_approved_version_in_folder(self):
+        from documents.permissions import can_download_version_file
+        doc = self._make_approved_doc('MP-DL-002')
+        version = doc.current_version
+        version.file_id = 1
+        self.assertFalse(can_download_version_file(self.outsider, version))
+
+    # -- folder_detail view access --
+
+    def test_reader_can_access_folder_detail_view(self):
+        self.client.login(username='mp_reader', password='pw')
+        response = self.client.get(reverse('folder_detail', args=[self.folder.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_outsider_gets_403_on_folder_detail_view(self):
+        self.client.login(username='mp_outsider', password='pw')
+        response = self.client.get(reverse('folder_detail', args=[self.folder.pk]))
+        self.assertEqual(response.status_code, 403)

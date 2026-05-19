@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -13,6 +14,7 @@ from documents.permissions import (
     can_create_revision,
     can_edit_version,
     can_submit_for_approval,
+    can_view_document,
     is_document_auditor,
     is_document_manager,
 )
@@ -38,26 +40,30 @@ def dashboard(request):
 
 @login_required
 def document_list(request):
-    documents = Document.objects.filter(
+    user = request.user
+    qs = Document.objects.filter(
         status=Document.Status.ACTIVE,
         current_version__isnull=False,
         current_version__status=DocumentVersion.Status.APPROVED,
         current_version__is_current=True,
     ).select_related('current_version', 'owner').order_by('code')
-    return render(request, 'documents/document_list.html', {'documents': documents})
+
+    if not (user.is_superuser or user.is_staff or is_document_auditor(user) or is_document_manager(user)):
+        from projects.permissions import get_visible_folder_ids
+        visible_ids = get_visible_folder_ids(user)
+        qs = qs.filter(
+            Q(project_folder__isnull=True) | Q(project_folder_id__in=visible_ids)
+        )
+
+    return render(request, 'documents/document_list.html', {'documents': qs})
 
 
 @login_required
 def document_detail(request, document_id):
     doc = get_object_or_404(Document, pk=document_id)
 
-    if not request.user.is_staff:
-        if (
-            doc.status != Document.Status.ACTIVE
-            or not doc.current_version
-            or doc.current_version.status != DocumentVersion.Status.APPROVED
-        ):
-            raise Http404
+    if not can_view_document(request.user, doc):
+        raise Http404
 
     show_history = (
         request.user.is_staff
@@ -95,7 +101,7 @@ def new_document(request):
         raise PermissionDenied
 
     if request.method == 'POST':
-        form = DocumentCreateForm(request.POST, request.FILES)
+        form = DocumentCreateForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -130,7 +136,7 @@ def new_document(request):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentCreateForm()
+        form = DocumentCreateForm(user=request.user)
 
     return render(request, 'documents/new_document.html', {'form': form})
 

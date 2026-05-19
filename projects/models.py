@@ -64,6 +64,52 @@ class ProjectFolder(models.Model):
         return f"{self.code} – {self.name}"
 
 
+class ProjectFolderMembership(models.Model):
+
+    class Role(models.TextChoices):
+        READER = 'reader', 'Lettore'
+        AUTHOR = 'author', 'Autore'
+        APPROVER = 'approver', 'Approvatore'
+        AUDITOR = 'auditor', 'Revisore'
+        MANAGER = 'manager', 'Gestore'
+
+    folder = models.ForeignKey(
+        ProjectFolder,
+        on_delete=models.CASCADE,
+        related_name='memberships',
+        verbose_name='Cartella',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='folder_memberships',
+        verbose_name='Utente',
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        verbose_name='Ruolo',
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_memberships',
+        verbose_name='Creato da',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Permesso cartella'
+        verbose_name_plural = 'Permessi cartella'
+        unique_together = [('folder', 'user')]
+        ordering = ['folder', 'user']
+
+    def __str__(self):
+        return f"{self.folder.code} – {self.user.username} ({self.get_role_display()})"
+
+
 class ProjectRevision(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'DRAFT', 'Bozza'

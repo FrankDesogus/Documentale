@@ -31,20 +31,49 @@ def is_document_manager(user):
     return _in_group(user, GROUP_MANAGERS)
 
 
+# ---------------------------------------------------------------------------
+# Folder-aware helpers
+# ---------------------------------------------------------------------------
+
+def _has_folder_membership(user, folder_id):
+    """True se l'utente ha qualsiasi membership nella cartella indicata."""
+    from projects.models import ProjectFolderMembership
+    return ProjectFolderMembership.objects.filter(
+        user=user, folder_id=folder_id
+    ).exists()
+
+
+def _has_folder_write(user, folder_id):
+    """True se l'utente ha ruolo author o manager nella cartella."""
+    from projects.models import ProjectFolderMembership
+    from projects.permissions import WRITE_ROLES
+    return ProjectFolderMembership.objects.filter(
+        user=user, folder_id=folder_id, role__in=WRITE_ROLES
+    ).exists()
+
+
+# ---------------------------------------------------------------------------
+# Funzioni pubbliche
+# ---------------------------------------------------------------------------
+
 def can_view_document(user, document):
     """Qualsiasi utente autenticato può vedere documenti attivi con versione approvata.
-    Staff, auditor e manager possono vedere tutto."""
+    Se il documento è in una cartella, deve avere membership in quella cartella."""
     if not user.is_authenticated:
         return False
     if user.is_superuser or user.is_staff:
         return True
     if _in_group(user, GROUP_AUDITORS, GROUP_MANAGERS):
         return True
-    return (
+    if not (
         document.status == Document.Status.ACTIVE
         and document.current_version is not None
         and document.current_version.status == DocumentVersion.Status.APPROVED
-    )
+    ):
+        return False
+    if document.project_folder_id:
+        return _has_folder_membership(user, document.project_folder_id)
+    return True
 
 
 def can_view_version(user, version):
@@ -55,20 +84,19 @@ def can_view_version(user, version):
         return True
     if _in_group(user, GROUP_AUDITORS, GROUP_MANAGERS):
         return True
-    # Versione corrente approvata: qualsiasi utente autenticato
     if (
         version.status == DocumentVersion.Status.APPROVED
         and version.is_current
         and version.document.status == Document.Status.ACTIVE
     ):
+        if version.document.project_folder_id:
+            return _has_folder_membership(user, version.document.project_folder_id)
         return True
-    # Propria bozza o rifiutata
     if version.created_by_id == user.pk and version.status in (
         DocumentVersion.Status.DRAFT,
         DocumentVersion.Status.REJECTED,
     ):
         return True
-    # Approvatore assegnato con richiesta pendente
     if version.status == DocumentVersion.Status.IN_APPROVAL:
         from approvals.models import ApprovalRequest
         if ApprovalRequest.objects.filter(
@@ -81,17 +109,29 @@ def can_view_version(user, version):
 
 
 def can_create_document(user):
+    """Può creare documenti se ha ruolo globale author/manager O membership author/manager
+    in almeno una cartella."""
     if not user.is_authenticated:
         return False
     if user.is_superuser or user.is_staff:
         return True
-    return _in_group(user, GROUP_AUTHORS, GROUP_MANAGERS)
+    if _in_group(user, GROUP_AUTHORS, GROUP_MANAGERS):
+        return True
+    from projects.permissions import user_has_any_folder_write_access
+    return user_has_any_folder_write_access(user)
 
 
 def can_create_revision(user, document):
-    if not can_create_document(user):
+    if document.status != Document.Status.ACTIVE:
         return False
-    return document.status == Document.Status.ACTIVE
+    if user.is_superuser or user.is_staff:
+        return True
+    if _in_group(user, GROUP_MANAGERS):
+        return True
+    if document.project_folder_id:
+        return _has_folder_write(user, document.project_folder_id)
+    # Nessuna cartella: usa i gruppi globali
+    return _in_group(user, GROUP_AUTHORS)
 
 
 def can_submit_for_approval(user, version):
@@ -101,7 +141,12 @@ def can_submit_for_approval(user, version):
         return True
     if _in_group(user, GROUP_MANAGERS):
         return True
-    # Gli autori possono inviare solo le proprie revisioni
+    doc = version.document
+    if doc.project_folder_id:
+        if _has_folder_write(user, doc.project_folder_id):
+            return True
+        return False
+    # Nessuna cartella: autori possono inviare le proprie revisioni
     if _in_group(user, GROUP_AUTHORS) and version.created_by_id == user.pk:
         return True
     return False
@@ -136,8 +181,10 @@ def can_download_version_file(user, version):
         and version.is_current
         and version.document.status == Document.Status.ACTIVE
     ):
+        if version.document.project_folder_id:
+            return _has_folder_membership(user, version.document.project_folder_id)
         return True
-    # Autore: propria bozza o rifiutata
+    # Autore: propria bozza o rifiutata (nessuna restrizione cartella)
     if version.created_by_id == user.pk and version.status in (
         DocumentVersion.Status.DRAFT,
         DocumentVersion.Status.REJECTED,

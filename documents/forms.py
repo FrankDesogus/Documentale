@@ -25,11 +25,23 @@ class DocumentCreateForm(forms.Form):
         help_text='Es. Procedura, Istruzione operativa, Modulo…',
     )
     project_folder = forms.ModelChoiceField(
-        queryset=ProjectFolder.objects.filter(status='active').order_by('code'),
+        queryset=ProjectFolder.objects.none(),
         required=False,
         label='Cartella',
         empty_label='— nessuna —',
     )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user is not None and (user.is_superuser or user.is_staff):
+            qs = ProjectFolder.objects.filter(status='active').order_by('code')
+        elif user is not None:
+            from projects.permissions import get_writable_folder_ids
+            writable_ids = get_writable_folder_ids(user)
+            qs = ProjectFolder.objects.filter(pk__in=writable_ids, status='active').order_by('code')
+        else:
+            qs = ProjectFolder.objects.none()
+        self.fields['project_folder'].queryset = qs
     revision_label = forms.CharField(
         max_length=20,
         initial='00',
