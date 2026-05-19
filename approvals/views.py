@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 
-from approvals.models import ApprovalRequest
+from approvals.models import ApprovalRequest, ApprovalRequestApprover
 from approvals.services import approve_version, reject_version
 
 
@@ -35,7 +35,14 @@ def approval_detail(request, approval_request_id):
         if action == 'approve':
             try:
                 approve_version(ar, request.user, comment=comment)
-                messages.success(request, 'Revisione approvata con successo.')
+                ar.refresh_from_db()
+                if ar.status == ApprovalRequest.Status.APPROVED:
+                    messages.success(request, 'Documento approvato.')
+                else:
+                    messages.info(
+                        request,
+                        'Approvazione registrata. La richiesta è ancora in attesa degli altri approvatori.',
+                    )
                 return redirect('approval_queue')
             except (ValidationError, PermissionDenied) as exc:
                 error = ' '.join(exc.messages) if hasattr(exc, 'messages') else str(exc)
@@ -60,9 +67,19 @@ def approval_detail(request, approval_request_id):
 
     version = ar.document_version
     decisions = ar.decisions.select_related('approver').order_by('decided_at')
+    approvers = ar.approvers.select_related('approver').order_by('order')
+
+    # Per SEQUENTIAL: individua il prossimo approvatore atteso
+    next_approver = None
+    if ar.approval_policy == ApprovalRequest.Policy.SEQUENTIAL and ar.status == ApprovalRequest.Status.PENDING:
+        next_slot = approvers.filter(status=ApprovalRequestApprover.ApproverStatus.PENDING).first()
+        next_approver = next_slot.approver if next_slot else None
+
     return render(request, 'approvals/approval_detail.html', {
         'approval_request': ar,
         'version': version,
         'document': version.document,
         'decisions': decisions,
+        'approvers': approvers,
+        'next_approver': next_approver,
     })

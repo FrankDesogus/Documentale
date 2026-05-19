@@ -61,7 +61,7 @@ def create_new_revision(
     return version
 
 
-def submit_version_for_approval(version, requested_by, approvers, due_date=None):
+def submit_version_for_approval(version, requested_by, approvers, due_date=None, approval_policy='all'):
     from approvals.models import ApprovalRequest, ApprovalRequestApprover
 
     if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
@@ -89,6 +89,7 @@ def submit_version_for_approval(version, requested_by, approvers, due_date=None)
             requested_by=requested_by,
             status=ApprovalRequest.Status.PENDING,
             due_date=due_date,
+            approval_policy=approval_policy,
         )
 
         for i, approver in enumerate(approvers):

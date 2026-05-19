@@ -338,7 +338,7 @@ class AuthorWorkflowViewTests(TestCase):
 
         response = self.client.post(
             reverse('version_submit', args=[version.pk]),
-            {'approvers': [self.approver.pk]},
+            {'approvers': [self.approver.pk], 'approval_policy': 'all'},
         )
         self.assertRedirects(response, reverse('dashboard'))
         version.refresh_from_db()

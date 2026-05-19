@@ -99,6 +99,15 @@ class SubmitForApprovalForm(forms.Form):
         widget=forms.CheckboxSelectMultiple,
         label='Approvatori',
     )
+    approval_policy = forms.ChoiceField(
+        choices=[
+            ('any', 'Basta un approvatore'),
+            ('all', 'Devono approvare tutti'),
+            ('sequential', 'Approvazione sequenziale'),
+        ],
+        initial='all',
+        label='Modalità approvazione',
+    )
     due_date = forms.DateField(
         required=False,
         label='Scadenza approvazione',

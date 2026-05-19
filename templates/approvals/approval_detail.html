@@ -15,6 +15,7 @@
     {% if approval_request.due_date %}
     <dt>Scadenza</dt>     <dd>{{ approval_request.due_date|date:"d/m/Y" }}</dd>
     {% endif %}
+    <dt>Modalità</dt>     <dd>{{ approval_request.get_approval_policy_display }}</dd>
     <dt>Stato richiesta</dt>
     <dd><span class="badge badge-{{ approval_request.status|lower }}">{{ approval_request.get_status_display }}</span></dd>
     {% if version.change_summary %}
@@ -29,6 +30,33 @@
     {% endif %}
   </dl>
 </div>
+
+{% if approvers %}
+<h2>Approvatori</h2>
+<table>
+  <thead>
+    <tr>
+      {% if approval_request.approval_policy == 'sequential' %}<th>#</th>{% endif %}
+      <th>Approvatore</th><th>Stato</th><th>Deciso il</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for slot in approvers %}
+    <tr{% if next_approver and slot.approver == next_approver %} style="font-weight:600"{% endif %}>
+      {% if approval_request.approval_policy == 'sequential' %}<td>{{ forloop.counter }}</td>{% endif %}
+      <td>{{ slot.approver.get_full_name|default:slot.approver.username }}</td>
+      <td><span class="badge badge-{{ slot.status }}">{{ slot.get_status_display }}</span></td>
+      <td class="meta">{{ slot.decided_at|date:"d/m/Y H:i"|default:"—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if next_approver and approval_request.status == 'PENDING' %}
+<p class="meta" style="margin-top:.5rem">
+  Prossimo approvatore atteso: <strong>{{ next_approver.get_full_name|default:next_approver.username }}</strong>
+</p>
+{% endif %}
+{% endif %}
 
 {% if decisions %}
 <h2>Decisioni registrate</h2>

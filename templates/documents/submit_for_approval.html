@@ -38,6 +38,14 @@
       {% endfor %}
     </div>
 
+    <div style="margin-bottom:1.25rem">
+      <label for="{{ form.approval_policy.id_for_label }}">{{ form.approval_policy.label }}</label>
+      {{ form.approval_policy }}
+      {% for error in form.approval_policy.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.3rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
     <div style="max-width:240px">
       <label for="{{ form.due_date.id_for_label }}">{{ form.due_date.label }}</label>
       {{ form.due_date }}

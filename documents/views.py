@@ -223,6 +223,7 @@ def submit_for_approval(request, version_id):
                     requested_by=request.user,
                     approvers=list(d['approvers']),
                     due_date=d.get('due_date'),
+                    approval_policy=d['approval_policy'],
                 )
                 messages.success(
                     request,

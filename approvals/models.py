@@ -9,6 +9,11 @@ class ApprovalRequest(models.Model):
         REJECTED = 'REJECTED', 'Rifiutato'
         CANCELLED = 'CANCELLED', 'Annullato'
 
+    class Policy(models.TextChoices):
+        ANY = 'any', 'Basta un approvatore'
+        ALL = 'all', 'Devono approvare tutti'
+        SEQUENTIAL = 'sequential', 'Approvazione sequenziale'
+
     # FK a stringa per evitare importazione circolare con l'app documents
     document_version = models.ForeignKey(
         'documents.DocumentVersion',
@@ -29,6 +34,12 @@ class ApprovalRequest(models.Model):
         default=Status.PENDING,
         verbose_name='Stato',
     )
+    approval_policy = models.CharField(
+        max_length=20,
+        choices=Policy.choices,
+        default=Policy.ALL,
+        verbose_name='Modalità approvazione',
+    )
     due_date = models.DateField(null=True, blank=True, verbose_name='Scadenza approvazione')
     notes = models.TextField(blank=True, verbose_name='Note')
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name='Completato il')
@@ -43,6 +54,11 @@ class ApprovalRequest(models.Model):
 
 
 class ApprovalRequestApprover(models.Model):
+    class ApproverStatus(models.TextChoices):
+        PENDING = 'pending', 'In attesa'
+        APPROVED = 'approved', 'Approvato'
+        REJECTED = 'rejected', 'Rifiutato'
+
     approval_request = models.ForeignKey(
         ApprovalRequest,
         on_delete=models.CASCADE,
@@ -56,7 +72,14 @@ class ApprovalRequestApprover(models.Model):
         verbose_name='Approvatore',
     )
     order = models.PositiveSmallIntegerField(default=0, verbose_name='Ordine')
+    status = models.CharField(
+        max_length=20,
+        choices=ApproverStatus.choices,
+        default=ApproverStatus.PENDING,
+        verbose_name='Stato',
+    )
     notified_at = models.DateTimeField(null=True, blank=True, verbose_name='Notificato il')
+    decided_at = models.DateTimeField(null=True, blank=True, verbose_name='Deciso il')
 
     class Meta:
         verbose_name = 'Approvatore'
