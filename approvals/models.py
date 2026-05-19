@@ -1,8 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-from documents.models import DocumentVersion
-
 
 class ApprovalRequest(models.Model):
     class Status(models.TextChoices):
@@ -11,8 +9,9 @@ class ApprovalRequest(models.Model):
         REJECTED = 'REJECTED', 'Rifiutato'
         CANCELLED = 'CANCELLED', 'Annullato'
 
+    # FK a stringa per evitare importazione circolare con l'app documents
     document_version = models.ForeignKey(
-        DocumentVersion,
+        'documents.DocumentVersion',
         on_delete=models.CASCADE,
         related_name='approval_requests',
         verbose_name='Revisione documento',

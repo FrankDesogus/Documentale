@@ -1,8 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-from documents.models import DocumentVersion
-
 
 class ProjectFolder(models.Model):
     code = models.CharField(max_length=50, unique=True, verbose_name='Codice progetto')
@@ -73,8 +71,9 @@ class ProjectRevisionItem(models.Model):
         verbose_name='Revisione progetto',
     )
     item_number = models.PositiveSmallIntegerField(verbose_name='Numero voce')
+    # FK a stringa per evitare importazione circolare con l'app documents
     document_version = models.ForeignKey(
-        DocumentVersion,
+        'documents.DocumentVersion',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

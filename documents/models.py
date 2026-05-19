@@ -2,96 +2,13 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
-def document_file_upload_path(instance, filename):
-    return f"documents/{instance.version.document.pk}/{instance.version.pk}/{filename}"
-
-
-class Document(models.Model):
-    class Category(models.TextChoices):
-        QUALITY = 'QUALITY', 'Documento di qualità'
-        PROJECT = 'PROJECT', 'Documento di progetto'
-
-    code = models.CharField(max_length=50, unique=True, verbose_name='Codice')
-    title = models.CharField(max_length=255, verbose_name='Titolo')
-    category = models.CharField(max_length=20, choices=Category.choices, verbose_name='Categoria')
-    description = models.TextField(blank=True, verbose_name='Descrizione')
-    owner = models.ForeignKey(
-        User,
-        on_delete=models.PROTECT,
-        related_name='owned_documents',
-        verbose_name='Responsabile',
-    )
-    created_by = models.ForeignKey(
-        User,
-        on_delete=models.PROTECT,
-        related_name='created_documents',
-        verbose_name='Creato da',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    is_active = models.BooleanField(default=True, verbose_name='Attivo')
-
-    class Meta:
-        verbose_name = 'Documento'
-        verbose_name_plural = 'Documenti'
-        ordering = ['code']
-
-    def __str__(self):
-        return f"{self.code} – {self.title}"
-
-
-class DocumentVersion(models.Model):
-    class Status(models.TextChoices):
-        DRAFT = 'DRAFT', 'Bozza'
-        UNDER_REVIEW = 'UNDER_REVIEW', 'In approvazione'
-        APPROVED = 'APPROVED', 'Approvato'
-        REJECTED = 'REJECTED', 'Rifiutato'
-        OBSOLETE = 'OBSOLETE', 'Obsoleto'
-
-    document = models.ForeignKey(
-        Document,
-        on_delete=models.CASCADE,
-        related_name='versions',
-        verbose_name='Documento',
-    )
-    version_number = models.CharField(max_length=20, verbose_name='Numero revisione')
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.DRAFT,
-        verbose_name='Stato',
-    )
-    author = models.ForeignKey(
-        User,
-        on_delete=models.PROTECT,
-        related_name='authored_versions',
-        verbose_name='Autore',
-    )
-    change_summary = models.TextField(blank=True, verbose_name='Sommario modifiche')
-    effective_date = models.DateField(null=True, blank=True, verbose_name='Data efficacia')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = 'Revisione documento'
-        verbose_name_plural = 'Revisioni documento'
-        ordering = ['document', '-created_at']
-        unique_together = [('document', 'version_number')]
-
-    def __str__(self):
-        return f"{self.document.code} rev.{self.version_number} [{self.get_status_display()}]"
-
-
 class DocumentFile(models.Model):
-    version = models.ForeignKey(
-        DocumentVersion,
-        on_delete=models.CASCADE,
-        related_name='files',
-        verbose_name='Revisione',
-    )
-    file = models.FileField(upload_to=document_file_upload_path, verbose_name='File')
+    file = models.FileField(upload_to='documents/files/%Y/%m/', verbose_name='File')
     original_filename = models.CharField(max_length=255, verbose_name='Nome file originale')
-    file_size = models.PositiveIntegerField(null=True, blank=True, verbose_name='Dimensione (byte)')
     mime_type = models.CharField(max_length=100, blank=True, verbose_name='Tipo MIME')
+    extension = models.CharField(max_length=20, blank=True, verbose_name='Estensione')
+    size = models.PositiveIntegerField(null=True, blank=True, verbose_name='Dimensione (byte)')
+    sha256_hash = models.CharField(max_length=64, blank=True, verbose_name='Hash SHA-256')
     uploaded_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
@@ -106,4 +23,138 @@ class DocumentFile(models.Model):
         ordering = ['-uploaded_at']
 
     def __str__(self):
-        return f"{self.original_filename} ({self.version})"
+        return f"{self.original_filename}"
+
+
+class DocumentVersion(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Bozza'
+        IN_APPROVAL = 'in_approval', 'In approvazione'
+        APPROVED = 'approved', 'Approvato'
+        REJECTED = 'rejected', 'Rifiutato'
+        SUPERSEDED = 'superseded', 'Sostituito'
+        ARCHIVED = 'archived', 'Archiviato'
+
+    # FK a stringa per evitare dipendenza circolare con Document
+    document = models.ForeignKey(
+        'Document',
+        on_delete=models.CASCADE,
+        related_name='versions',
+        verbose_name='Documento',
+    )
+    revision_label = models.CharField(max_length=20, verbose_name='Etichetta revisione')
+    revision_number = models.PositiveIntegerField(verbose_name='Numero revisione')
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        verbose_name='Stato',
+    )
+    file = models.ForeignKey(
+        DocumentFile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='versions',
+        verbose_name='File operativo',
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='created_versions',
+        verbose_name='Creato da',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    submitted_at = models.DateTimeField(null=True, blank=True, verbose_name='Inviato in approvazione il')
+    approved_at = models.DateTimeField(null=True, blank=True, verbose_name='Approvato il')
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_versions',
+        verbose_name='Approvato da',
+    )
+    rejected_at = models.DateTimeField(null=True, blank=True, verbose_name='Rifiutato il')
+    rejection_reason = models.TextField(blank=True, verbose_name='Motivo rifiuto')
+    change_summary = models.TextField(blank=True, verbose_name='Sommario modifiche')
+    is_current = models.BooleanField(default=False, verbose_name='È la revisione corrente')
+    replaces_version = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='replaced_by',
+        verbose_name='Sostituisce la revisione',
+    )
+
+    class Meta:
+        verbose_name = 'Revisione documento'
+        verbose_name_plural = 'Revisioni documento'
+        ordering = ['document', '-revision_number']
+        unique_together = [('document', 'revision_label')]
+
+    def __str__(self):
+        return f"{self.document.code} rev.{self.revision_label} [{self.get_status_display()}]"
+
+
+class Document(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Attivo'
+        OBSOLETE = 'obsolete', 'Obsoleto'
+        ARCHIVED = 'archived', 'Archiviato'
+
+    class Category(models.TextChoices):
+        QUALITY = 'QUALITY', 'Documento di qualità'
+        PROJECT = 'PROJECT', 'Documento di progetto'
+
+    code = models.CharField(max_length=50, unique=True, verbose_name='Codice')
+    title = models.CharField(max_length=255, verbose_name='Titolo')
+    description = models.TextField(blank=True, verbose_name='Descrizione')
+    category = models.CharField(max_length=20, choices=Category.choices, verbose_name='Categoria')
+    document_type = models.CharField(max_length=100, blank=True, verbose_name='Tipo documento')
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        verbose_name='Stato',
+    )
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='owned_documents',
+        verbose_name='Responsabile',
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='created_documents',
+        verbose_name='Creato da',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    current_version = models.ForeignKey(
+        DocumentVersion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='current_for_document',
+        verbose_name='Revisione corrente',
+    )
+    # FK a stringa per evitare importazione circolare con l'app projects
+    project_folder = models.ForeignKey(
+        'projects.ProjectFolder',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='documents',
+        verbose_name='Cartella progetto',
+    )
+
+    class Meta:
+        verbose_name = 'Documento'
+        verbose_name_plural = 'Documenti'
+        ordering = ['code']
+
+    def __str__(self):
+        return f"{self.code} – {self.title}"
