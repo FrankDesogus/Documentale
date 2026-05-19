@@ -1,8 +1,10 @@
+import os
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.http import Http404
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from documents.models import Document, DocumentVersion
@@ -212,3 +214,28 @@ def submit_for_approval(request, version_id):
         'version': version,
         'document': version.document,
     })
+
+
+@login_required
+def download_version_file(request, version_id):
+    from documents.permissions import can_download_version_file
+
+    version = get_object_or_404(DocumentVersion, pk=version_id)
+
+    if not version.file:
+        raise Http404
+
+    if not can_download_version_file(request.user, version):
+        raise PermissionDenied
+
+    file_path = version.file.file.path
+    if not os.path.exists(file_path):
+        raise Http404
+
+    content_type = version.file.mime_type or 'application/octet-stream'
+    return FileResponse(
+        open(file_path, 'rb'),
+        content_type=content_type,
+        as_attachment=True,
+        filename=version.file.original_filename,
+    )

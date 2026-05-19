@@ -21,7 +21,11 @@
     <dt>Sommario</dt>     <dd>{{ version.change_summary }}</dd>
     {% endif %}
     {% if version.file %}
-    <dt>File operativo</dt><dd>{{ version.file.original_filename }}</dd>
+    <dt>File operativo</dt>
+    <dd>
+      {{ version.file.original_filename }}
+      <a href="{% url 'version_download' version.pk %}" class="btn btn-secondary" style="margin-left:.5rem;padding:.15rem .5rem;font-size:.8rem">Scarica</a>
+    </dd>
     {% endif %}
   </dl>
 </div>

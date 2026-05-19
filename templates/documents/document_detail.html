@@ -37,7 +37,11 @@
     <dt>Sommario</dt>        <dd>{{ document.current_version.change_summary }}</dd>
     {% endif %}
     {% if document.current_version.file %}
-    <dt>File</dt>            <dd>{{ document.current_version.file.original_filename }}</dd>
+    <dt>File</dt>
+    <dd>
+      {{ document.current_version.file.original_filename }}
+      <a href="{% url 'version_download' document.current_version.pk %}" class="btn btn-secondary" style="margin-left:.5rem;padding:.15rem .5rem;font-size:.8rem">Scarica</a>
+    </dd>
     {% endif %}
   </dl>
 </div>

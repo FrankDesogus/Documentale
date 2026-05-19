@@ -8,8 +8,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from documents.permissions import can_download_version_file
+
 from documents.models import Document, DocumentVersion
 from documents.services import (
+    create_document_file,
     create_new_revision,
     reopen_rejected_version_as_draft,
     submit_version_for_approval,
@@ -357,3 +360,99 @@ class AuthorWorkflowViewTests(TestCase):
             })
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'esiste già')
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class DownloadViewTests(TestCase):
+    """Verifica i permessi di download file per i diversi ruoli."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        mail.outbox = []
+        self.author = User.objects.create_user('dl_author', email='a@t.com', password='pw')
+        self.approver = User.objects.create_user('dl_approver', email='ap@t.com', password='pw')
+        self.viewer = User.objects.create_user('dl_viewer', email='v@t.com', password='pw')
+        self.staff = User.objects.create_user('dl_staff', password='pw', is_staff=True)
+        self.document = make_document(code='DL-001', owner=self.author)
+
+    def _make_version_with_file(self, label='A', number=1):
+        uploaded = SimpleUploadedFile(
+            'doc.pdf', b'%PDF-1.4 test', content_type='application/pdf',
+        )
+        doc_file = create_document_file(uploaded, self.author)
+        version = create_new_revision(
+            self.document, self.author, label, number, file=doc_file,
+        )
+        return version
+
+    def _approve_version(self, version):
+        from approvals.services import approve_version
+        req = submit_version_for_approval(version, self.author, [self.approver])
+        approve_version(req, self.approver)
+        version.refresh_from_db()
+        return version
+
+    def test_normal_user_can_download_current_approved(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            version = self._make_version_with_file()
+            self._approve_version(version)
+            self.client.login(username='dl_viewer', password='pw')
+            response = self.client.get(reverse('version_download', args=[version.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_normal_user_cannot_download_draft(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            version = self._make_version_with_file()
+            self.client.login(username='dl_viewer', password='pw')
+            response = self.client.get(reverse('version_download', args=[version.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_author_can_download_own_draft(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            version = self._make_version_with_file()
+            self.client.login(username='dl_author', password='pw')
+            response = self.client.get(reverse('version_download', args=[version.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_approver_can_download_assigned_in_approval_version(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            version = self._make_version_with_file()
+            submit_version_for_approval(version, self.author, [self.approver])
+            version.refresh_from_db()
+            self.client.login(username='dl_approver', password='pw')
+            response = self.client.get(reverse('version_download', args=[version.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_non_assigned_user_cannot_download_in_approval_version(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            version = self._make_version_with_file()
+            submit_version_for_approval(version, self.author, [self.approver])
+            version.refresh_from_db()
+            self.client.login(username='dl_viewer', password='pw')
+            response = self.client.get(reverse('version_download', args=[version.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_can_download_superseded_version(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            v1 = self._make_version_with_file('A', 1)
+            self._approve_version(v1)
+            v2 = self._make_version_with_file('B', 2)
+            self._approve_version(v2)
+            v1.refresh_from_db()
+            self.assertEqual(v1.status, DocumentVersion.Status.SUPERSEDED)
+            self.client.login(username='dl_staff', password='pw')
+            response = self.client.get(reverse('version_download', args=[v1.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_can_download_permission_function_no_file(self):
+        version = create_new_revision(self.document, self.author, 'A', 1)
+        self.assertFalse(can_download_version_file(self.author, version))
