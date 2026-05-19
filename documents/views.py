@@ -8,6 +8,13 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from documents.models import Document, DocumentVersion
+from documents.permissions import (
+    can_create_document,
+    can_create_revision,
+    can_submit_for_approval,
+    is_document_auditor,
+    is_document_manager,
+)
 from documents.services import create_document_file, create_new_revision
 
 
@@ -51,8 +58,14 @@ def document_detail(request, document_id):
         ):
             raise Http404
 
+    show_history = (
+        request.user.is_staff
+        or request.user.is_superuser
+        or is_document_auditor(request.user)
+        or is_document_manager(request.user)
+    )
     versions = None
-    if request.user.is_staff:
+    if show_history:
         versions = doc.versions.select_related(
             'created_by', 'approved_by'
         ).order_by('-revision_number')
@@ -60,6 +73,7 @@ def document_detail(request, document_id):
     return render(request, 'documents/document_detail.html', {
         'document': doc,
         'versions': versions,
+        'show_history': show_history,
     })
 
 
@@ -75,6 +89,9 @@ def my_drafts(request):
 @login_required
 def new_document(request):
     from documents.forms import DocumentCreateForm
+
+    if not can_create_document(request.user):
+        raise PermissionDenied
 
     if request.method == 'POST':
         form = DocumentCreateForm(request.POST, request.FILES)
@@ -122,6 +139,9 @@ def new_revision(request, document_id):
     from documents.forms import DocumentRevisionCreateForm
 
     doc = get_object_or_404(Document, pk=document_id)
+
+    if not can_create_revision(request.user, doc):
+        raise PermissionDenied
 
     last_version = doc.versions.order_by('-revision_number').first()
     if last_version:
@@ -175,7 +195,7 @@ def submit_for_approval(request, version_id):
 
     version = get_object_or_404(DocumentVersion, pk=version_id)
 
-    if version.created_by != request.user and not request.user.is_staff:
+    if not can_submit_for_approval(request.user, version):
         raise PermissionDenied
 
     if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):

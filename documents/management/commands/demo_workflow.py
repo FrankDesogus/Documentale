@@ -1,10 +1,11 @@
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand
 
 from approvals.models import ApprovalDecision, ApprovalRequest
 from approvals.services import approve_version, reject_version
 from auditlog.models import AuditLog
 from documents.models import Document, DocumentVersion
+from documents.permissions import GROUP_APPROVERS, GROUP_AUTHORS, GROUP_READERS
 from documents.services import (
     create_new_revision,
     reopen_rejected_version_as_draft,
@@ -59,7 +60,13 @@ class Command(BaseCommand):
         # verso questi indirizzi. example.local non è un dominio reale.
         autore = self._get_or_create_user('autore_demo', 'Autore', 'Demo', 'autore_demo@example.local')
         approvatore = self._get_or_create_user('approvatore_demo', 'Approvatore', 'Demo', 'approvatore_demo@example.local')
-        self._get_or_create_user('lettore_demo', 'Lettore', 'Demo', 'lettore_demo@example.local')
+        lettore = self._get_or_create_user('lettore_demo', 'Lettore', 'Demo', 'lettore_demo@example.local')
+
+        # Assegna i gruppi documentali agli utenti demo
+        Group.objects.get_or_create(name=GROUP_AUTHORS)[0].user_set.add(autore)
+        Group.objects.get_or_create(name=GROUP_APPROVERS)[0].user_set.add(approvatore)
+        Group.objects.get_or_create(name=GROUP_READERS)[0].user_set.add(lettore)
+        self._step('Gruppi assegnati: autore→Authors, approvatore→Approvers, lettore→Readers')
 
         # 2. Documento demo
         if Document.objects.filter(code=DEMO_DOCUMENT_CODE).exists():

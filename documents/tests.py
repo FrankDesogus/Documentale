@@ -252,9 +252,11 @@ class AuthorWorkflowViewTests(TestCase):
         super().tearDownClass()
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         mail.outbox = []
         self.author = User.objects.create_user('author', email='a@t.com', password='pw')
         self.approver = User.objects.create_user('approver', email='ap@t.com', password='pw')
+        Group.objects.get_or_create(name='Document Authors')[0].user_set.add(self.author)
         self.client.login(username='author', password='pw')
 
     def test_unauthenticated_new_document_redirects_to_login(self):
@@ -456,3 +458,118 @@ class DownloadViewTests(TestCase):
     def test_can_download_permission_function_no_file(self):
         version = create_new_revision(self.document, self.author, 'A', 1)
         self.assertFalse(can_download_version_file(self.author, version))
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class PermissionGroupTests(TestCase):
+    """Verifica le regole di permesso basate sui gruppi Django."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        mail.outbox = []
+
+        g_authors = Group.objects.get_or_create(name='Document Authors')[0]
+        g_approvers = Group.objects.get_or_create(name='Document Approvers')[0]
+        g_readers = Group.objects.get_or_create(name='Document Readers')[0]
+        g_auditors = Group.objects.get_or_create(name='Document Auditors')[0]
+
+        self.author = User.objects.create_user('pg_author', email='pga@t.com', password='pw')
+        self.author.groups.add(g_authors)
+
+        self.approver = User.objects.create_user('pg_approver', email='pgap@t.com', password='pw')
+        self.approver.groups.add(g_approvers)
+
+        self.reader = User.objects.create_user('pg_reader', password='pw')
+        self.reader.groups.add(g_readers)
+
+        self.auditor = User.objects.create_user('pg_auditor', password='pw')
+        self.auditor.groups.add(g_auditors)
+
+        self.no_group = User.objects.create_user('pg_nogroup', password='pw')
+
+        self.document = make_document(code='PG-001', owner=self.author)
+
+    def test_no_group_cannot_create_document(self):
+        self.client.login(username='pg_nogroup', password='pw')
+        response = self.client.post(reverse('document_new'), {
+            'code': 'PG-FAIL',
+            'title': 'Documento non autorizzato',
+            'category': 'QUALITY',
+            'revision_label': '00',
+            'revision_number': '0',
+        })
+        self.assertEqual(response.status_code, 403)
+
+    def test_no_group_cannot_access_new_document_form(self):
+        self.client.login(username='pg_nogroup', password='pw')
+        response = self.client.get(reverse('document_new'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_document_author_can_create_document(self):
+        self.client.login(username='pg_author', password='pw')
+        response = self.client.post(reverse('document_new'), {
+            'code': 'PG-AUTH',
+            'title': 'Documento autore',
+            'category': 'QUALITY',
+            'revision_label': '00',
+            'revision_number': '0',
+        })
+        self.assertRedirects(response, reverse('my_drafts'))
+        self.assertTrue(Document.objects.filter(code='PG-AUTH').exists())
+
+    def test_document_reader_sees_only_approved_in_list(self):
+        from approvals.services import approve_version
+        v = create_new_revision(self.document, self.author, 'A', 1)
+        req = submit_version_for_approval(v, self.author, [self.approver])
+        approve_version(req, self.approver)
+
+        draft_doc = make_document(code='PG-DRAFT', owner=self.author)
+        create_new_revision(draft_doc, self.author, 'A', 1)
+
+        self.client.login(username='pg_reader', password='pw')
+        response = self.client.get(reverse('document_list'))
+        self.assertEqual(response.status_code, 200)
+        codes = [d.code for d in response.context['documents']]
+        self.assertIn('PG-001', codes)
+        self.assertNotIn('PG-DRAFT', codes)
+
+    def test_document_approver_does_not_see_unassigned_requests(self):
+        other_approver = User.objects.create_user('pg_other_ap', password='pw')
+        v = create_new_revision(self.document, self.author, 'A', 1)
+        submit_version_for_approval(v, self.author, [self.approver])
+
+        self.client.login(username='pg_other_ap', password='pw')
+        response = self.client.get(reverse('approval_queue'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, self.document.code)
+
+    def test_document_auditor_sees_version_history_in_detail(self):
+        from approvals.services import approve_version
+        v1 = create_new_revision(self.document, self.author, 'A', 1)
+        req = submit_version_for_approval(v1, self.author, [self.approver])
+        approve_version(req, self.approver)
+        self.document.refresh_from_db()
+
+        self.client.login(username='pg_auditor', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.document.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_history'])
+        self.assertIsNotNone(response.context['versions'])
+
+    def test_no_group_user_cannot_create_revision(self):
+        from approvals.services import approve_version
+        v = create_new_revision(self.document, self.author, 'A', 1)
+        req = submit_version_for_approval(v, self.author, [self.approver])
+        approve_version(req, self.approver)
+        self.document.refresh_from_db()
+
+        self.client.login(username='pg_nogroup', password='pw')
+        response = self.client.get(
+            reverse('document_new_revision', args=[self.document.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_can_download_respects_existing_rules_no_file(self):
+        from documents.permissions import can_download_version_file
+        version = create_new_revision(self.document, self.author, 'A', 1)
+        self.assertFalse(can_download_version_file(self.reader, version))
