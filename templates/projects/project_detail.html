@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}{{ project.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'project_list' %}">← Progetti</a>
+</p>
+<h1>{{ project.code }} — {{ project.name }}</h1>
+
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Stato</dt>        <dd><span class="badge badge-{{ project.status }}">{{ project.get_status_display }}</span></dd>
+    <dt>Tipo</dt>         <dd>{{ project.get_project_type_display }}</dd>
+    {% if project.manager %}
+    <dt>Responsabile</dt> <dd>{{ project.manager.get_full_name|default:project.manager.username }}</dd>
+    {% endif %}
+    {% if project.folder %}
+    <dt>Cartella</dt>     <dd><a href="{% url 'folder_detail' project.folder.pk %}">{{ project.folder }}</a></dd>
+    {% endif %}
+    {% if project.description %}
+    <dt>Descrizione</dt>  <dd>{{ project.description }}</dd>
+    {% endif %}
+    <dt>Creato il</dt>    <dd>{{ project.created_at|date:"d/m/Y" }}</dd>
+  </dl>
+</div>
+
+{% if subfolders %}
+<h2>Sottocartelle</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th>
+      <th>Nome</th>
+      <th>Tipo</th>
+      <th>Stato</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sub in subfolders %}
+    <tr>
+      <td><strong>{{ sub.code }}</strong></td>
+      <td>{{ sub.name }}</td>
+      <td>{{ sub.get_folder_kind_display }}</td>
+      <td><span class="badge badge-{{ sub.status }}">{{ sub.get_status_display }}</span></td>
+      <td><a href="{% url 'folder_detail' sub.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if documents %}
+<h2>Documenti nella cartella</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th>
+      <th>Titolo</th>
+      <th>Revisione corrente</th>
+      <th>Stato</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for doc in documents %}
+    <tr>
+      <td><strong>{{ doc.code }}</strong></td>
+      <td>{{ doc.title }}</td>
+      <td>{% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}{% else %}—{% endif %}</td>
+      <td>
+        {% if doc.current_version %}
+        <span class="badge badge-{{ doc.current_version.status }}">{{ doc.current_version.get_status_display }}</span>
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
+      <td><a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% elif project.folder %}
+<div class="card" style="margin-top:1rem">
+  <p class="meta">Nessun documento nella cartella associata.</p>
+</div>
+{% endif %}
+
+{% if not project.folder %}
+<div class="card" style="margin-top:1rem">
+  <p class="meta">Nessuna cartella documentale associata a questo progetto.</p>
+</div>
+{% endif %}
+{% endblock %}

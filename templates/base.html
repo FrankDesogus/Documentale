@@ -27,6 +27,9 @@
   .badge-rejected, .badge-rifiutato { background: #f8d7da; color: #721c24; }
   .badge-superseded, .badge-sostituito { background: #e2e3e5; color: #383d41; }
   .badge-pending, .badge-in_attesa { background: #fff3cd; color: #856404; }
+  .badge-active { background: #d4edda; color: #155724; }
+  .badge-suspended { background: #ffe5b4; color: #7a4f00; }
+  .badge-closed, .badge-archived { background: #e2e3e5; color: #383d41; }
   .messages { list-style: none; padding: 0; margin: 0 0 1rem; }
   .messages li { padding: 0.6rem 0.9rem; border-radius: 3px; margin-bottom: 0.5rem; font-size: 0.95rem; }
   .messages .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
@@ -53,6 +56,7 @@
   {% if user.is_authenticated %}
     <a href="{% url 'document_list' %}">Documenti</a>
     <a href="{% url 'folder_list' %}">Cartelle</a>
+    <a href="{% url 'project_list' %}">Progetti</a>
     <a href="{% url 'my_drafts' %}">Mie bozze</a>
     <a href="{% url 'approval_queue' %}">Da approvare</a>
     {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}

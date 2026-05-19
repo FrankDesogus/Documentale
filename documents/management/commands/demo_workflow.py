@@ -7,7 +7,7 @@ from approvals.services import approve_version, reject_version
 from auditlog.models import AuditLog
 from documents.models import Document, DocumentVersion
 from documents.permissions import GROUP_APPROVERS, GROUP_AUTHORS, GROUP_READERS
-from projects.models import ProjectFolder, ProjectFolderMembership
+from projects.models import Project, ProjectFolder, ProjectFolderMembership
 from documents.services import (
     create_new_revision,
     reopen_rejected_version_as_draft,
@@ -104,7 +104,32 @@ class Command(BaseCommand):
                 'created_by': autore,
             },
         )
-        self._step(f'Cartelle: {cartella_ing} → {cartella_std}')
+        cartella_prj, _ = ProjectFolder.objects.get_or_create(
+            code='ING-PRJ-DEMO',
+            defaults={
+                'name': 'Progetto Demo',
+                'folder_kind': ProjectFolder.FolderKind.GENERIC,
+                'parent': cartella_ing,
+                'status': ProjectFolder.Status.ACTIVE,
+                'owner': autore,
+                'created_by': autore,
+            },
+        )
+        self._step(f'Cartelle: {cartella_ing} → {cartella_std}, {cartella_prj}')
+
+        # 2b. Progetto demo
+        progetto, _ = Project.objects.get_or_create(
+            code='PRJ-DEMO-001',
+            defaults={
+                'name': 'Progetto Demo Documentale',
+                'status': Project.Status.ACTIVE,
+                'project_type': Project.ProjectType.INTERNAL,
+                'folder': cartella_prj,
+                'manager': autore,
+                'created_by': autore,
+            },
+        )
+        self._step(f'Progetto: {progetto}')
 
         # 3. Membership per-cartella su ING-STD
         ProjectFolderMembership.objects.get_or_create(

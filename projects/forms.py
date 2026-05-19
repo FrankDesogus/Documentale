@@ -1,6 +1,7 @@
 from django import forms
+from django.contrib.auth.models import User
 
-from projects.models import ProjectFolder
+from projects.models import Project, ProjectFolder
 
 
 class ProjectFolderForm(forms.ModelForm):
@@ -20,3 +21,25 @@ class ProjectFolderForm(forms.ModelForm):
         self.fields['parent'].queryset = qs
         self.fields['parent'].empty_label = '— nessuna (cartella radice) —'
         self.fields['parent'].required = False
+
+
+class ProjectForm(forms.ModelForm):
+    class Meta:
+        model = Project
+        fields = ['code', 'name', 'description', 'status', 'project_type', 'folder', 'manager']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['folder'].queryset = ProjectFolder.objects.filter(
+            status=ProjectFolder.Status.ACTIVE
+        ).order_by('code')
+        self.fields['folder'].required = False
+        self.fields['folder'].empty_label = '— nessuna —'
+        self.fields['manager'].queryset = User.objects.filter(
+            is_active=True
+        ).order_by('last_name', 'first_name', 'username')
+        self.fields['manager'].required = False
+        self.fields['manager'].empty_label = '— nessuno —'

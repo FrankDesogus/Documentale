@@ -343,3 +343,188 @@ class MembershipPermissionTests(TestCase):
         self.client.login(username='mp_outsider', password='pw')
         response = self.client.get(reverse('folder_detail', args=[self.folder.pk]))
         self.assertEqual(response.status_code, 403)
+
+
+# ---------------------------------------------------------------------------
+# Project tests
+# ---------------------------------------------------------------------------
+
+from projects.models import Project  # noqa: E402
+
+
+def make_project(code='PRJ-001', name='Test Project', owner=None, folder=None,
+                 status=Project.Status.ACTIVE):
+    return Project.objects.create(
+        code=code,
+        name=name,
+        status=status,
+        project_type=Project.ProjectType.INTERNAL,
+        folder=folder,
+        manager=owner,
+        created_by=owner,
+    )
+
+
+class ProjectModelTests(TestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user('prj_user', password='pw')
+
+    def test_project_creation(self):
+        p = make_project(code='PRJ-001', owner=self.user)
+        self.assertEqual(p.code, 'PRJ-001')
+        self.assertEqual(p.status, Project.Status.ACTIVE)
+        self.assertEqual(p.project_type, Project.ProjectType.INTERNAL)
+
+    def test_project_code_unique(self):
+        make_project(code='PRJ-DUP', owner=self.user)
+        from django.db import IntegrityError
+        with self.assertRaises(IntegrityError):
+            Project.objects.create(
+                code='PRJ-DUP',
+                name='Duplicate',
+                manager=self.user,
+                created_by=self.user,
+            )
+
+    def test_project_str(self):
+        p = make_project(code='PRJ-STR', name='Stringa Test', owner=self.user)
+        self.assertIn('PRJ-STR', str(p))
+        self.assertIn('Stringa Test', str(p))
+
+    def test_project_without_folder(self):
+        p = make_project(code='PRJ-NF', owner=self.user, folder=None)
+        self.assertIsNone(p.folder)
+
+
+class ProjectListViewTests(TestCase):
+
+    def setUp(self):
+        self.manager = User.objects.create_user('pl_manager', password='pw', is_staff=True)
+        self.normal = User.objects.create_user('pl_normal', password='pw')
+        self.owner = User.objects.create_user('pl_owner', password='pw')
+        self.folder = make_folder(code='PL-F-001', owner=self.owner)
+        self.project = make_project(code='PL-PRJ-001', owner=self.owner, folder=self.folder)
+
+    def test_project_list_requires_login(self):
+        response = self.client.get(reverse('project_list'))
+        self.assertRedirects(response, '/accounts/login/?next=/projects/')
+
+    def test_manager_sees_all_projects(self):
+        self.client.login(username='pl_manager', password='pw')
+        response = self.client.get(reverse('project_list'))
+        self.assertEqual(response.status_code, 200)
+        codes = [p.code for p in response.context['projects']]
+        self.assertIn('PL-PRJ-001', codes)
+
+    def test_normal_user_without_folder_access_sees_no_project(self):
+        self.client.login(username='pl_normal', password='pw')
+        response = self.client.get(reverse('project_list'))
+        self.assertEqual(response.status_code, 200)
+        codes = [p.code for p in response.context['projects']]
+        self.assertNotIn('PL-PRJ-001', codes)
+
+    def test_normal_user_with_folder_membership_sees_project(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.normal,
+            role=ProjectFolderMembership.Role.READER,
+        )
+        self.client.login(username='pl_normal', password='pw')
+        response = self.client.get(reverse('project_list'))
+        codes = [p.code for p in response.context['projects']]
+        self.assertIn('PL-PRJ-001', codes)
+
+
+class ProjectCreateViewTests(TestCase):
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from documents.permissions import GROUP_MANAGERS
+        self.manager = User.objects.create_user('pc_manager', password='pw')
+        self.normal = User.objects.create_user('pc_normal', password='pw')
+        Group.objects.get_or_create(name=GROUP_MANAGERS)[0].user_set.add(self.manager)
+
+    def test_document_manager_can_create_project(self):
+        self.client.login(username='pc_manager', password='pw')
+        response = self.client.post(reverse('project_create'), {
+            'code': 'PRJ-NEW-001',
+            'name': 'Nuovo Progetto',
+            'status': 'active',
+            'project_type': 'internal',
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Project.objects.filter(code='PRJ-NEW-001').exists())
+
+    def test_normal_user_cannot_create_project(self):
+        self.client.login(username='pc_normal', password='pw')
+        response = self.client.post(reverse('project_create'), {
+            'code': 'PRJ-DENIED',
+            'name': 'Non autorizzato',
+            'status': 'active',
+            'project_type': 'internal',
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Project.objects.filter(code='PRJ-DENIED').exists())
+
+
+class ProjectDetailViewTests(TestCase):
+
+    def setUp(self):
+        self.owner = User.objects.create_user('pd_owner', password='pw', is_staff=True)
+        self.reader = User.objects.create_user('pd_reader', password='pw')
+        self.outsider = User.objects.create_user('pd_outsider', password='pw')
+        self.folder = make_folder(code='PD-F-001', owner=self.owner)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.reader,
+            role=ProjectFolderMembership.Role.READER,
+        )
+        self.project = make_project(
+            code='PD-PRJ-001', name='Progetto Dettaglio',
+            owner=self.owner, folder=self.folder,
+        )
+
+    def test_project_detail_shows_project_data(self):
+        self.client.login(username='pd_owner', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'PD-PRJ-001')
+        self.assertContains(response, 'Progetto Dettaglio')
+
+    def test_project_detail_shows_documents_in_folder(self):
+        from documents.models import Document
+        Document.objects.create(
+            code='PD-DOC-001', title='Doc nel progetto',
+            category=Document.Category.QUALITY,
+            project_folder=self.folder,
+            owner=self.owner, created_by=self.owner,
+        )
+        self.client.login(username='pd_owner', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        doc_codes = [d.code for d in response.context['documents']]
+        self.assertIn('PD-DOC-001', doc_codes)
+
+    def test_user_without_folder_access_gets_403(self):
+        self.client.login(username='pd_outsider', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_user_with_folder_access_can_see_project(self):
+        self.client.login(username='pd_reader', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'PD-PRJ-001')
+
+
+class DemoWorkflowProjectTests(TestCase):
+
+    def test_demo_workflow_creates_project(self):
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('demo_workflow', '--no-email', stdout=out)
+        self.assertTrue(Project.objects.filter(code='PRJ-DEMO-001').exists())
+        p = Project.objects.get(code='PRJ-DEMO-001')
+        self.assertEqual(p.status, Project.Status.ACTIVE)
+        self.assertEqual(p.project_type, Project.ProjectType.INTERNAL)
+        self.assertIsNotNone(p.folder)

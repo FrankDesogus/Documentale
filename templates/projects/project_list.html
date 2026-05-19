@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Progetti — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta" style="margin-bottom:.75rem">
+  {% if can_create %}
+  <a href="{% url 'project_create' %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuovo progetto</a>
+  {% endif %}
+</p>
+<h1>Progetti</h1>
+
+{% if projects %}
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th>
+      <th>Nome</th>
+      <th>Tipo</th>
+      <th>Stato</th>
+      <th>Cartella</th>
+      <th>Responsabile</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for project in projects %}
+    <tr>
+      <td><strong>{{ project.code }}</strong></td>
+      <td>{{ project.name }}</td>
+      <td>{{ project.get_project_type_display }}</td>
+      <td><span class="badge badge-{{ project.status }}">{{ project.get_status_display }}</span></td>
+      <td>{{ project.folder|default:"—" }}</td>
+      <td>{{ project.manager.get_full_name|default:project.manager.username|default:"—" }}</td>
+      <td><a href="{% url 'project_detail' project.pk %}" class="btn btn-primary">Apri</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">
+  <p class="meta">Nessun progetto disponibile.</p>
+</div>
+{% endif %}
+{% endblock %}

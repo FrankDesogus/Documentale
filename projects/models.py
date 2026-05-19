@@ -110,6 +110,72 @@ class ProjectFolderMembership(models.Model):
         return f"{self.folder.code} – {self.user.username} ({self.get_role_display()})"
 
 
+class Project(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Bozza'
+        ACTIVE = 'active', 'In corso'
+        SUSPENDED = 'suspended', 'Sospeso'
+        CLOSED = 'closed', 'Chiuso'
+        ARCHIVED = 'archived', 'Archiviato'
+
+    class ProjectType(models.TextChoices):
+        CUSTOMER = 'customer', 'Cliente'
+        INTERNAL = 'internal', 'Interno'
+        ENGINEERING = 'engineering', 'Ingegneria'
+        QUALITY = 'quality', 'Qualità'
+        OTHER = 'other', 'Altro'
+
+    code = models.CharField(max_length=50, unique=True, verbose_name='Codice')
+    name = models.CharField(max_length=255, verbose_name='Nome')
+    description = models.TextField(blank=True, verbose_name='Descrizione')
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        verbose_name='Stato',
+    )
+    project_type = models.CharField(
+        max_length=20,
+        choices=ProjectType.choices,
+        default=ProjectType.OTHER,
+        verbose_name='Tipo',
+    )
+    folder = models.ForeignKey(
+        ProjectFolder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='projects',
+        verbose_name='Cartella documentale',
+    )
+    manager = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='managed_projects',
+        verbose_name='Responsabile',
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_projects',
+        verbose_name='Creato da',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Progetto'
+        verbose_name_plural = 'Progetti'
+        ordering = ['code']
+
+    def __str__(self):
+        return f"{self.code} – {self.name}"
+
+
 class ProjectRevision(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'DRAFT', 'Bozza'

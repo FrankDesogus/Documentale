@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ProjectFolder, ProjectFolderMembership, ProjectRevision, ProjectRevisionItem
+from .models import Project, ProjectFolder, ProjectFolderMembership, ProjectRevision, ProjectRevisionItem
 
 
 class SubfolderInline(admin.TabularInline):
@@ -42,6 +42,15 @@ class ProjectFolderAdmin(admin.ModelAdmin):
     search_fields = ('code', 'name')
     autocomplete_fields = ('parent',)
     inlines = [SubfolderInline, MembershipInline, ProjectRevisionInline]
+
+
+@admin.register(Project)
+class ProjectAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'status', 'project_type', 'folder', 'manager', 'created_at')
+    list_filter = ('status', 'project_type')
+    search_fields = ('code', 'name', 'description', 'folder__code', 'folder__name')
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('folder', 'manager')
 
 
 @admin.register(ProjectFolderMembership)
