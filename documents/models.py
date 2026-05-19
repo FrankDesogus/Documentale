@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.contrib.auth.models import User
 
 
@@ -93,6 +94,17 @@ class DocumentVersion(models.Model):
         verbose_name_plural = 'Revisioni documento'
         ordering = ['document', '-revision_number']
         unique_together = [('document', 'revision_label')]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['document', 'revision_number'],
+                name='unique_revision_number_per_document',
+            ),
+            models.UniqueConstraint(
+                fields=['document'],
+                condition=Q(is_current=True),
+                name='unique_current_version_per_document',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.document.code} rev.{self.revision_label} [{self.get_status_display()}]"
