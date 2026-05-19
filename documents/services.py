@@ -105,6 +105,11 @@ def submit_version_for_approval(version, requested_by, approvers, due_date=None)
             metadata={'approval_request_id': approval_request.pk},
         )
 
+    # Notifiche fuori dalla transazione: un errore email non deve annullare il workflow.
+    from notifications.services import send_approval_request_email
+    for approver in approvers:
+        send_approval_request_email(approval_request, approver)
+
     return approval_request
 
 

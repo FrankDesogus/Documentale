@@ -1,13 +1,16 @@
-from django.core.exceptions import ValidationError
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.core import mail
+from django.core.exceptions import ValidationError
+from django.test import TestCase, override_settings
 
 from documents.models import Document, DocumentVersion
 from documents.services import (
     create_new_revision,
-    submit_version_for_approval,
     reopen_rejected_version_as_draft,
+    submit_version_for_approval,
 )
+
+LOCMEM = 'django.core.mail.backends.locmem.EmailBackend'
 
 
 def make_document(code='DOC-001', owner=None):
@@ -20,6 +23,7 @@ def make_document(code='DOC-001', owner=None):
     )
 
 
+@override_settings(EMAIL_BACKEND=LOCMEM)
 class CreateNewRevisionTests(TestCase):
 
     def setUp(self):
@@ -37,7 +41,6 @@ class CreateNewRevisionTests(TestCase):
 
     def test_replaces_version_points_to_previous_current(self):
         v1 = create_new_revision(self.document, self.author, 'A', 1)
-        # Approva v1 manualmente per renderla current
         v1.status = DocumentVersion.Status.APPROVED
         v1.is_current = True
         v1.save(update_fields=['status', 'is_current'])
@@ -68,6 +71,7 @@ class CreateNewRevisionTests(TestCase):
             create_new_revision(self.document, self.author, 'A', 1)
 
 
+@override_settings(EMAIL_BACKEND=LOCMEM)
 class SubmitForApprovalTests(TestCase):
 
     def setUp(self):
@@ -102,6 +106,7 @@ class SubmitForApprovalTests(TestCase):
             submit_version_for_approval(self.version, self.author, [self.approver])
 
 
+@override_settings(EMAIL_BACKEND=LOCMEM)
 class ReopenRejectedTests(TestCase):
 
     def setUp(self):
@@ -123,3 +128,53 @@ class ReopenRejectedTests(TestCase):
         other = create_new_revision(self.document, self.author, 'B', 2)
         with self.assertRaises(ValidationError):
             reopen_rejected_version_as_draft(other, self.author)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class SubmitApprovalEmailTests(TestCase):
+    """Verifica che submit_version_for_approval invii email e crei NotificationLog."""
+
+    def setUp(self):
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            'author', email='author@example.com', password='pw',
+        )
+        self.approver1 = User.objects.create_user(
+            'approver1', email='approver1@example.com', password='pw',
+        )
+        self.approver2 = User.objects.create_user(
+            'approver2', email='approver2@example.com', password='pw',
+        )
+        self.document = make_document(owner=self.author)
+
+    def test_sends_one_email_per_approver(self):
+        version = create_new_revision(self.document, self.author, 'A', 1)
+        submit_version_for_approval(version, self.author, [self.approver1, self.approver2])
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_email_recipient_matches_approver(self):
+        version = create_new_revision(self.document, self.author, 'A', 1)
+        submit_version_for_approval(version, self.author, [self.approver1])
+        self.assertIn(self.approver1.email, mail.outbox[0].to)
+
+    def test_email_contains_document_code(self):
+        version = create_new_revision(self.document, self.author, 'A', 1)
+        submit_version_for_approval(version, self.author, [self.approver1])
+        self.assertIn(self.document.code, mail.outbox[0].body)
+
+    def test_creates_notification_log(self):
+        from notifications.models import NotificationLog
+        version = create_new_revision(self.document, self.author, 'A', 1)
+        submit_version_for_approval(version, self.author, [self.approver1])
+        self.assertEqual(NotificationLog.objects.count(), 1)
+        self.assertTrue(NotificationLog.objects.first().is_sent)
+
+    def test_no_email_sent_when_approver_has_no_email(self):
+        from notifications.models import NotificationLog
+        no_email_approver = User.objects.create_user('noemail', password='pw')
+        version = create_new_revision(self.document, self.author, 'A', 1)
+        submit_version_for_approval(version, self.author, [no_email_approver])
+        self.assertEqual(len(mail.outbox), 0)
+        log = NotificationLog.objects.first()
+        self.assertFalse(log.is_sent)
+        self.assertTrue(log.error_message)

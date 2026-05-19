@@ -1,13 +1,16 @@
 import datetime
 
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.core import mail
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.test import TestCase, override_settings
 
 from approvals.models import ApprovalRequest
 from approvals.services import approve_version, reject_version
 from documents.models import Document, DocumentVersion
 from documents.services import create_new_revision, submit_version_for_approval
+
+LOCMEM = 'django.core.mail.backends.locmem.EmailBackend'
 
 
 def make_document(code='DOC-001', owner=None):
@@ -20,6 +23,7 @@ def make_document(code='DOC-001', owner=None):
     )
 
 
+@override_settings(EMAIL_BACKEND=LOCMEM)
 class ApproveVersionTests(TestCase):
 
     def setUp(self):
@@ -90,6 +94,7 @@ class ApproveVersionTests(TestCase):
         self.assertIsNone(req.due_date)
 
 
+@override_settings(EMAIL_BACKEND=LOCMEM)
 class RejectVersionTests(TestCase):
 
     def setUp(self):
@@ -136,3 +141,58 @@ class RejectVersionTests(TestCase):
         _, req = self._make_in_approval()
         with self.assertRaises(PermissionDenied):
             reject_version(req, self.other, 'qualsiasi motivo')
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class ApprovalEmailTests(TestCase):
+    """Verifica che approve_version e reject_version inviino email e creino NotificationLog."""
+
+    def setUp(self):
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            'author', email='author@example.com', password='pw',
+        )
+        self.approver = User.objects.create_user(
+            'approver', email='approver@example.com', password='pw',
+        )
+        self.document = make_document(owner=self.author)
+
+    def _make_in_approval(self, label='A', number=1):
+        version = create_new_revision(self.document, self.author, label, number)
+        req = submit_version_for_approval(version, self.author, [self.approver])
+        mail.outbox = []  # azzera dopo submit per isolare il test
+        return version, req
+
+    def test_approve_sends_email_to_author(self):
+        _, req = self._make_in_approval()
+        approve_version(req, self.approver)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.author.email, mail.outbox[0].to)
+
+    def test_approve_email_contains_document_code(self):
+        _, req = self._make_in_approval()
+        approve_version(req, self.approver)
+        self.assertIn(self.document.code, mail.outbox[0].body)
+
+    def test_approve_creates_notification_log(self):
+        from notifications.models import NotificationLog
+        _, req = self._make_in_approval()
+        approve_version(req, self.approver)
+        self.assertTrue(NotificationLog.objects.filter(is_sent=True).exists())
+
+    def test_reject_sends_email_to_author(self):
+        _, req = self._make_in_approval()
+        reject_version(req, self.approver, 'Sezione 3 incompleta')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.author.email, mail.outbox[0].to)
+
+    def test_reject_email_contains_rejection_reason(self):
+        _, req = self._make_in_approval()
+        reject_version(req, self.approver, 'Sezione 3 incompleta')
+        self.assertIn('Sezione 3 incompleta', mail.outbox[0].body)
+
+    def test_reject_creates_notification_log(self):
+        from notifications.models import NotificationLog
+        _, req = self._make_in_approval()
+        reject_version(req, self.approver, 'Sezione 3 incompleta')
+        self.assertTrue(NotificationLog.objects.filter(is_sent=True).exists())

@@ -55,9 +55,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING('\n=== AVVIO DEMO WORKFLOW ===\n'))
 
         # 1. Utenti demo
-        autore = self._get_or_create_user('autore_demo', 'Autore', 'Demo')
-        approvatore = self._get_or_create_user('approvatore_demo', 'Approvatore', 'Demo')
-        self._get_or_create_user('lettore_demo', 'Lettore', 'Demo')
+        # ATTENZIONE: con SMTP reale configurato, il comando tenterà l'invio
+        # verso questi indirizzi. example.local non è un dominio reale.
+        autore = self._get_or_create_user('autore_demo', 'Autore', 'Demo', 'autore_demo@example.local')
+        approvatore = self._get_or_create_user('approvatore_demo', 'Approvatore', 'Demo', 'approvatore_demo@example.local')
+        self._get_or_create_user('lettore_demo', 'Lettore', 'Demo', 'lettore_demo@example.local')
 
         # 2. Documento demo
         if Document.objects.filter(code=DEMO_DOCUMENT_CODE).exists():
@@ -159,13 +161,16 @@ class Command(BaseCommand):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_or_create_user(self, username, first_name, last_name):
+    def _get_or_create_user(self, username, first_name, last_name, email=''):
         user, created = User.objects.get_or_create(
             username=username,
-            defaults={'first_name': first_name, 'last_name': last_name},
+            defaults={'first_name': first_name, 'last_name': last_name, 'email': email},
         )
+        if not created and not user.email and email:
+            user.email = email
+            user.save(update_fields=['email'])
         label = 'creato' if created else 'già esistente'
-        self.stdout.write(f'  Utente {username}: {label}')
+        self.stdout.write(f'  Utente {username}: {label} ({user.email or "nessuna email"})')
         return user
 
     def _step(self, message):

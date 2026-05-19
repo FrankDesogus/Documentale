@@ -79,6 +79,10 @@ def approve_version(approval_request, approved_by, comment=""):
             document_version=version,
         )
 
+    # Notifica fuori dalla transazione: un errore email non deve annullare l'approvazione.
+    from notifications.services import send_version_approved_email
+    send_version_approved_email(approval_request)
+
     return approval_request
 
 
@@ -134,5 +138,9 @@ def reject_version(approval_request, rejected_by, rejection_reason, comment=""):
             document=version.document,
             document_version=version,
         )
+
+    # Notifica fuori dalla transazione: un errore email non deve annullare il rifiuto.
+    from notifications.services import send_version_rejected_email
+    send_version_rejected_email(approval_request, rejection_reason)
 
     return approval_request
