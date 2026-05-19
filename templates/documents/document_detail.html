@@ -83,6 +83,19 @@
     </tbody>
   </table>
   {% endif %}
+  {% if latest_approval_attachments %}
+  <div style="margin-top:1rem">
+    <strong>Allegati approvazione</strong>
+    <ul style="margin:.4rem 0 0;padding-left:1.2rem">
+      {% for att in latest_approval_attachments %}
+      <li>
+        {{ att.get_attachment_type_display }}: {{ att.original_filename }}
+        <a href="{% url 'approval_attachment_download' att.pk %}" class="btn btn-secondary" style="margin-left:.5rem;padding:.1rem .4rem;font-size:.8rem">Scarica</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   {% else %}
   <p class="meta">Nessun dettaglio approvativo disponibile.</p>
   {% endif %}

@@ -1,10 +1,50 @@
+import os
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
-from approvals.models import ApprovalRequest, ApprovalRequestApprover
+from approvals.models import ApprovalRequest, ApprovalRequestApprover, ApprovalRequestAttachment
 from approvals.services import approve_version, reject_version
+
+
+def _can_download_attachment(user, attachment):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser or user.is_staff:
+        return True
+    from documents.permissions import is_document_manager, is_document_auditor
+    if is_document_manager(user) or is_document_auditor(user):
+        return True
+    ar = attachment.approval_request
+    version = ar.document_version
+    if version.created_by_id == user.pk:
+        return True
+    if ar.approvers.filter(approver=user).exists():
+        return True
+    return False
+
+
+@login_required
+def download_approval_attachment(request, attachment_id):
+    attachment = get_object_or_404(ApprovalRequestAttachment, pk=attachment_id)
+
+    if not _can_download_attachment(request.user, attachment):
+        raise PermissionDenied
+
+    file_path = attachment.file.path
+    if not os.path.exists(file_path):
+        raise Http404
+
+    content_type = attachment.mime_type or 'application/octet-stream'
+    return FileResponse(
+        open(file_path, 'rb'),
+        content_type=content_type,
+        as_attachment=True,
+        filename=attachment.original_filename,
+    )
 
 
 @login_required

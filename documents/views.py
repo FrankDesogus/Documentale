@@ -94,12 +94,18 @@ def document_detail(request, document_id):
                 .order_by('order')
             )
 
+    latest_approval_attachments = (
+        list(latest_approval_request.attachments.all())
+        if latest_approval_request else []
+    )
+
     return render(request, 'documents/document_detail.html', {
         'document': doc,
         'versions': versions,
         'show_history': show_history,
         'latest_approval_request': latest_approval_request,
         'latest_approval_approvers': latest_approval_approvers,
+        'latest_approval_attachments': latest_approval_attachments,
     })
 
 
@@ -233,7 +239,7 @@ def submit_for_approval(request, version_id):
         return redirect('my_drafts')
 
     if request.method == 'POST':
-        form = SubmitForApprovalForm(request.POST)
+        form = SubmitForApprovalForm(request.POST, request.FILES)
         approver_formset = ApproverFormSet(request.POST, prefix='approver')
         if form.is_valid() and approver_formset.is_valid():
             d = form.cleaned_data
@@ -243,13 +249,17 @@ def submit_for_approval(request, version_id):
                 if f.cleaned_data and f.cleaned_data.get('approver')
             ]
             try:
-                submit_version_for_approval(
+                approval_request = submit_version_for_approval(
                     version=version,
                     requested_by=request.user,
                     approvers=ordered_approvers,
                     due_date=d.get('due_date'),
                     approval_policy=d['approval_policy'],
                 )
+                sig_file = d.get('signature_template_file')
+                if sig_file:
+                    from approvals.services import create_approval_request_attachment
+                    create_approval_request_attachment(approval_request, sig_file, request.user)
                 messages.success(
                     request,
                     f'Rev. {version.revision_label} di {version.document.code} '

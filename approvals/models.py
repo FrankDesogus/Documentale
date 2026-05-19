@@ -91,6 +91,50 @@ class ApprovalRequestApprover(models.Model):
         return f"{self.approver.get_full_name() or self.approver.username} → {self.approval_request}"
 
 
+class ApprovalRequestAttachment(models.Model):
+    class AttachmentType(models.TextChoices):
+        SIGNATURE_TEMPLATE = 'signature_template', 'Modello da firmare'
+
+    approval_request = models.ForeignKey(
+        ApprovalRequest,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        verbose_name='Richiesta di approvazione',
+    )
+    file = models.FileField(
+        upload_to='approval_attachments/%Y/%m/',
+        verbose_name='File',
+    )
+    attachment_type = models.CharField(
+        max_length=30,
+        choices=AttachmentType.choices,
+        default=AttachmentType.SIGNATURE_TEMPLATE,
+        verbose_name='Tipo allegato',
+    )
+    original_filename = models.CharField(max_length=255, verbose_name='Nome file originale')
+    mime_type = models.CharField(max_length=100, blank=True, verbose_name='Tipo MIME')
+    extension = models.CharField(max_length=20, blank=True, verbose_name='Estensione')
+    size = models.PositiveIntegerField(null=True, blank=True, verbose_name='Dimensione (byte)')
+    sha256_hash = models.CharField(max_length=64, blank=True, verbose_name='Hash SHA-256')
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='uploaded_approval_attachments',
+        verbose_name='Caricato da',
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name='Caricato il')
+
+    class Meta:
+        verbose_name = 'Allegato richiesta approvazione'
+        verbose_name_plural = 'Allegati richiesta approvazione'
+        ordering = ['uploaded_at']
+
+    def __str__(self):
+        return f"{self.get_attachment_type_display()} — {self.original_filename}"
+
+
 class ApprovalDecision(models.Model):
     class Decision(models.TextChoices):
         APPROVED = 'APPROVED', 'Approvato'

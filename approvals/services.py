@@ -6,6 +6,46 @@ from approvals.models import ApprovalDecision, ApprovalRequest, ApprovalRequestA
 from auditlog.services import create_audit_log
 
 
+def create_approval_request_attachment(approval_request, uploaded_file, uploaded_by, attachment_type='signature_template'):
+    import hashlib
+    import mimetypes
+    import os
+
+    from approvals.models import ApprovalRequestAttachment
+
+    sha256 = hashlib.sha256()
+    for chunk in uploaded_file.chunks():
+        sha256.update(chunk)
+    uploaded_file.seek(0)
+
+    name = uploaded_file.name
+    ext = os.path.splitext(name)[1].lstrip('.').lower()
+    mime = getattr(uploaded_file, 'content_type', None) or mimetypes.guess_type(name)[0] or ''
+
+    attachment = ApprovalRequestAttachment.objects.create(
+        approval_request=approval_request,
+        file=uploaded_file,
+        attachment_type=attachment_type,
+        original_filename=name,
+        extension=ext,
+        size=uploaded_file.size,
+        mime_type=mime,
+        sha256_hash=sha256.hexdigest(),
+        uploaded_by=uploaded_by,
+    )
+
+    create_audit_log(
+        user=uploaded_by,
+        action='ATTACHMENT_UPLOADED',
+        instance=attachment,
+        new_values={'attachment_type': attachment_type, 'filename': name},
+        document=approval_request.document_version.document,
+        document_version=approval_request.document_version,
+    )
+
+    return attachment
+
+
 def approve_version(approval_request, approved_by, comment=""):
     from documents.models import DocumentVersion
 
