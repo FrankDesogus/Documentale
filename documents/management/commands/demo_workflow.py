@@ -1,5 +1,6 @@
 from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand
+from django.test.utils import override_settings
 
 from approvals.models import ApprovalDecision, ApprovalRequest
 from approvals.services import approve_version, reject_version
@@ -24,11 +25,23 @@ class Command(BaseCommand):
             action='store_true',
             help='Cancella i dati demo relativi a QUA-DEMO-001 prima di ricrearli.',
         )
+        parser.add_argument(
+            '--no-email',
+            action='store_true',
+            help='Disabilita invio email SMTP durante la demo (usa locmem backend).',
+        )
 
     def handle(self, *args, **options):
         if options['reset']:
             self._reset()
-        self._run()
+        if options['no_email']:
+            self.stdout.write(
+                self.style.WARNING('Invio email disabilitato per questa demo (--no-email).')
+            )
+            with override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'):
+                self._run()
+        else:
+            self._run()
 
     # ------------------------------------------------------------------
     # Reset

@@ -573,3 +573,38 @@ class PermissionGroupTests(TestCase):
         from documents.permissions import can_download_version_file
         version = create_new_revision(self.document, self.author, 'A', 1)
         self.assertFalse(can_download_version_file(self.reader, version))
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class DemoWorkflowCommandTests(TestCase):
+    """Verifica il management command demo_workflow con --no-email."""
+
+    def _call(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('demo_workflow', *args, stdout=out)
+        return out.getvalue()
+
+    def test_no_email_flag_completes_workflow(self):
+        output = self._call('--reset', '--no-email')
+        self.assertIn('Rev.01', output)
+        self.assertIn('completata', output)
+
+    def test_no_email_flag_creates_approved_current_version(self):
+        from documents.models import Document, DocumentVersion
+        self._call('--reset', '--no-email')
+        doc = Document.objects.get(code='QUA-DEMO-001')
+        doc.refresh_from_db()
+        self.assertIsNotNone(doc.current_version)
+        self.assertEqual(doc.current_version.status, DocumentVersion.Status.APPROVED)
+        self.assertTrue(doc.current_version.is_current)
+
+    def test_no_email_flag_prints_disabled_message(self):
+        output = self._call('--no-email')
+        self.assertIn('--no-email', output)
+
+    def test_without_no_email_flag_runs_normally(self):
+        """Senza --no-email il comando si avvia e crea i dati (usa locmem dal override_settings di classe)."""
+        output = self._call('--reset')
+        self.assertIn('completata', output)
