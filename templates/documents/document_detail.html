@@ -58,6 +58,7 @@
       <th>Corrente</th>
       <th>Autore</th>
       <th>Approvato il</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
@@ -69,6 +70,11 @@
       <td>{% if v.is_current %}✔{% endif %}</td>
       <td>{{ v.created_by.get_full_name|default:v.created_by.username }}</td>
       <td>{{ v.approved_at|date:"d/m/Y"|default:"—" }}</td>
+      <td>
+        {% if v.status == 'draft' or v.status == 'rejected' %}
+        <a href="{% url 'version_edit' v.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Modifica</a>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

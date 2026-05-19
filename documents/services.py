@@ -147,6 +147,80 @@ def reopen_rejected_version_as_draft(version, user):
     return version
 
 
+def update_draft_version(version, user, revision_label, revision_number, change_summary, new_file=None):
+    if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
+        raise ValidationError(
+            f"Solo le bozze e le revisioni rifiutate possono essere modificate. "
+            f"Stato attuale: {version.get_status_display()}"
+        )
+
+    was_rejected = version.status == DocumentVersion.Status.REJECTED
+
+    if revision_label != version.revision_label:
+        if DocumentVersion.objects.filter(
+            document=version.document, revision_label=revision_label,
+        ).exclude(pk=version.pk).exists():
+            raise ValidationError(
+                f"Etichetta revisione '{revision_label}' già utilizzata per questo documento."
+            )
+
+    if revision_number != version.revision_number:
+        if DocumentVersion.objects.filter(
+            document=version.document, revision_number=revision_number,
+        ).exclude(pk=version.pk).exists():
+            raise ValidationError(
+                f"Numero revisione {revision_number} già utilizzato per questo documento."
+            )
+
+    old_values = {
+        'revision_label': version.revision_label,
+        'revision_number': version.revision_number,
+        'change_summary': version.change_summary,
+        'status': version.status,
+    }
+
+    with transaction.atomic():
+        update_fields = ['revision_label', 'revision_number', 'change_summary']
+
+        version.revision_label = revision_label
+        version.revision_number = revision_number
+        version.change_summary = change_summary
+
+        if new_file is not None:
+            version.file = new_file
+            update_fields.append('file')
+
+        if was_rejected:
+            version.status = DocumentVersion.Status.DRAFT
+            version.submitted_at = None
+            version.rejected_at = None
+            update_fields += ['status', 'submitted_at', 'rejected_at']
+
+        version.save(update_fields=update_fields)
+
+        metadata = {}
+        if new_file is not None:
+            metadata['new_file'] = new_file.original_filename
+
+        create_audit_log(
+            user=user,
+            action='REOPENED_AS_DRAFT' if was_rejected else 'VERSION_UPDATED',
+            instance=version,
+            old_values=old_values,
+            new_values={
+                'revision_label': revision_label,
+                'revision_number': revision_number,
+                'change_summary': change_summary,
+                'status': version.status,
+            },
+            document=version.document,
+            document_version=version,
+            metadata=metadata if metadata else None,
+        )
+
+    return version
+
+
 def create_document_file(uploaded_file, user):
     """Crea un DocumentFile da un file caricato via form, calcolando i metadati automaticamente."""
     sha256 = hashlib.sha256()

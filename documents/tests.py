@@ -608,3 +608,127 @@ class DemoWorkflowCommandTests(TestCase):
         """Senza --no-email il comando si avvia e crea i dati (usa locmem dal override_settings di classe)."""
         output = self._call('--reset')
         self.assertIn('completata', output)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class EditVersionTests(TestCase):
+    """Verifica la view edit_version e il service update_draft_version."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        mail.outbox = []
+        self.author = User.objects.create_user('ev_author', email='a@t.com', password='pw')
+        self.other = User.objects.create_user('ev_other', password='pw')
+        Group.objects.get_or_create(name='Document Authors')[0].user_set.add(self.author)
+        self.document = make_document(code='EV-001', owner=self.author)
+        self.draft = create_new_revision(self.document, self.author, 'A', 1)
+
+    def test_author_can_access_edit_form_on_draft(self):
+        self.client.login(username='ev_author', password='pw')
+        response = self.client.get(reverse('version_edit', args=[self.draft.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'EV-001')
+
+    def test_unauthenticated_redirects_to_login(self):
+        response = self.client.get(reverse('version_edit', args=[self.draft.pk]))
+        self.assertRedirects(
+            response,
+            f'/accounts/login/?next=/versions/{self.draft.pk}/edit/',
+        )
+
+    def test_other_user_gets_403(self):
+        self.client.login(username='ev_other', password='pw')
+        response = self.client.get(reverse('version_edit', args=[self.draft.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_author_can_update_change_summary(self):
+        self.client.login(username='ev_author', password='pw')
+        self.client.post(reverse('version_edit', args=[self.draft.pk]), {
+            'revision_label': 'A',
+            'revision_number': '1',
+            'change_summary': 'Sommario aggiornato',
+        })
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.change_summary, 'Sommario aggiornato')
+
+    def test_edit_draft_redirects_to_my_drafts(self):
+        self.client.login(username='ev_author', password='pw')
+        response = self.client.post(reverse('version_edit', args=[self.draft.pk]), {
+            'revision_label': 'A',
+            'revision_number': '1',
+            'change_summary': 'Aggiornamento',
+        })
+        self.assertRedirects(response, reverse('my_drafts'))
+
+    def test_edit_draft_remains_draft(self):
+        self.client.login(username='ev_author', password='pw')
+        self.client.post(reverse('version_edit', args=[self.draft.pk]), {
+            'revision_label': 'A',
+            'revision_number': '1',
+            'change_summary': 'Aggiornamento',
+        })
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, DocumentVersion.Status.DRAFT)
+
+    def test_author_can_replace_file(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            uploaded = SimpleUploadedFile(
+                'nuovo.pdf', b'%PDF-1.4 new', content_type='application/pdf',
+            )
+            self.client.login(username='ev_author', password='pw')
+            self.client.post(reverse('version_edit', args=[self.draft.pk]), {
+                'revision_label': 'A',
+                'revision_number': '1',
+                'change_summary': '',
+                'file': uploaded,
+            })
+        self.draft.refresh_from_db()
+        self.assertIsNotNone(self.draft.file)
+        self.assertEqual(self.draft.file.original_filename, 'nuovo.pdf')
+
+    def test_edit_rejected_version_returns_to_draft(self):
+        approver = User.objects.create_user('ev_approver', email='ap@t.com', password='pw')
+        req = submit_version_for_approval(self.draft, self.author, [approver])
+        from approvals.services import reject_version
+        reject_version(req, approver, 'Non conforme')
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, DocumentVersion.Status.REJECTED)
+
+        self.client.login(username='ev_author', password='pw')
+        self.client.post(reverse('version_edit', args=[self.draft.pk]), {
+            'revision_label': 'A',
+            'revision_number': '1',
+            'change_summary': 'Corretta sezione 3',
+        })
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.status, DocumentVersion.Status.DRAFT)
+
+    def test_in_approval_version_gets_403(self):
+        approver = User.objects.create_user('ev_approver2', email='ap2@t.com', password='pw')
+        submit_version_for_approval(self.draft, self.author, [approver])
+        self.draft.refresh_from_db()
+
+        self.client.login(username='ev_author', password='pw')
+        response = self.client.get(reverse('version_edit', args=[self.draft.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_approved_version_gets_403(self):
+        approver = User.objects.create_user('ev_approver3', email='ap3@t.com', password='pw')
+        req = submit_version_for_approval(self.draft, self.author, [approver])
+        from approvals.services import approve_version
+        approve_version(req, approver)
+        self.draft.refresh_from_db()
+
+        self.client.login(username='ev_author', password='pw')
+        response = self.client.get(reverse('version_edit', args=[self.draft.pk]))
+        self.assertEqual(response.status_code, 403)

@@ -107,6 +107,20 @@ def can_submit_for_approval(user, version):
     return False
 
 
+def can_edit_version(user, version):
+    if not user.is_authenticated:
+        return False
+    if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
+        return False
+    if user.is_superuser:
+        return True
+    if _in_group(user, GROUP_MANAGERS):
+        return True
+    if version.created_by_id == user.pk:
+        return True
+    return False
+
+
 def can_download_version_file(user, version):
     if not user.is_authenticated:
         return False

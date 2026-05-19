@@ -11,6 +11,7 @@ from documents.models import Document, DocumentVersion
 from documents.permissions import (
     can_create_document,
     can_create_revision,
+    can_edit_version,
     can_submit_for_approval,
     is_document_auditor,
     is_document_manager,
@@ -230,6 +231,54 @@ def submit_for_approval(request, version_id):
         form = SubmitForApprovalForm()
 
     return render(request, 'documents/submit_for_approval.html', {
+        'form': form,
+        'version': version,
+        'document': version.document,
+    })
+
+
+@login_required
+def edit_version(request, version_id):
+    from documents.forms import DocumentVersionEditForm
+    from documents.services import update_draft_version
+
+    version = get_object_or_404(DocumentVersion, pk=version_id)
+
+    if not can_edit_version(request.user, version):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        form = DocumentVersionEditForm(request.POST, request.FILES)
+        if form.is_valid():
+            d = form.cleaned_data
+            try:
+                new_file = None
+                if d.get('file'):
+                    new_file = create_document_file(d['file'], request.user)
+                update_draft_version(
+                    version=version,
+                    user=request.user,
+                    revision_label=d['revision_label'],
+                    revision_number=d['revision_number'],
+                    change_summary=d['change_summary'],
+                    new_file=new_file,
+                )
+                messages.success(
+                    request,
+                    f'Rev. {version.revision_label} di {version.document.code} aggiornata.',
+                )
+                return redirect('my_drafts')
+            except ValidationError as exc:
+                for msg in exc.messages:
+                    messages.error(request, msg)
+    else:
+        form = DocumentVersionEditForm(initial={
+            'revision_label': version.revision_label,
+            'revision_number': version.revision_number,
+            'change_summary': version.change_summary,
+        })
+
+    return render(request, 'documents/edit_version.html', {
         'form': form,
         'version': version,
         'document': version.document,

@@ -66,6 +66,21 @@ class DocumentRevisionCreateForm(forms.Form):
     file = forms.FileField(required=False, label='File operativo')
 
 
+class DocumentVersionEditForm(forms.Form):
+    revision_label = forms.CharField(max_length=20, label='Etichetta revisione')
+    revision_number = forms.IntegerField(min_value=0, label='Numero revisione')
+    change_summary = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False,
+        label='Sommario modifiche',
+    )
+    file = forms.FileField(
+        required=False,
+        label='Sostituisci file operativo',
+        help_text='Lascia vuoto per mantenere il file esistente.',
+    )
+
+
 class SubmitForApprovalForm(forms.Form):
     approvers = forms.ModelMultipleChoiceField(
         queryset=User.objects.filter(is_active=True).order_by('last_name', 'first_name', 'username'),
