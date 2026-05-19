@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Nuova cartella — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'folder_list' %}">← Cartelle</a></p>
+<h1>Nuova cartella</h1>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;margin-bottom:1.25rem">
+      <div>
+        <label for="{{ form.code.id_for_label }}">{{ form.code.label }}</label>
+        {{ form.code }}
+        {% for error in form.code.errors %}
+        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+        {{ form.name }}
+        {% for error in form.name.errors %}
+        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div style="margin-bottom:1.25rem">
+      <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:.5rem">
+      <div>
+        <label for="{{ form.folder_kind.id_for_label }}">{{ form.folder_kind.label }}</label>
+        {{ form.folder_kind }}
+        {% for error in form.folder_kind.errors %}
+        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label for="{{ form.parent.id_for_label }}">{{ form.parent.label }}</label>
+        {{ form.parent }}
+        {% for error in form.parent.errors %}
+        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
+        {{ form.status }}
+        {% for error in form.status.errors %}
+        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  <button type="submit" class="btn btn-primary">Crea cartella</button>
+  <a href="{% url 'folder_list' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

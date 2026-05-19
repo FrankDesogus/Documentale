@@ -7,6 +7,7 @@ from approvals.services import approve_version, reject_version
 from auditlog.models import AuditLog
 from documents.models import Document, DocumentVersion
 from documents.permissions import GROUP_APPROVERS, GROUP_AUTHORS, GROUP_READERS
+from projects.models import ProjectFolder
 from documents.services import (
     create_new_revision,
     reopen_rejected_version_as_draft,
@@ -81,7 +82,31 @@ class Command(BaseCommand):
         Group.objects.get_or_create(name=GROUP_READERS)[0].user_set.add(lettore)
         self._step('Gruppi assegnati: autore→Authors, approvatore→Approvers, lettore→Readers')
 
-        # 2. Documento demo
+        # 2. Cartelle demo
+        cartella_ing, _ = ProjectFolder.objects.get_or_create(
+            code='ING',
+            defaults={
+                'name': 'Ingegneria',
+                'folder_kind': ProjectFolder.FolderKind.DEPARTMENT,
+                'status': ProjectFolder.Status.ACTIVE,
+                'owner': autore,
+                'created_by': autore,
+            },
+        )
+        cartella_std, _ = ProjectFolder.objects.get_or_create(
+            code='ING-STD',
+            defaults={
+                'name': 'Standard tecnici',
+                'folder_kind': ProjectFolder.FolderKind.GENERIC,
+                'parent': cartella_ing,
+                'status': ProjectFolder.Status.ACTIVE,
+                'owner': autore,
+                'created_by': autore,
+            },
+        )
+        self._step(f'Cartelle: {cartella_ing} → {cartella_std}')
+
+        # 3. Documento demo
         if Document.objects.filter(code=DEMO_DOCUMENT_CODE).exists():
             self.stdout.write(
                 self.style.WARNING(
@@ -96,6 +121,7 @@ class Command(BaseCommand):
             title='Procedura demo gestione qualità',
             category=Document.Category.QUALITY,
             document_type='Procedura',
+            project_folder=cartella_std,
             owner=autore,
             created_by=autore,
         )

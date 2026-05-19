@@ -52,6 +52,7 @@
   <strong><a href="/" style="color:#fff;text-decoration:none">Documentale</a></strong>
   {% if user.is_authenticated %}
     <a href="{% url 'document_list' %}">Documenti</a>
+    <a href="{% url 'folder_list' %}">Cartelle</a>
     <a href="{% url 'my_drafts' %}">Mie bozze</a>
     <a href="{% url 'approval_queue' %}">Da approvare</a>
     {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}{{ folder.name }} — Cartelle — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'folder_list' %}">← Cartelle</a>
+  {% if folder.parent %}
+  &nbsp;/ <a href="{% url 'folder_detail' folder.parent.pk %}">{{ folder.parent.name }}</a>
+  {% endif %}
+  {% if can_create %}
+  <a href="{% url 'folder_create' %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuova sottocartella</a>
+  {% endif %}
+</p>
+<h1>{{ folder.name }}</h1>
+
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Codice</dt>    <dd>{{ folder.code }}</dd>
+    <dt>Tipo</dt>      <dd>{{ folder.get_folder_kind_display }}</dd>
+    <dt>Stato</dt>     <dd><span class="badge badge-{{ folder.status }}">{{ folder.get_status_display }}</span></dd>
+    {% if folder.parent %}
+    <dt>Cartella padre</dt>
+    <dd><a href="{% url 'folder_detail' folder.parent.pk %}">{{ folder.parent.code }} – {{ folder.parent.name }}</a></dd>
+    {% endif %}
+    {% if folder.description %}
+    <dt>Descrizione</dt><dd>{{ folder.description }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{% if subfolders %}
+<h2>Sottocartelle</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th>
+      <th>Nome</th>
+      <th>Tipo</th>
+      <th>Stato</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sub in subfolders %}
+    <tr>
+      <td><strong>{{ sub.code }}</strong></td>
+      <td>{{ sub.name }}</td>
+      <td>{{ sub.get_folder_kind_display }}</td>
+      <td><span class="badge badge-{{ sub.status }}">{{ sub.get_status_display }}</span></td>
+      <td><a href="{% url 'folder_detail' sub.pk %}" class="btn btn-primary">Apri</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2 style="margin-top:1.5rem">Documenti</h2>
+{% if documents %}
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th>
+      <th>Titolo</th>
+      <th>Categoria</th>
+      <th>Revisione corrente</th>
+      <th>Stato</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for doc in documents %}
+    <tr>
+      <td><strong>{{ doc.code }}</strong></td>
+      <td>{{ doc.title }}</td>
+      <td>{{ doc.get_category_display }}</td>
+      <td>
+        {% if doc.current_version %}
+        Rev. {{ doc.current_version.revision_label }}
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if doc.current_version %}
+        <span class="badge badge-{{ doc.current_version.status }}">{{ doc.current_version.get_status_display }}</span>
+        {% else %}
+        <span class="badge badge-draft">Nessuna versione approvata</span>
+        {% endif %}
+      </td>
+      <td><a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary">Apri</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">
+  <p class="meta">Nessun documento associato a questa cartella.</p>
+</div>
+{% endif %}
+{% endblock %}

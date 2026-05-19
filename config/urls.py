@@ -12,6 +12,7 @@ urlpatterns = [
     path('versions/<int:version_id>/submit/', submit_for_approval, name='version_submit'),
     path('versions/<int:version_id>/edit/', edit_version, name='version_edit'),
     path('versions/<int:version_id>/download/', download_version_file, name='version_download'),
+    path('folders/', include('projects.urls')),
     path('approvals/', include('approvals.urls')),
     path('accounts/login/', auth_views.LoginView.as_view(), name='login'),
     path('accounts/logout/', auth_views.LogoutView.as_view(), name='logout'),

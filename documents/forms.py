@@ -25,9 +25,9 @@ class DocumentCreateForm(forms.Form):
         help_text='Es. Procedura, Istruzione operativa, Modulo…',
     )
     project_folder = forms.ModelChoiceField(
-        queryset=ProjectFolder.objects.filter(is_active=True),
+        queryset=ProjectFolder.objects.filter(status='active').order_by('code'),
         required=False,
-        label='Cartella progetto',
+        label='Cartella',
         empty_label='— nessuna —',
     )
     revision_label = forms.CharField(

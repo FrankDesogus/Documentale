@@ -3,6 +3,16 @@ from django.contrib import admin
 from .models import ProjectFolder, ProjectRevision, ProjectRevisionItem
 
 
+class SubfolderInline(admin.TabularInline):
+    model = ProjectFolder
+    fk_name = 'parent'
+    extra = 0
+    fields = ('code', 'name', 'folder_kind', 'status')
+    show_change_link = True
+    verbose_name = 'Sottocartella'
+    verbose_name_plural = 'Sottocartelle'
+
+
 class ProjectRevisionInline(admin.TabularInline):
     model = ProjectRevision
     extra = 0
@@ -19,10 +29,11 @@ class ProjectRevisionItemInline(admin.TabularInline):
 
 @admin.register(ProjectFolder)
 class ProjectFolderAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'owner', 'is_active', 'created_at')
-    list_filter = ('is_active',)
+    list_display = ('code', 'name', 'folder_kind', 'parent', 'status', 'created_by', 'created_at')
+    list_filter = ('folder_kind', 'status')
     search_fields = ('code', 'name')
-    inlines = [ProjectRevisionInline]
+    autocomplete_fields = ('parent',)
+    inlines = [SubfolderInline, ProjectRevisionInline]
 
 
 @admin.register(ProjectRevision)
