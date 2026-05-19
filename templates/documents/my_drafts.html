@@ -2,7 +2,10 @@
 {% block title %}Mie bozze — Documentale{% endblock %}
 
 {% block content %}
-<h1>Mie bozze</h1>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+  <h1 style="margin:0">Mie bozze</h1>
+  <a href="{% url 'document_new' %}" class="btn btn-primary">+ Nuovo documento</a>
+</div>
 
 {% if versions %}
 <table>
@@ -13,6 +16,7 @@
       <th>Stato</th>
       <th>Sommario modifiche</th>
       <th>Creata il</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
@@ -26,6 +30,9 @@
       <td><span class="badge badge-{{ v.status }}">{{ v.get_status_display }}</span></td>
       <td>{{ v.change_summary|default:"—"|truncatechars:80 }}</td>
       <td class="meta">{{ v.created_at|date:"d/m/Y" }}</td>
+      <td>
+        <a href="{% url 'version_submit' v.pk %}" class="btn btn-success">Invia in approvazione</a>
+      </td>
     </tr>
     {% endfor %}
   </tbody>
@@ -33,6 +40,7 @@
 {% else %}
 <div class="card">
   <p class="meta">Nessuna bozza o revisione rifiutata in lavorazione.</p>
+  <a href="{% url 'document_new' %}" class="btn btn-primary" style="margin-top:.5rem">Crea il primo documento</a>
 </div>
 {% endif %}
 {% endblock %}

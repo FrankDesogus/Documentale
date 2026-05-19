@@ -37,6 +37,14 @@
     </div>
   </a>
 
+  <a href="{% url 'document_new' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer">
+      <div style="font-size:2rem;margin-bottom:.5rem">➕</div>
+      <div style="font-weight:600;color:#1a3a5c">Nuovo documento</div>
+      <div class="meta">Crea documento e prima bozza</div>
+    </div>
+  </a>
+
   {% if user.is_staff %}
   <a href="/admin/" style="text-decoration:none">
     <div class="card" style="text-align:center;cursor:pointer">

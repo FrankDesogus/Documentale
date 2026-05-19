@@ -1,8 +1,12 @@
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.http import Http404
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 
 from documents.models import Document, DocumentVersion
+from documents.services import create_document_file, create_new_revision
 
 
 @login_required
@@ -64,3 +68,147 @@ def my_drafts(request):
         status__in=[DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED],
     ).select_related('document').order_by('-created_at')
     return render(request, 'documents/my_drafts.html', {'versions': versions})
+
+
+@login_required
+def new_document(request):
+    from documents.forms import DocumentCreateForm
+
+    if request.method == 'POST':
+        form = DocumentCreateForm(request.POST, request.FILES)
+        if form.is_valid():
+            d = form.cleaned_data
+            try:
+                with transaction.atomic():
+                    doc = Document.objects.create(
+                        code=d['code'],
+                        title=d['title'],
+                        description=d['description'],
+                        category=d['category'],
+                        document_type=d['document_type'],
+                        project_folder=d['project_folder'],
+                        owner=request.user,
+                        created_by=request.user,
+                    )
+                    doc_file = None
+                    if d.get('file'):
+                        doc_file = create_document_file(d['file'], request.user)
+                    create_new_revision(
+                        document=doc,
+                        created_by=request.user,
+                        revision_label=d['revision_label'],
+                        revision_number=d['revision_number'],
+                        file=doc_file,
+                        change_summary=d['change_summary'],
+                    )
+                messages.success(
+                    request,
+                    f'Documento {doc.code} creato con prima bozza Rev. {d["revision_label"]}.',
+                )
+                return redirect('my_drafts')
+            except ValidationError as exc:
+                for msg in exc.messages:
+                    messages.error(request, msg)
+    else:
+        form = DocumentCreateForm()
+
+    return render(request, 'documents/new_document.html', {'form': form})
+
+
+@login_required
+def new_revision(request, document_id):
+    from documents.forms import DocumentRevisionCreateForm
+
+    doc = get_object_or_404(Document, pk=document_id)
+
+    last_version = doc.versions.order_by('-revision_number').first()
+    if last_version:
+        next_number = last_version.revision_number + 1
+        next_label = str(next_number).zfill(2)
+    else:
+        next_number = 0
+        next_label = '00'
+
+    if request.method == 'POST':
+        form = DocumentRevisionCreateForm(request.POST, request.FILES)
+        if form.is_valid():
+            d = form.cleaned_data
+            try:
+                with transaction.atomic():
+                    doc_file = None
+                    if d.get('file'):
+                        doc_file = create_document_file(d['file'], request.user)
+                    version = create_new_revision(
+                        document=doc,
+                        created_by=request.user,
+                        revision_label=d['revision_label'],
+                        revision_number=d['revision_number'],
+                        file=doc_file,
+                        change_summary=d['change_summary'],
+                    )
+                messages.success(
+                    request,
+                    f'Revisione Rev. {version.revision_label} creata come bozza.',
+                )
+                return redirect('my_drafts')
+            except ValidationError as exc:
+                for msg in exc.messages:
+                    messages.error(request, msg)
+    else:
+        form = DocumentRevisionCreateForm(initial={
+            'revision_label': next_label,
+            'revision_number': next_number,
+        })
+
+    return render(request, 'documents/new_revision.html', {
+        'form': form,
+        'document': doc,
+    })
+
+
+@login_required
+def submit_for_approval(request, version_id):
+    from documents.forms import SubmitForApprovalForm
+    from documents.services import submit_version_for_approval
+
+    version = get_object_or_404(DocumentVersion, pk=version_id)
+
+    if version.created_by != request.user and not request.user.is_staff:
+        raise PermissionDenied
+
+    if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
+        messages.error(
+            request,
+            f'Questa revisione non può essere inviata in approvazione '
+            f'(stato: {version.get_status_display()}).',
+        )
+        return redirect('my_drafts')
+
+    if request.method == 'POST':
+        form = SubmitForApprovalForm(request.POST)
+        if form.is_valid():
+            d = form.cleaned_data
+            try:
+                submit_version_for_approval(
+                    version=version,
+                    requested_by=request.user,
+                    approvers=list(d['approvers']),
+                    due_date=d.get('due_date'),
+                )
+                messages.success(
+                    request,
+                    f'Rev. {version.revision_label} di {version.document.code} '
+                    f'inviata in approvazione.',
+                )
+                return redirect('dashboard')
+            except ValidationError as exc:
+                for msg in exc.messages:
+                    messages.error(request, msg)
+    else:
+        form = SubmitForApprovalForm()
+
+    return render(request, 'documents/submit_for_approval.html', {
+        'form': form,
+        'version': version,
+        'document': version.document,
+    })

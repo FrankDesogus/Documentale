@@ -2,7 +2,12 @@
 {% block title %}{{ document.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'document_list' %}">← Documenti</a></p>
+<p class="meta">
+  <a href="{% url 'document_list' %}">← Documenti</a>
+  {% if document.status == 'active' %}
+  <a href="{% url 'document_new_revision' document.pk %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuova revisione</a>
+  {% endif %}
+</p>
 <h1>{{ document.code }} — {{ document.title }}</h1>
 
 <div class="card">

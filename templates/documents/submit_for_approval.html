@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Invia in approvazione — {{ document.code }} rev.{{ version.revision_label }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'my_drafts' %}">← Mie bozze</a></p>
+<h1>Invia in approvazione</h1>
+
+<div class="card" style="margin-bottom:1rem">
+  <dl class="dl-grid">
+    <dt>Documento</dt>  <dd>{{ document.code }} — {{ document.title }}</dd>
+    <dt>Revisione</dt>  <dd>Rev. {{ version.revision_label }} (n. {{ version.revision_number }})</dd>
+    <dt>Stato</dt>      <dd><span class="badge badge-{{ version.status }}">{{ version.get_status_display }}</span></dd>
+    {% if version.change_summary %}
+    <dt>Sommario</dt>   <dd>{{ version.change_summary }}</dd>
+    {% endif %}
+    {% if version.rejection_reason %}
+    <dt>Motivo rifiuto precedente</dt>
+    <dd style="color:#721c24">{{ version.rejection_reason }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+
+    <div style="margin-bottom:1.25rem">
+      <label>
+        {{ form.approvers.label }} <span style="color:#dc3545">*</span>
+      </label>
+      <div style="margin-top:.4rem;columns:2;column-gap:1.5rem">
+        {% for choice in form.approvers %}
+        <div style="break-inside:avoid;margin-bottom:.3rem">{{ choice }}</div>
+        {% endfor %}
+      </div>
+      {% for error in form.approvers.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.3rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    <div style="max-width:240px">
+      <label for="{{ form.due_date.id_for_label }}">{{ form.due_date.label }}</label>
+      {{ form.due_date }}
+      {% for error in form.due_date.errors %}
+      <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+  </div>
+
+  <button type="submit" class="btn btn-primary">Invia in approvazione</button>
+  <a href="{% url 'my_drafts' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

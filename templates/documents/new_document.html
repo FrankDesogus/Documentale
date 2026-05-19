@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Nuovo documento — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'dashboard' %}">← Dashboard</a></p>
+<h1>Nuovo documento</h1>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="margin-top:0">Dati documento</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+      {% for field in form %}
+        {% if field.name in "code,title,category,document_type,project_folder" %}
+        <div {% if field.name == "title" %}style="grid-column:span 2"{% endif %}>
+          <label for="{{ field.id_for_label }}">
+            {{ field.label }}{% if field.field.required %} <span style="color:#dc3545">*</span>{% endif %}
+          </label>
+          {{ field }}
+          {% if field.help_text %}<div class="meta" style="margin-top:.2rem">{{ field.help_text }}</div>{% endif %}
+          {% for error in field.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+      <div style="grid-column:span 2">
+        <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+        {{ form.description }}
+        {% for error in form.description.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="margin-top:0">Prima revisione</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+      <div>
+        <label for="{{ form.revision_label.id_for_label }}">
+          {{ form.revision_label.label }} <span style="color:#dc3545">*</span>
+        </label>
+        {{ form.revision_label }}
+        {% if form.revision_label.help_text %}<div class="meta">{{ form.revision_label.help_text }}</div>{% endif %}
+        {% for error in form.revision_label.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      </div>
+      <div>
+        <label for="{{ form.revision_number.id_for_label }}">
+          {{ form.revision_number.label }} <span style="color:#dc3545">*</span>
+        </label>
+        {{ form.revision_number }}
+        {% for error in form.revision_number.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      </div>
+      <div style="grid-column:span 2">
+        <label for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
+        {{ form.change_summary }}
+      </div>
+      <div style="grid-column:span 2">
+        <label for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
+        {{ form.file }}
+        {% for error in form.file.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Crea documento e prima bozza</button>
+  <a href="{% url 'dashboard' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

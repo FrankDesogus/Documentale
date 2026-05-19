@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Nuova revisione — {{ document.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'document_detail' document.pk %}">← {{ document.code }}</a></p>
+<h1>Nuova revisione — {{ document.code }}</h1>
+<p class="meta">{{ document.title }}</p>
+
+{% if document.current_version %}
+<div class="card meta" style="margin-bottom:1rem">
+  Revisione corrente: <strong>Rev. {{ document.current_version.revision_label }}</strong>
+  ({{ document.current_version.get_status_display }})
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <div class="card">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+
+      <div>
+        <label for="{{ form.revision_label.id_for_label }}">
+          {{ form.revision_label.label }} <span style="color:#dc3545">*</span>
+        </label>
+        {{ form.revision_label }}
+        {% if form.revision_label.help_text %}<div class="meta">{{ form.revision_label.help_text }}</div>{% endif %}
+        {% for error in form.revision_label.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      </div>
+
+      <div>
+        <label for="{{ form.revision_number.id_for_label }}">
+          {{ form.revision_number.label }} <span style="color:#dc3545">*</span>
+        </label>
+        {{ form.revision_number }}
+        {% for error in form.revision_number.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      </div>
+
+      <div style="grid-column:span 2">
+        <label for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
+        {{ form.change_summary }}
+      </div>
+
+      <div style="grid-column:span 2">
+        <label for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
+        {{ form.file }}
+        {% for error in form.file.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      </div>
+
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Crea bozza</button>
+  <a href="{% url 'document_detail' document.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

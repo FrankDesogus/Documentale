@@ -1,6 +1,10 @@
+import shutil
+import tempfile
+
 from django.contrib.auth.models import User
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -228,3 +232,128 @@ class DocumentViewTests(TestCase):
         response = self.client.get(reverse('document_detail', args=[self.document.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.document.code)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class AuthorWorkflowViewTests(TestCase):
+    """Verifica il flusso autore: crea documento, nuova revisione, invio approvazione."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        mail.outbox = []
+        self.author = User.objects.create_user('author', email='a@t.com', password='pw')
+        self.approver = User.objects.create_user('approver', email='ap@t.com', password='pw')
+        self.client.login(username='author', password='pw')
+
+    def test_unauthenticated_new_document_redirects_to_login(self):
+        self.client.logout()
+        response = self.client.get(reverse('document_new'))
+        self.assertRedirects(response, '/accounts/login/?next=/documents/new/')
+
+    def test_create_document_from_ui(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            response = self.client.post(reverse('document_new'), {
+                'code': 'UI-001',
+                'title': 'Documento test UI',
+                'category': 'QUALITY',
+                'revision_label': '00',
+                'revision_number': '0',
+            })
+        self.assertRedirects(response, reverse('my_drafts'))
+        self.assertTrue(Document.objects.filter(code='UI-001').exists())
+        version = DocumentVersion.objects.get(document__code='UI-001')
+        self.assertEqual(version.status, DocumentVersion.Status.DRAFT)
+        self.assertFalse(version.is_current)
+
+    def test_create_document_with_file_associates_it_to_version(self):
+        uploaded = SimpleUploadedFile(
+            'procedura.pdf', b'%PDF-1.4 contenuto fittizio', content_type='application/pdf',
+        )
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            self.client.post(reverse('document_new'), {
+                'code': 'UI-002',
+                'title': 'Documento con file',
+                'category': 'QUALITY',
+                'revision_label': '00',
+                'revision_number': '0',
+                'file': uploaded,
+            })
+        version = DocumentVersion.objects.get(document__code='UI-002')
+        self.assertIsNotNone(version.file)
+        self.assertEqual(version.file.original_filename, 'procedura.pdf')
+        self.assertEqual(version.file.extension, 'pdf')
+        self.assertEqual(version.file.mime_type, 'application/pdf')
+        self.assertTrue(len(version.file.sha256_hash) == 64)
+
+    def test_create_new_revision_from_ui(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            # Crea documento
+            self.client.post(reverse('document_new'), {
+                'code': 'UI-003',
+                'title': 'Documento revisioni',
+                'category': 'QUALITY',
+                'revision_label': '00',
+                'revision_number': '0',
+            })
+            doc = Document.objects.get(code='UI-003')
+            # Crea nuova revisione
+            response = self.client.post(
+                reverse('document_new_revision', args=[doc.pk]),
+                {
+                    'revision_label': '01',
+                    'revision_number': '1',
+                    'change_summary': 'Aggiornamento sezione 2',
+                },
+            )
+        self.assertRedirects(response, reverse('my_drafts'))
+        self.assertEqual(doc.versions.count(), 2)
+        v01 = doc.versions.get(revision_label='01')
+        self.assertEqual(v01.status, DocumentVersion.Status.DRAFT)
+
+    def test_submit_for_approval_from_ui(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            self.client.post(reverse('document_new'), {
+                'code': 'UI-004',
+                'title': 'Documento submit',
+                'category': 'QUALITY',
+                'revision_label': '00',
+                'revision_number': '0',
+            })
+        doc = Document.objects.get(code='UI-004')
+        version = doc.versions.first()
+
+        response = self.client.post(
+            reverse('version_submit', args=[version.pk]),
+            {'approvers': [self.approver.pk]},
+        )
+        self.assertRedirects(response, reverse('dashboard'))
+        version.refresh_from_db()
+        self.assertEqual(version.status, DocumentVersion.Status.IN_APPROVAL)
+
+    def test_duplicate_code_shows_form_error(self):
+        with self.settings(MEDIA_ROOT=self.temp_media):
+            self.client.post(reverse('document_new'), {
+                'code': 'UI-DUP',
+                'title': 'Primo',
+                'category': 'QUALITY',
+                'revision_label': '00',
+                'revision_number': '0',
+            })
+            response = self.client.post(reverse('document_new'), {
+                'code': 'UI-DUP',
+                'title': 'Secondo con stesso codice',
+                'category': 'QUALITY',
+                'revision_label': '00',
+                'revision_number': '0',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'esiste già')

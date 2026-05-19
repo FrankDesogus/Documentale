@@ -1,8 +1,12 @@
+import hashlib
+import mimetypes
+import os
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from documents.models import Document, DocumentVersion
+from documents.models import Document, DocumentFile, DocumentVersion
 from auditlog.services import create_audit_log
 
 
@@ -141,3 +145,25 @@ def reopen_rejected_version_as_draft(version, user):
     )
 
     return version
+
+
+def create_document_file(uploaded_file, user):
+    """Crea un DocumentFile da un file caricato via form, calcolando i metadati automaticamente."""
+    sha256 = hashlib.sha256()
+    for chunk in uploaded_file.chunks():
+        sha256.update(chunk)
+    uploaded_file.seek(0)
+
+    name = uploaded_file.name
+    ext = os.path.splitext(name)[1].lstrip('.').lower()
+    mime = getattr(uploaded_file, 'content_type', None) or mimetypes.guess_type(name)[0] or ''
+
+    return DocumentFile.objects.create(
+        file=uploaded_file,
+        original_filename=name,
+        extension=ext,
+        size=uploaded_file.size,
+        mime_type=mime,
+        sha256_hash=sha256.hexdigest(),
+        uploaded_by=user,
+    )
