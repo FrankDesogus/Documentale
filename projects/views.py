@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
-from projects.models import Project, ProjectFolder
+from projects.models import Project, ProjectFolder, ProjectRevision
 from projects.permissions import can_manage_folder, can_view_folder
 
 
@@ -128,10 +128,13 @@ def project_detail(request, project_id):
         ).order_by('code')
         subfolders = project.folder.subfolders.order_by('code')
 
+    revisions = project.revisions.order_by('-revision_number')
+
     return render(request, 'projects/project_detail.html', {
         'project': project,
         'documents': documents,
         'subfolders': subfolders,
+        'revisions': revisions,
         'can_manage': _can_manage_project(request.user),
     })
 
@@ -155,3 +158,98 @@ def project_create(request):
         form = ProjectForm()
 
     return render(request, 'projects/project_form.html', {'form': form})
+
+
+# ---------------------------------------------------------------------------
+# ProjectRevision (baseline) views
+# ---------------------------------------------------------------------------
+
+@login_required
+def project_revision_create(request, project_id):
+    from projects.forms import ProjectRevisionForm
+    from projects.services import create_project_revision, populate_project_revision_from_current_documents
+
+    project = get_object_or_404(Project, pk=project_id)
+
+    if not _can_manage_project(request.user):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        form = ProjectRevisionForm(request.POST)
+        if form.is_valid():
+            d = form.cleaned_data
+            revision = create_project_revision(
+                project=project,
+                created_by=request.user,
+                revision_label=d['revision_label'],
+                revision_number=d['revision_number'],
+                title=d['title'],
+                description=d['description'],
+            )
+            added = populate_project_revision_from_current_documents(revision)
+            messages.success(
+                request,
+                f'Baseline {revision.revision_label} creata con {added} documenti.'
+            )
+            return redirect('project_revision_detail', revision_id=revision.pk)
+    else:
+        form = ProjectRevisionForm()
+
+    return render(request, 'projects/project_revision_form.html', {
+        'form': form,
+        'project': project,
+    })
+
+
+@login_required
+def project_revision_detail(request, revision_id):
+    revision = get_object_or_404(
+        ProjectRevision.objects.select_related('project', 'created_by', 'issued_by'),
+        pk=revision_id,
+    )
+    project = revision.project
+
+    if not _can_manage_project(request.user):
+        if project and project.folder and can_view_folder(request.user, project.folder):
+            pass
+        else:
+            raise PermissionDenied
+
+    items = revision.items.select_related(
+        'document_version', 'document_version__document'
+    ).order_by('item_number')
+
+    can_issue = (
+        _can_manage_project(request.user)
+        and revision.status == ProjectRevision.Status.DRAFT
+    )
+
+    return render(request, 'projects/project_revision_detail.html', {
+        'revision': revision,
+        'project': project,
+        'items': items,
+        'can_issue': can_issue,
+        'can_manage': _can_manage_project(request.user),
+    })
+
+
+@login_required
+def project_revision_issue(request, revision_id):
+    from projects.services import issue_project_revision
+
+    revision = get_object_or_404(ProjectRevision, pk=revision_id)
+
+    if not _can_manage_project(request.user):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        try:
+            issue_project_revision(revision, request.user)
+            messages.success(
+                request,
+                f'Baseline {revision.revision_label} emessa.'
+            )
+        except ValueError as e:
+            messages.error(request, str(e))
+
+    return redirect('project_revision_detail', revision_id=revision.pk)

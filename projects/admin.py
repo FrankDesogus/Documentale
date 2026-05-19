@@ -15,8 +15,9 @@ class SubfolderInline(admin.TabularInline):
 
 class ProjectRevisionInline(admin.TabularInline):
     model = ProjectRevision
+    fk_name = 'project'
     extra = 0
-    fields = ('revision_code', 'title', 'status', 'author', 'created_at')
+    fields = ('revision_label', 'revision_number', 'title', 'status', 'is_current', 'created_at')
     readonly_fields = ('created_at',)
     show_change_link = True
 
@@ -41,7 +42,7 @@ class ProjectFolderAdmin(admin.ModelAdmin):
     list_filter = ('folder_kind', 'status')
     search_fields = ('code', 'name')
     autocomplete_fields = ('parent',)
-    inlines = [SubfolderInline, MembershipInline, ProjectRevisionInline]
+    inlines = [SubfolderInline, MembershipInline]
 
 
 @admin.register(Project)
@@ -51,6 +52,7 @@ class ProjectAdmin(admin.ModelAdmin):
     search_fields = ('code', 'name', 'description', 'folder__code', 'folder__name')
     readonly_fields = ('created_at', 'updated_at')
     autocomplete_fields = ('folder', 'manager')
+    inlines = [ProjectRevisionInline]
 
 
 @admin.register(ProjectFolderMembership)
@@ -62,13 +64,14 @@ class ProjectFolderMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(ProjectRevision)
 class ProjectRevisionAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'project_folder', 'revision_code', 'status', 'author', 'created_at')
-    list_filter = ('status',)
-    search_fields = ('project_folder__code', 'title')
+    list_display = ('__str__', 'project', 'revision_label', 'revision_number', 'status', 'is_current', 'created_at')
+    list_filter = ('status', 'is_current')
+    search_fields = ('project__code', 'title', 'revision_label')
+    readonly_fields = ('created_at',)
     inlines = [ProjectRevisionItemInline]
 
 
 @admin.register(ProjectRevisionItem)
 class ProjectRevisionItemAdmin(admin.ModelAdmin):
     list_display = ('revision', 'item_number', 'description', 'document_version')
-    search_fields = ('description', 'revision__project_folder__code')
+    search_fields = ('description', 'revision__project__code')

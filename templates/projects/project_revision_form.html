@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Nuova baseline — {{ project.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'project_detail' project.pk %}">← {{ project.code }} – {{ project.name }}</a></p>
+<h1>Nuova baseline per {{ project.code }}</h1>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+
+    {% for field in form %}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ field.id_for_label }}">
+        {{ field.label }}
+        {% if field.field.required %}<span style="color:#dc3545"> *</span>{% endif %}
+      </label>
+      {{ field }}
+      {% if field.help_text %}
+      <div class="meta" style="margin-top:.2rem">{{ field.help_text }}</div>
+      {% endif %}
+      {% for error in field.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <p class="meta" style="margin-top:.5rem">
+      Dopo la creazione i documenti correnti della cartella collegata al progetto verranno
+      aggiunti automaticamente alla baseline.
+    </p>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Crea baseline</button>
+  <a href="{% url 'project_detail' project.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

@@ -91,4 +91,46 @@
   <p class="meta">Nessuna cartella documentale associata a questo progetto.</p>
 </div>
 {% endif %}
+
+<h2 style="margin-top:2rem">Baseline</h2>
+{% if can_manage %}
+<p><a href="{% url 'project_revision_create' project.pk %}" class="btn btn-primary">+ Nuova baseline</a></p>
+{% endif %}
+
+{% if revisions %}
+<table>
+  <thead>
+    <tr>
+      <th>Etichetta</th>
+      <th>N°</th>
+      <th>Titolo</th>
+      <th>Stato</th>
+      <th>Corrente</th>
+      <th>Emessa il</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rev in revisions %}
+    <tr>
+      <td><strong>{{ rev.revision_label }}</strong></td>
+      <td>{{ rev.revision_number }}</td>
+      <td>{{ rev.title }}</td>
+      <td>
+        {% if rev.status == 'draft' %}<span class="badge badge-draft">Bozza</span>
+        {% elif rev.status == 'issued' %}<span class="badge badge-active">Emessa</span>
+        {% elif rev.status == 'superseded' %}<span class="badge badge-archived">Superata</span>
+        {% elif rev.status == 'archived' %}<span class="badge badge-archived">Archiviata</span>
+        {% endif %}
+      </td>
+      <td>{% if rev.is_current %}✓{% endif %}</td>
+      <td>{{ rev.issued_at|date:"d/m/Y"|default:"—" }}</td>
+      <td><a href="{% url 'project_revision_detail' rev.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="meta">Nessuna baseline creata per questo progetto.</p>
+{% endif %}
 {% endblock %}

@@ -178,41 +178,67 @@ class Project(models.Model):
 
 class ProjectRevision(models.Model):
     class Status(models.TextChoices):
-        DRAFT = 'DRAFT', 'Bozza'
-        ISSUED = 'ISSUED', 'Emessa'
-        SUPERSEDED = 'SUPERSEDED', 'Superata'
+        DRAFT = 'draft', 'Bozza'
+        ISSUED = 'issued', 'Emessa'
+        SUPERSEDED = 'superseded', 'Superata'
+        ARCHIVED = 'archived', 'Archiviata'
 
-    project_folder = models.ForeignKey(
-        ProjectFolder,
+    project = models.ForeignKey(
+        Project,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name='revisions',
-        verbose_name='Cartella',
+        verbose_name='Progetto',
     )
-    revision_code = models.CharField(max_length=20, verbose_name='Codice revisione')
+    revision_label = models.CharField(max_length=20, verbose_name='Etichetta revisione')
+    revision_number = models.PositiveIntegerField(default=0, verbose_name='Numero revisione')
     title = models.CharField(max_length=255, verbose_name='Titolo')
+    description = models.TextField(blank=True, verbose_name='Descrizione')
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
         default=Status.DRAFT,
         verbose_name='Stato',
     )
-    author = models.ForeignKey(
+    is_current = models.BooleanField(default=False, verbose_name='Corrente')
+    created_by = models.ForeignKey(
         User,
-        on_delete=models.PROTECT,
-        related_name='authored_project_revisions',
-        verbose_name='Autore',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_project_revisions',
+        verbose_name='Creato da',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    issued_at = models.DateTimeField(null=True, blank=True, verbose_name='Emessa il')
+    issued_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='issued_project_revisions',
+        verbose_name='Emessa da',
+    )
+    replaces_revision = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='replaced_by',
+        verbose_name='Sostituisce',
     )
     notes = models.TextField(blank=True, verbose_name='Note')
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = 'Revisione cartella'
-        verbose_name_plural = 'Revisioni cartella'
-        ordering = ['project_folder', '-created_at']
-        unique_together = [('project_folder', 'revision_code')]
+        verbose_name = 'Baseline progetto'
+        verbose_name_plural = 'Baseline progetto'
+        ordering = ['project', '-revision_number']
+        unique_together = [('project', 'revision_label'), ('project', 'revision_number')]
 
     def __str__(self):
-        return f"{self.project_folder.code} rev.{self.revision_code} – {self.title}"
+        project_code = self.project.code if self.project else '—'
+        return f"{project_code} baseline rev.{self.revision_label} – {self.title}"
 
 
 class ProjectRevisionItem(models.Model):
@@ -220,26 +246,23 @@ class ProjectRevisionItem(models.Model):
         ProjectRevision,
         on_delete=models.CASCADE,
         related_name='items',
-        verbose_name='Revisione cartella',
+        verbose_name='Baseline',
     )
     item_number = models.PositiveSmallIntegerField(verbose_name='Numero voce')
-    # FK a stringa per evitare importazione circolare con l'app documents
     document_version = models.ForeignKey(
         'documents.DocumentVersion',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.PROTECT,
         related_name='project_revision_items',
-        verbose_name='Revisione documento collegata',
+        verbose_name='Revisione documento',
     )
-    description = models.CharField(max_length=255, verbose_name='Descrizione')
+    description = models.CharField(max_length=255, blank=True, verbose_name='Descrizione')
     notes = models.TextField(blank=True, verbose_name='Note')
 
     class Meta:
-        verbose_name = 'Voce revisione cartella'
-        verbose_name_plural = 'Voci revisione cartella'
+        verbose_name = 'Voce baseline progetto'
+        verbose_name_plural = 'Voci baseline progetto'
         ordering = ['revision', 'item_number']
-        unique_together = [('revision', 'item_number')]
+        unique_together = [('revision', 'item_number'), ('revision', 'document_version')]
 
     def __str__(self):
-        return f"{self.revision} – voce {self.item_number}: {self.description}"
+        return f"{self.revision} – voce {self.item_number}: {self.document_version}"

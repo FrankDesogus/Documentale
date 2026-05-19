@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from projects.models import ProjectFolder, ProjectFolderMembership
+from projects.models import Project, ProjectFolder, ProjectFolderMembership, ProjectRevision, ProjectRevisionItem
 
 EMAIL_LOCMEM = 'django.core.mail.backends.locmem.EmailBackend'
 
@@ -528,3 +528,188 @@ class DemoWorkflowProjectTests(TestCase):
         self.assertEqual(p.status, Project.Status.ACTIVE)
         self.assertEqual(p.project_type, Project.ProjectType.INTERNAL)
         self.assertIsNotNone(p.folder)
+
+
+# ---------------------------------------------------------------------------
+# Step 13B — ProjectRevision (baseline) tests
+# ---------------------------------------------------------------------------
+
+def make_project_with_folder(code='BP-PRJ-001', owner=None):
+    folder = ProjectFolder.objects.create(
+        code=f'{code}-FOLD', name='Folder', folder_kind=ProjectFolder.FolderKind.GENERIC,
+        status=ProjectFolder.Status.ACTIVE, owner=owner,
+    )
+    project = Project.objects.create(
+        code=code, name='Baseline Project', status=Project.Status.ACTIVE,
+        project_type=Project.ProjectType.INTERNAL, folder=folder,
+        manager=owner, created_by=owner,
+    )
+    return project, folder
+
+
+class ProjectRevisionServiceTests(TestCase):
+    """create_project_revision, populate_project_revision_from_current_documents, issue_project_revision."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user('br_mgr', password='pw', is_staff=True)
+        self.project, self.folder = make_project_with_folder(owner=self.manager)
+
+    def _make_approved_doc(self, code):
+        from documents.models import Document, DocumentVersion
+        doc = Document.objects.create(
+            code=code, title=f'Doc {code}',
+            category=Document.Category.QUALITY,
+            project_folder=self.folder,
+            owner=self.manager, created_by=self.manager,
+        )
+        version = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED,
+            change_summary='first', created_by=self.manager,
+            is_current=True,
+        )
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        return doc, version
+
+    def test_create_project_revision_returns_draft(self):
+        from projects.services import create_project_revision
+        rev = create_project_revision(self.project, self.manager, 'A', 0, 'Baseline A')
+        self.assertEqual(rev.status, ProjectRevision.Status.DRAFT)
+        self.assertFalse(rev.is_current)
+        self.assertEqual(rev.project, self.project)
+        self.assertEqual(rev.revision_label, 'A')
+
+    def test_populate_adds_current_documents(self):
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        self._make_approved_doc('BP-DOC-001')
+        self._make_approved_doc('BP-DOC-002')
+        rev = create_project_revision(self.project, self.manager, 'A', 0)
+        added = populate_project_revision_from_current_documents(rev)
+        self.assertEqual(added, 2)
+        self.assertEqual(rev.items.count(), 2)
+
+    def test_populate_skips_docs_without_current_version(self):
+        from documents.models import Document
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        Document.objects.create(
+            code='BP-NODOC', title='No version',
+            category=Document.Category.QUALITY,
+            project_folder=self.folder,
+            owner=self.manager, created_by=self.manager,
+        )
+        rev = create_project_revision(self.project, self.manager, 'A', 0)
+        added = populate_project_revision_from_current_documents(rev)
+        self.assertEqual(added, 0)
+
+    def test_issue_marks_revision_as_current(self):
+        from projects.services import create_project_revision, issue_project_revision
+        rev = create_project_revision(self.project, self.manager, 'A', 0)
+        issue_project_revision(rev, self.manager)
+        rev.refresh_from_db()
+        self.assertEqual(rev.status, ProjectRevision.Status.ISSUED)
+        self.assertTrue(rev.is_current)
+        self.assertIsNotNone(rev.issued_at)
+        self.assertEqual(rev.issued_by, self.manager)
+
+    def test_issue_supersedes_previous_current(self):
+        from projects.services import create_project_revision, issue_project_revision
+        rev_a = create_project_revision(self.project, self.manager, 'A', 0)
+        issue_project_revision(rev_a, self.manager)
+        rev_a.refresh_from_db()
+        self.assertTrue(rev_a.is_current)
+
+        rev_b = create_project_revision(self.project, self.manager, 'B', 1)
+        issue_project_revision(rev_b, self.manager)
+        rev_a.refresh_from_db()
+        rev_b.refresh_from_db()
+        self.assertFalse(rev_a.is_current)
+        self.assertEqual(rev_a.status, ProjectRevision.Status.SUPERSEDED)
+        self.assertTrue(rev_b.is_current)
+
+    def test_issue_non_draft_raises(self):
+        from projects.services import create_project_revision, issue_project_revision
+        rev = create_project_revision(self.project, self.manager, 'A', 0)
+        issue_project_revision(rev, self.manager)
+        rev.refresh_from_db()
+        with self.assertRaises(ValueError):
+            issue_project_revision(rev, self.manager)
+
+
+class ProjectRevisionViewTests(TestCase):
+    """Views: project_revision_create, project_revision_detail, project_revision_issue."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user('rv_mgr', password='pw', is_staff=True)
+        self.outsider = User.objects.create_user('rv_out', password='pw')
+        self.project, self.folder = make_project_with_folder(code='RV-PRJ-001', owner=self.manager)
+
+    def test_create_requires_login(self):
+        url = reverse('project_revision_create', args=[self.project.pk])
+        response = self.client.get(url)
+        self.assertRedirects(response, f'/accounts/login/?next={url}')
+
+    def test_create_get_renders_form(self):
+        self.client.login(username='rv_mgr', password='pw')
+        response = self.client.get(reverse('project_revision_create', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('form', response.context)
+
+    def test_create_post_creates_revision_and_redirects(self):
+        self.client.login(username='rv_mgr', password='pw')
+        response = self.client.post(
+            reverse('project_revision_create', args=[self.project.pk]),
+            {'revision_label': 'A', 'revision_number': 0, 'title': 'First baseline', 'description': ''},
+        )
+        rev = ProjectRevision.objects.get(project=self.project, revision_label='A')
+        self.assertRedirects(response, reverse('project_revision_detail', args=[rev.pk]))
+
+    def test_non_manager_gets_403_on_create(self):
+        self.client.login(username='rv_out', password='pw')
+        response = self.client.post(
+            reverse('project_revision_create', args=[self.project.pk]),
+            {'revision_label': 'A', 'revision_number': 0, 'title': 'X', 'description': ''},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_detail_shows_items(self):
+        from projects.services import create_project_revision
+        rev = create_project_revision(self.project, self.manager, 'A', 0, 'Baseline A')
+        self.client.login(username='rv_mgr', password='pw')
+        response = self.client.get(reverse('project_revision_detail', args=[rev.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Baseline A')
+
+    def test_issue_post_emits_revision(self):
+        from projects.services import create_project_revision
+        rev = create_project_revision(self.project, self.manager, 'A', 0, 'Baseline A')
+        self.client.login(username='rv_mgr', password='pw')
+        self.client.post(reverse('project_revision_issue', args=[rev.pk]))
+        rev.refresh_from_db()
+        self.assertEqual(rev.status, ProjectRevision.Status.ISSUED)
+        self.assertTrue(rev.is_current)
+
+    def test_project_detail_shows_revisions(self):
+        from projects.services import create_project_revision
+        create_project_revision(self.project, self.manager, 'A', 0, 'Baseline A')
+        self.client.login(username='rv_mgr', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        revisions = list(response.context['revisions'])
+        self.assertEqual(len(revisions), 1)
+
+
+class DemoWorkflowBaselineTests(TestCase):
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_demo_creates_issued_baseline(self):
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('demo_workflow', '--no-email', stdout=out)
+        project = Project.objects.get(code='PRJ-DEMO-001')
+        baselines = ProjectRevision.objects.filter(project=project)
+        self.assertTrue(baselines.exists())
+        current = baselines.filter(is_current=True).first()
+        self.assertIsNotNone(current)
+        self.assertEqual(current.status, ProjectRevision.Status.ISSUED)

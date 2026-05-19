@@ -8,6 +8,7 @@ from auditlog.models import AuditLog
 from documents.models import Document, DocumentVersion
 from documents.permissions import GROUP_APPROVERS, GROUP_AUTHORS, GROUP_READERS
 from projects.models import Project, ProjectFolder, ProjectFolderMembership
+from projects.services import create_project_revision, issue_project_revision, populate_project_revision_from_current_documents
 from documents.services import (
     create_new_revision,
     reopen_rejected_version_as_draft,
@@ -223,7 +224,21 @@ class Command(BaseCommand):
         doc.refresh_from_db()
         self._step(f'Rev.01 approvata → {rev01.get_status_display()}, is_current={rev01.is_current}')
 
-        # 12. Riepilogo finale
+        # 12. Baseline progetto
+        baseline = create_project_revision(
+            project=progetto,
+            created_by=autore,
+            revision_label='A',
+            revision_number=0,
+            title='Baseline iniziale',
+            description='Baseline demo con tutti i documenti correnti.',
+        )
+        added = populate_project_revision_from_current_documents(baseline)
+        self._step(f'Baseline A creata con {added} documenti')
+        issue_project_revision(baseline, autore)
+        self._step(f'Baseline A emessa → is_current={baseline.is_current}')
+
+        # Riepilogo finale
         rev00.refresh_from_db()
         audit_count = AuditLog.objects.filter(changes__document_id=doc.pk).count()
         req_count = ApprovalRequest.objects.filter(

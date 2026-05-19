@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from projects.models import Project, ProjectFolder
+from projects.models import Project, ProjectFolder, ProjectRevision
 
 
 class ProjectFolderForm(forms.ModelForm):
@@ -43,3 +43,16 @@ class ProjectForm(forms.ModelForm):
         ).order_by('last_name', 'first_name', 'username')
         self.fields['manager'].required = False
         self.fields['manager'].empty_label = '— nessuno —'
+
+
+class ProjectRevisionForm(forms.ModelForm):
+    class Meta:
+        model = ProjectRevision
+        fields = ['revision_label', 'revision_number', 'title', 'description']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+        }
+        labels = {
+            'revision_label': 'Etichetta (es. A, 00, 1.0)',
+            'revision_number': 'Numero progressivo',
+        }

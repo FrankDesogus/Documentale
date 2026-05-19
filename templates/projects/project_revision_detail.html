@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Baseline {{ revision.revision_label }} — {{ project.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'project_detail' project.pk %}">← {{ project.code }} – {{ project.name }}</a></p>
+<h1>Baseline {{ revision.revision_label }} — {{ revision.title }}</h1>
+
+<div class="card" style="margin-bottom:1.5rem">
+  <dl class="dl-horizontal">
+    <dt>Progetto</dt>
+    <dd><a href="{% url 'project_detail' project.pk %}">{{ project.code }} – {{ project.name }}</a></dd>
+
+    <dt>Etichetta</dt>
+    <dd>{{ revision.revision_label }}</dd>
+
+    <dt>Numero</dt>
+    <dd>{{ revision.revision_number }}</dd>
+
+    <dt>Stato</dt>
+    <dd>
+      {% if revision.status == 'draft' %}<span class="badge badge-draft">Bozza</span>
+      {% elif revision.status == 'issued' %}<span class="badge badge-active">Emessa</span>
+      {% elif revision.status == 'superseded' %}<span class="badge badge-archived">Superata</span>
+      {% elif revision.status == 'archived' %}<span class="badge badge-archived">Archiviata</span>
+      {% endif %}
+      {% if revision.is_current %}<span class="badge badge-active" style="margin-left:.4rem">Corrente</span>{% endif %}
+    </dd>
+
+    {% if revision.description %}
+    <dt>Descrizione</dt>
+    <dd>{{ revision.description }}</dd>
+    {% endif %}
+
+    <dt>Creata da</dt>
+    <dd>{{ revision.created_by.get_full_name|default:revision.created_by.username|default:"—" }} il {{ revision.created_at|date:"d/m/Y H:i" }}</dd>
+
+    {% if revision.issued_at %}
+    <dt>Emessa da</dt>
+    <dd>{{ revision.issued_by.get_full_name|default:revision.issued_by.username|default:"—" }} il {{ revision.issued_at|date:"d/m/Y H:i" }}</dd>
+    {% endif %}
+
+    {% if revision.replaces_revision %}
+    <dt>Sostituisce</dt>
+    <dd><a href="{% url 'project_revision_detail' revision.replaces_revision.pk %}">{{ revision.replaces_revision }}</a></dd>
+    {% endif %}
+
+    {% if revision.notes %}
+    <dt>Note</dt>
+    <dd>{{ revision.notes }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{% if can_issue %}
+<form method="post" action="{% url 'project_revision_issue' revision.pk %}" style="margin-bottom:1.5rem">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary"
+    onclick="return confirm('Emettere la baseline {{ revision.revision_label }}? Le baseline precedenti correnti verranno marcate come superate.')">
+    Emetti baseline
+  </button>
+</form>
+{% endif %}
+
+<h2>Documenti ({{ items|length }})</h2>
+
+{% if items %}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Codice</th>
+      <th>Titolo documento</th>
+      <th>Revisione</th>
+      <th>Stato revisione</th>
+      <th>Descrizione voce</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td>{{ item.item_number }}</td>
+      <td>
+        <a href="{% url 'document_detail' item.document_version.document.pk %}">
+          {{ item.document_version.document.code }}
+        </a>
+      </td>
+      <td>{{ item.document_version.document.title }}</td>
+      <td>{{ item.document_version.revision_label }}</td>
+      <td>{{ item.document_version.get_status_display }}</td>
+      <td>{{ item.description }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="meta">Nessun documento in questa baseline.</p>
+{% endif %}
+{% endblock %}
