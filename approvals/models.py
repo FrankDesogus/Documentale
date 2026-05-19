@@ -29,6 +29,7 @@ class ApprovalRequest(models.Model):
         default=Status.PENDING,
         verbose_name='Stato',
     )
+    due_date = models.DateField(null=True, blank=True, verbose_name='Scadenza approvazione')
     notes = models.TextField(blank=True, verbose_name='Note')
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name='Completato il')
 

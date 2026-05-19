@@ -1,3 +1,5 @@
+import datetime
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 from django.contrib.auth.models import User
@@ -75,6 +77,17 @@ class ApproveVersionTests(TestCase):
         approve_version(req, superuser)
         req.refresh_from_db()
         self.assertEqual(req.status, ApprovalRequest.Status.APPROVED)
+
+    def test_due_date_saved_on_approval_request(self):
+        version = create_new_revision(self.document, self.author, 'C', 3)
+        scadenza = datetime.date(2026, 6, 30)
+        req = submit_version_for_approval(version, self.author, [self.approver], due_date=scadenza)
+        self.assertEqual(req.due_date, scadenza)
+
+    def test_due_date_none_by_default(self):
+        version = create_new_revision(self.document, self.author, 'D', 4)
+        req = submit_version_for_approval(version, self.author, [self.approver])
+        self.assertIsNone(req.due_date)
 
 
 class RejectVersionTests(TestCase):

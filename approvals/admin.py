@@ -18,8 +18,8 @@ class ApprovalDecisionInline(admin.TabularInline):
 
 @admin.register(ApprovalRequest)
 class ApprovalRequestAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'document_version', 'requested_by', 'status', 'requested_at', 'completed_at')
-    list_filter = ('status',)
+    list_display = ('__str__', 'document_version', 'requested_by', 'status', 'requested_at', 'due_date', 'completed_at')
+    list_filter = ('status', 'due_date')
     search_fields = ('document_version__document__code',)
     inlines = [ApprovalRequestApproverInline, ApprovalDecisionInline]
 

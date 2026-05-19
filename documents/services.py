@@ -84,6 +84,7 @@ def submit_version_for_approval(version, requested_by, approvers, due_date=None)
             document_version=version,
             requested_by=requested_by,
             status=ApprovalRequest.Status.PENDING,
+            due_date=due_date,
         )
 
         for i, approver in enumerate(approvers):
