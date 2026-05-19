@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Documentale{% endblock %}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f5f7fa; color: #1a1a1a; }
+  nav { background: #1a3a5c; color: #fff; padding: 0 1.5rem; display: flex; align-items: center; gap: 1.5rem; height: 52px; }
+  nav strong { font-size: 1.05rem; }
+  nav a { color: #cde; text-decoration: none; font-size: 0.95rem; }
+  nav a:hover { color: #fff; text-decoration: underline; }
+  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
+  .container { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
+  h1 { font-size: 1.4rem; margin-bottom: 1.25rem; color: #1a3a5c; }
+  h2 { font-size: 1.1rem; color: #1a3a5c; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 4px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  th { background: #e8eef5; font-size: 0.85rem; text-transform: uppercase; letter-spacing: .03em; padding: 0.55rem 0.75rem; text-align: left; }
+  td { padding: 0.55rem 0.75rem; border-top: 1px solid #eee; vertical-align: middle; font-size: 0.95rem; }
+  tr:hover td { background: #f7fafd; }
+  .card { background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+  .badge { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 3px; font-size: 0.8rem; font-weight: 600; }
+  .badge-draft, .badge-bozza { background: #fff3cd; color: #856404; }
+  .badge-in_approval, .badge-in-approval, .badge-in_approvazione { background: #cce5ff; color: #004085; }
+  .badge-approved, .badge-approvato { background: #d4edda; color: #155724; }
+  .badge-rejected, .badge-rifiutato { background: #f8d7da; color: #721c24; }
+  .badge-superseded, .badge-sostituito { background: #e2e3e5; color: #383d41; }
+  .badge-pending, .badge-in_attesa { background: #fff3cd; color: #856404; }
+  .messages { list-style: none; padding: 0; margin: 0 0 1rem; }
+  .messages li { padding: 0.6rem 0.9rem; border-radius: 3px; margin-bottom: 0.5rem; font-size: 0.95rem; }
+  .messages .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+  .messages .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+  .btn { display: inline-block; padding: 0.4rem 1rem; border: none; cursor: pointer; border-radius: 3px; font-size: 0.9rem; text-decoration: none; }
+  .btn-primary { background: #1a3a5c; color: #fff; }
+  .btn-success { background: #28a745; color: #fff; }
+  .btn-danger { background: #dc3545; color: #fff; }
+  .btn-secondary { background: #6c757d; color: #fff; }
+  .btn:hover { opacity: .88; }
+  fieldset { border: 1px solid #ddd; border-radius: 3px; padding: 1rem; margin-bottom: 1rem; }
+  legend { font-weight: 600; font-size: 0.9rem; padding: 0 0.4rem; }
+  label { display: block; font-size: 0.9rem; margin-bottom: 0.3rem; font-weight: 500; }
+  input[type=text], textarea { width: 100%; border: 1px solid #ccc; border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 0.95rem; }
+  textarea { resize: vertical; }
+  .meta { color: #666; font-size: 0.88rem; }
+  .dl-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1.2rem; font-size: 0.95rem; }
+  .dl-grid dt { font-weight: 600; color: #555; }
+</style>
+</head>
+<body>
+<nav>
+  <strong><a href="/" style="color:#fff;text-decoration:none">Documentale</a></strong>
+  {% if user.is_authenticated %}
+    <a href="{% url 'document_list' %}">Documenti</a>
+    <a href="{% url 'my_drafts' %}">Mie bozze</a>
+    <a href="{% url 'approval_queue' %}">Da approvare</a>
+    {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}
+    <span class="nav-right">
+      <span>{{ user.get_full_name|default:user.username }}</span>
+      <form method="post" action="{% url 'logout' %}" style="display:inline">
+        {% csrf_token %}
+        <button class="btn btn-secondary" style="padding:.25rem .7rem;font-size:.85rem">Esci</button>
+      </form>
+    </span>
+  {% endif %}
+</nav>
+<div class="container">
+  {% if messages %}
+  <ul class="messages">
+    {% for message in messages %}
+    <li class="{{ message.tags }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Accedi — Documentale{% endblock %}
+
+{% block content %}
+<div style="max-width:380px;margin:4rem auto">
+  <div class="card">
+    <h1 style="text-align:center;margin-bottom:1.5rem">Accedi</h1>
+    <form method="post">
+      {% csrf_token %}
+      {% if form.errors %}
+      <ul class="messages">
+        <li class="error">Credenziali non valide. Riprova.</li>
+      </ul>
+      {% endif %}
+      <div style="margin-bottom:1rem">
+        <label for="id_username">Utente</label>
+        <input type="text" name="username" id="id_username" autofocus required>
+      </div>
+      <div style="margin-bottom:1.5rem">
+        <label for="id_password">Password</label>
+        <input type="password" name="password" id="id_password" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Accedi</button>
+      <input type="hidden" name="next" value="{{ next }}">
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Approvazione {{ document.code }} rev.{{ version.revision_label }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'approval_queue' %}">← Da approvare</a></p>
+<h1>{{ document.code }} — Rev. {{ version.revision_label }}</h1>
+
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Documento</dt>    <dd>{{ document.code }} — {{ document.title }}</dd>
+    <dt>Revisione</dt>    <dd>{{ version.revision_label }} (n. {{ version.revision_number }})</dd>
+    <dt>Autore</dt>       <dd>{{ version.created_by.get_full_name|default:version.created_by.username }}</dd>
+    <dt>Richiedente</dt>  <dd>{{ approval_request.requested_by.get_full_name|default:approval_request.requested_by.username }}</dd>
+    <dt>Richiesta il</dt> <dd>{{ approval_request.requested_at|date:"d/m/Y H:i" }}</dd>
+    {% if approval_request.due_date %}
+    <dt>Scadenza</dt>     <dd>{{ approval_request.due_date|date:"d/m/Y" }}</dd>
+    {% endif %}
+    <dt>Stato richiesta</dt>
+    <dd><span class="badge badge-{{ approval_request.status|lower }}">{{ approval_request.get_status_display }}</span></dd>
+    {% if version.change_summary %}
+    <dt>Sommario</dt>     <dd>{{ version.change_summary }}</dd>
+    {% endif %}
+    {% if version.file %}
+    <dt>File operativo</dt><dd>{{ version.file.original_filename }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{% if decisions %}
+<h2>Decisioni registrate</h2>
+<table>
+  <thead>
+    <tr><th>Approvatore</th><th>Decisione</th><th>Data</th><th>Note</th></tr>
+  </thead>
+  <tbody>
+    {% for d in decisions %}
+    <tr>
+      <td>{{ d.approver.get_full_name|default:d.approver.username }}</td>
+      <td><span class="badge badge-{{ d.decision|lower }}">{{ d.get_decision_display }}</span></td>
+      <td class="meta">{{ d.decided_at|date:"d/m/Y H:i" }}</td>
+      <td>{{ d.notes|default:"—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if approval_request.status == 'PENDING' %}
+<h2 style="margin-top:1.5rem">Azioni</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+
+  <fieldset>
+    <legend>✔ Approva</legend>
+    <form method="post">
+      {% csrf_token %}
+      <div style="margin-bottom:.75rem">
+        <label for="id_comment_approve">Commento (opzionale)</label>
+        <textarea name="comment" id="id_comment_approve" rows="3"></textarea>
+      </div>
+      <button type="submit" name="action" value="approve" class="btn btn-success">Approva revisione</button>
+    </form>
+  </fieldset>
+
+  <fieldset>
+    <legend>✖ Rifiuta</legend>
+    <form method="post">
+      {% csrf_token %}
+      <div style="margin-bottom:.75rem">
+        <label for="id_rejection_reason">Motivo rifiuto <span style="color:#dc3545">*</span></label>
+        <textarea name="rejection_reason" id="id_rejection_reason" rows="3" required></textarea>
+      </div>
+      <div style="margin-bottom:.75rem">
+        <label for="id_comment_reject">Commento (opzionale)</label>
+        <textarea name="comment" id="id_comment_reject" rows="2"></textarea>
+      </div>
+      <button type="submit" name="action" value="reject" class="btn btn-danger">Rifiuta revisione</button>
+    </form>
+  </fieldset>
+
+</div>
+{% else %}
+<div class="card meta" style="margin-top:1rem">
+  Questa richiesta è già stata <strong>{{ approval_request.get_status_display|lower }}</strong>
+  {% if approval_request.completed_at %}il {{ approval_request.completed_at|date:"d/m/Y H:i" }}{% endif %}.
+</div>
+{% endif %}
+{% endblock %}

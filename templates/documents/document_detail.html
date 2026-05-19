@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ document.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta"><a href="{% url 'document_list' %}">← Documenti</a></p>
+<h1>{{ document.code }} — {{ document.title }}</h1>
+
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Categoria</dt>    <dd>{{ document.get_category_display }}</dd>
+    <dt>Tipo</dt>         <dd>{{ document.document_type|default:"—" }}</dd>
+    <dt>Stato</dt>        <dd><span class="badge badge-{{ document.status }}">{{ document.get_status_display }}</span></dd>
+    <dt>Responsabile</dt> <dd>{{ document.owner.get_full_name|default:document.owner.username }}</dd>
+    {% if document.description %}
+    <dt>Descrizione</dt>  <dd>{{ document.description }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{% if document.current_version %}
+<h2>Versione corrente — Rev. {{ document.current_version.revision_label }}</h2>
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Revisione</dt>       <dd>{{ document.current_version.revision_label }} (n. {{ document.current_version.revision_number }})</dd>
+    <dt>Stato</dt>           <dd><span class="badge badge-{{ document.current_version.status }}">{{ document.current_version.get_status_display }}</span></dd>
+    <dt>Autore</dt>          <dd>{{ document.current_version.created_by.get_full_name|default:document.current_version.created_by.username }}</dd>
+    {% if document.current_version.approved_by %}
+    <dt>Approvato da</dt>    <dd>{{ document.current_version.approved_by.get_full_name|default:document.current_version.approved_by.username }}</dd>
+    <dt>Data approvazione</dt><dd>{{ document.current_version.approved_at|date:"d/m/Y H:i" }}</dd>
+    {% endif %}
+    {% if document.current_version.change_summary %}
+    <dt>Sommario</dt>        <dd>{{ document.current_version.change_summary }}</dd>
+    {% endif %}
+    {% if document.current_version.file %}
+    <dt>File</dt>            <dd>{{ document.current_version.file.original_filename }}</dd>
+    {% endif %}
+  </dl>
+</div>
+{% endif %}
+
+{% if user.is_staff and versions %}
+<h2>Tutte le revisioni</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Revisione</th>
+      <th>N.</th>
+      <th>Stato</th>
+      <th>Corrente</th>
+      <th>Autore</th>
+      <th>Approvato il</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in versions %}
+    <tr>
+      <td>{{ v.revision_label }}</td>
+      <td>{{ v.revision_number }}</td>
+      <td><span class="badge badge-{{ v.status }}">{{ v.get_status_display }}</span></td>
+      <td>{% if v.is_current %}✔{% endif %}</td>
+      <td>{{ v.created_by.get_full_name|default:v.created_by.username }}</td>
+      <td>{{ v.approved_at|date:"d/m/Y"|default:"—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

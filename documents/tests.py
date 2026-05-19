@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from documents.models import Document, DocumentVersion
 from documents.services import (
@@ -178,3 +179,52 @@ class SubmitApprovalEmailTests(TestCase):
         log = NotificationLog.objects.first()
         self.assertFalse(log.is_sent)
         self.assertTrue(log.error_message)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class DocumentViewTests(TestCase):
+    """Verifica che le view mostrino solo documenti approvati agli utenti normali."""
+
+    def setUp(self):
+        mail.outbox = []
+        self.viewer = User.objects.create_user('viewer', password='pw', email='v@t.com')
+        self.author = User.objects.create_user('author', password='pw', email='a@t.com')
+        self.approver = User.objects.create_user('approver', password='pw', email='ap@t.com')
+        self.document = make_document(owner=self.author)
+
+    def _approve_first_version(self, doc, label='A', number=1):
+        from approvals.services import approve_version
+        v = create_new_revision(doc, self.author, label, number)
+        req = submit_version_for_approval(v, self.author, [self.approver])
+        approve_version(req, self.approver)
+        return v
+
+    def test_normal_user_sees_only_approved_documents(self):
+        self._approve_first_version(self.document)
+        draft_doc = make_document(code='DOC-DRAFT', owner=self.author)
+        create_new_revision(draft_doc, self.author, 'A', 1)  # rimane bozza
+
+        self.client.login(username='viewer', password='pw')
+        response = self.client.get(reverse('document_list'))
+
+        self.assertEqual(response.status_code, 200)
+        codes = [d.code for d in response.context['documents']]
+        self.assertIn('DOC-001', codes)
+        self.assertNotIn('DOC-DRAFT', codes)
+
+    def test_unauthenticated_redirects_to_login(self):
+        response = self.client.get(reverse('document_list'))
+        self.assertRedirects(response, '/accounts/login/?next=/documents/')
+
+    def test_normal_user_cannot_see_draft_document_detail(self):
+        create_new_revision(self.document, self.author, 'A', 1)  # draft
+        self.client.login(username='viewer', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.document.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_normal_user_can_see_approved_document_detail(self):
+        self._approve_first_version(self.document)
+        self.client.login(username='viewer', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.document.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.document.code)

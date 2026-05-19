@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from approvals.models import ApprovalRequest
 from approvals.services import approve_version, reject_version
@@ -196,3 +197,67 @@ class ApprovalEmailTests(TestCase):
         _, req = self._make_in_approval()
         reject_version(req, self.approver, 'Sezione 3 incompleta')
         self.assertTrue(NotificationLog.objects.filter(is_sent=True).exists())
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class ApprovalViewTests(TestCase):
+    """Verifica le view di approvazione: accesso, azioni approve/reject."""
+
+    def setUp(self):
+        mail.outbox = []
+        self.author = User.objects.create_user('author', email='a@t.com', password='pw')
+        self.approver = User.objects.create_user('approver', email='ap@t.com', password='pw')
+        self.other = User.objects.create_user('other', email='o@t.com', password='pw')
+        self.document = make_document(owner=self.author)
+
+    def _make_pending(self, label='A', number=1):
+        version = create_new_revision(self.document, self.author, label, number)
+        req = submit_version_for_approval(version, self.author, [self.approver])
+        mail.outbox = []
+        return version, req
+
+    def test_approver_sees_assigned_request_in_queue(self):
+        self._make_pending()
+        self.client.login(username='approver', password='pw')
+        response = self.client.get(reverse('approval_queue'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.document.code)
+
+    def test_unassigned_user_gets_403_on_detail(self):
+        _, req = self._make_pending()
+        self.client.login(username='other', password='pw')
+        response = self.client.get(reverse('approval_detail', args=[req.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_approve_from_ui_changes_status(self):
+        _, req = self._make_pending()
+        self.client.login(username='approver', password='pw')
+        response = self.client.post(
+            reverse('approval_detail', args=[req.pk]),
+            {'action': 'approve', 'comment': ''},
+        )
+        self.assertRedirects(response, reverse('approval_queue'))
+        req.refresh_from_db()
+        self.assertEqual(req.status, ApprovalRequest.Status.APPROVED)
+
+    def test_reject_from_ui_requires_reason(self):
+        _, req = self._make_pending()
+        self.client.login(username='approver', password='pw')
+        response = self.client.post(
+            reverse('approval_detail', args=[req.pk]),
+            {'action': 'reject', 'rejection_reason': ''},
+        )
+        self.assertEqual(response.status_code, 200)  # resta sulla pagina
+        req.refresh_from_db()
+        self.assertEqual(req.status, ApprovalRequest.Status.PENDING)  # invariato
+
+    def test_reject_from_ui_with_reason_changes_status(self):
+        _, req = self._make_pending()
+        self.client.login(username='approver', password='pw')
+        response = self.client.post(
+            reverse('approval_detail', args=[req.pk]),
+            {'action': 'reject', 'rejection_reason': 'Documento incompleto'},
+        )
+        self.assertRedirects(response, reverse('approval_queue'))
+        req.refresh_from_db()
+        self.assertEqual(req.status, ApprovalRequest.Status.REJECTED)

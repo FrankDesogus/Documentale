@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Mie bozze — Documentale{% endblock %}
+
+{% block content %}
+<h1>Mie bozze</h1>
+
+{% if versions %}
+<table>
+  <thead>
+    <tr>
+      <th>Documento</th>
+      <th>Revisione</th>
+      <th>Stato</th>
+      <th>Sommario modifiche</th>
+      <th>Creata il</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in versions %}
+    <tr>
+      <td>
+        <strong>{{ v.document.code }}</strong><br>
+        <span class="meta">{{ v.document.title }}</span>
+      </td>
+      <td>Rev. {{ v.revision_label }}</td>
+      <td><span class="badge badge-{{ v.status }}">{{ v.get_status_display }}</span></td>
+      <td>{{ v.change_summary|default:"—"|truncatechars:80 }}</td>
+      <td class="meta">{{ v.created_at|date:"d/m/Y" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">
+  <p class="meta">Nessuna bozza o revisione rifiutata in lavorazione.</p>
+</div>
+{% endif %}
+{% endblock %}

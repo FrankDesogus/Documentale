@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Documentale{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:2rem">
+
+  <a href="{% url 'document_list' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer">
+      <div style="font-size:2rem;margin-bottom:.5rem">📄</div>
+      <div style="font-weight:600;color:#1a3a5c">Documenti approvati</div>
+      <div class="meta">Versioni correnti approvate</div>
+    </div>
+  </a>
+
+  <a href="{% url 'my_drafts' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer">
+      <div style="font-size:2rem;margin-bottom:.5rem">✏️</div>
+      <div style="font-weight:600;color:#1a3a5c">Mie bozze</div>
+      {% if draft_count %}
+        <div class="meta">{{ draft_count }} revisione/i in lavorazione</div>
+      {% else %}
+        <div class="meta">Nessuna bozza attiva</div>
+      {% endif %}
+    </div>
+  </a>
+
+  <a href="{% url 'approval_queue' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer">
+      <div style="font-size:2rem;margin-bottom:.5rem">✅</div>
+      <div style="font-weight:600;color:#1a3a5c">Da approvare</div>
+      {% if pending_count %}
+        <div class="meta" style="color:#856404;font-weight:600">{{ pending_count }} richiesta/e in attesa</div>
+      {% else %}
+        <div class="meta">Nessuna richiesta pendente</div>
+      {% endif %}
+    </div>
+  </a>
+
+  {% if user.is_staff %}
+  <a href="/admin/" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer">
+      <div style="font-size:2rem;margin-bottom:.5rem">⚙️</div>
+      <div style="font-weight:600;color:#1a3a5c">Amministrazione</div>
+      <div class="meta">Django admin</div>
+    </div>
+  </a>
+  {% endif %}
+
+</div>
+{% endblock %}

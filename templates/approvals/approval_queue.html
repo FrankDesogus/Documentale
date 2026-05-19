@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Da approvare — Documentale{% endblock %}
+
+{% block content %}
+<h1>Richieste di approvazione assegnate</h1>
+
+{% if approval_requests %}
+<table>
+  <thead>
+    <tr>
+      <th>Documento</th>
+      <th>Revisione</th>
+      <th>Richiedente</th>
+      <th>Richiesta il</th>
+      <th>Scadenza</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ar in approval_requests %}
+    <tr>
+      <td>
+        <strong>{{ ar.document_version.document.code }}</strong><br>
+        <span class="meta">{{ ar.document_version.document.title }}</span>
+      </td>
+      <td>Rev. {{ ar.document_version.revision_label }}</td>
+      <td>{{ ar.requested_by.get_full_name|default:ar.requested_by.username }}</td>
+      <td class="meta">{{ ar.requested_at|date:"d/m/Y" }}</td>
+      <td>
+        {% if ar.due_date %}
+          <span {% if ar.due_date < today %}style="color:#721c24;font-weight:600"{% endif %}>
+            {{ ar.due_date|date:"d/m/Y" }}
+          </span>
+        {% else %}—{% endif %}
+      </td>
+      <td><a href="{% url 'approval_detail' ar.pk %}" class="btn btn-primary">Esamina</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">
+  <p class="meta">Nessuna richiesta di approvazione pendente assegnata.</p>
+</div>
+{% endif %}
+{% endblock %}
