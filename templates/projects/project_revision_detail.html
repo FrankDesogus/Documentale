@@ -4,6 +4,7 @@
 {% block content %}
 <p class="meta"><a href="{% url 'project_detail' project.pk %}">← {{ project.code }} – {{ project.name }}</a></p>
 <h1>Baseline {{ revision.revision_label }} — {{ revision.title }}</h1>
+<p class="meta">Questa baseline conserva le revisioni documento incluse al momento dell'emissione.</p>
 
 <div class="card" style="margin-bottom:1.5rem">
   <dl class="dl-horizontal">

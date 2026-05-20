@@ -93,8 +93,9 @@
 {% endif %}
 
 <h2 style="margin-top:2rem">Baseline</h2>
+<p class="meta">Una baseline è una fotografia dei documenti approvati del progetto in un determinato momento. Le modifiche successive ai documenti non aggiornano automaticamente la baseline corrente.</p>
 {% if can_manage %}
-<p><a href="{% url 'project_revision_create' project.pk %}" class="btn btn-primary">+ Nuova baseline</a></p>
+<p><a href="{% url 'project_revision_create' project.pk %}" class="btn btn-primary">Congela stato corrente</a></p>
 {% endif %}
 
 {% if revisions %}
