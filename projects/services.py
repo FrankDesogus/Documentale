@@ -125,6 +125,83 @@ def issue_project_revision(project_revision: ProjectRevision, issued_by: User) -
     return project_revision
 
 
+def build_project_baseline_comparison(project):
+    """
+    Confronta i documenti approvati correnti del progetto con la baseline corrente.
+
+    Restituisce (current_baseline, rows) dove rows è una lista di dict:
+      {
+        'document':        Document (o None per i "missing"),
+        'current_version': DocumentVersion | None,
+        'baseline_version': DocumentVersion | None,
+        'status':          'aligned' | 'changed' | 'new' | 'missing',
+        'status_label':    str,
+      }
+
+    Se non esiste una baseline corrente restituisce (None, []).
+    """
+    from documents.models import Document
+
+    current_baseline = project.revisions.filter(is_current=True).first()
+    if current_baseline is None:
+        return None, []
+
+    # Mappa document_id → DocumentVersion dalla baseline corrente
+    baseline_map = {
+        item.document_version.document_id: item.document_version
+        for item in current_baseline.items.select_related(
+            'document_version', 'document_version__document'
+        )
+    }
+
+    folders = get_project_document_folders(project)
+    if folders:
+        current_docs = (
+            Document.objects
+            .filter(project_folder__in=folders, current_version__isnull=False)
+            .select_related('current_version')
+            .order_by('code')
+        )
+    else:
+        current_docs = []
+
+    rows = []
+    seen_doc_ids = set()
+
+    for doc in current_docs:
+        current_version = doc.current_version
+        seen_doc_ids.add(doc.pk)
+        baseline_version = baseline_map.get(doc.pk)
+
+        if baseline_version is None:
+            status, label = 'new', 'Nuovo non in baseline'
+        elif baseline_version.pk == current_version.pk:
+            status, label = 'aligned', 'Allineato'
+        else:
+            status, label = 'changed', 'Modificato dopo baseline'
+
+        rows.append({
+            'document': doc,
+            'current_version': current_version,
+            'baseline_version': baseline_version,
+            'status': status,
+            'status_label': label,
+        })
+
+    # Documenti presenti in baseline ma non più tra i correnti del progetto
+    for doc_id, baseline_version in baseline_map.items():
+        if doc_id not in seen_doc_ids:
+            rows.append({
+                'document': baseline_version.document,
+                'current_version': None,
+                'baseline_version': baseline_version,
+                'status': 'missing',
+                'status_label': 'Non più presente / da verificare',
+            })
+
+    return current_baseline, rows
+
+
 def _write_audit(actor, action, project, revision, extra=None):
     try:
         from auditlog.models import AuditLog

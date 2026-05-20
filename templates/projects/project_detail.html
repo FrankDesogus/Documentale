@@ -134,4 +134,61 @@
 {% else %}
 <p class="meta">Nessuna baseline creata per questo progetto.</p>
 {% endif %}
+
+<h2 style="margin-top:2rem">Confronto con baseline corrente</h2>
+
+{% if not current_baseline %}
+<p class="meta">Nessuna baseline corrente emessa. Crea una baseline per congelare lo stato documentale del progetto.</p>
+{% elif not comparison_rows %}
+<p class="meta">Nessun documento approvato trovato nelle cartelle del progetto.</p>
+{% else %}
+<p class="meta">Baseline corrente: <strong>{{ current_baseline.revision_label }}</strong> — {{ current_baseline.title }}{% if current_baseline.issued_at %} (emessa il {{ current_baseline.issued_at|date:"d/m/Y" }}){% endif %}</p>
+<table>
+  <thead>
+    <tr>
+      <th>Documento</th>
+      <th>Revisione corrente</th>
+      <th>Revisione in baseline</th>
+      <th>Stato</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in comparison_rows %}
+    <tr>
+      <td>
+        {% if row.document %}
+        <a href="{% url 'document_detail' row.document.pk %}">{{ row.document.code }}</a>
+        <span class="meta" style="display:block;font-size:.8rem">{{ row.document.title }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        {% if row.current_version %}
+        Rev. {{ row.current_version.revision_label }}
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if row.baseline_version %}
+        Rev. {{ row.baseline_version.revision_label }}
+        {% else %}
+        <span class="meta">—</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if row.status == 'aligned' %}
+        <span class="badge badge-approved">{{ row.status_label }}</span>
+        {% elif row.status == 'changed' %}
+        <span class="badge badge-draft">{{ row.status_label }}</span>
+        {% elif row.status == 'new' %}
+        <span class="badge badge-in_approval">{{ row.status_label }}</span>
+        {% elif row.status == 'missing' %}
+        <span class="badge badge-rejected">{{ row.status_label }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 {% endblock %}

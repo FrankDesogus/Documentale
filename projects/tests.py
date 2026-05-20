@@ -936,3 +936,131 @@ class BaselineBugFixTests(TestCase):
         self.client.login(username='bbf_mgr', password='pw')
         response = self.client.get(reverse('project_revision_detail', args=[rev.pk]))
         self.assertContains(response, 'non contiene documenti')
+
+
+# ---------------------------------------------------------------------------
+# Baseline comparison tests
+# ---------------------------------------------------------------------------
+
+class BaselineComparisonTests(TestCase):
+    """build_project_baseline_comparison: stati aligned/changed/new/missing."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user('bc_mgr', password='pw', is_staff=True)
+        self.project, self.folder = make_project_with_folder(code='BC-PRJ-001', owner=self.manager)
+
+    def _make_approved_version(self, code, label='00', number=0):
+        from documents.models import Document, DocumentVersion
+        doc, _ = Document.objects.get_or_create(
+            code=code,
+            defaults={
+                'title': f'Doc {code}',
+                'category': Document.Category.QUALITY,
+                'project_folder': self.folder,
+                'owner': self.manager,
+                'created_by': self.manager,
+            },
+        )
+        # revoca eventuale current esistente
+        doc.versions.filter(is_current=True).update(is_current=False)
+        from documents.models import DocumentVersion
+        version = DocumentVersion.objects.create(
+            document=doc, revision_label=label, revision_number=number,
+            status=DocumentVersion.Status.APPROVED,
+            change_summary='test', created_by=self.manager,
+            is_current=True,
+        )
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        return doc, version
+
+    def _make_baseline(self, label, number, populate=True):
+        from projects.services import (
+            create_project_revision,
+            issue_project_revision,
+            populate_project_revision_from_current_documents,
+        )
+        rev = create_project_revision(self.project, self.manager, label, number, f'Baseline {label}')
+        if populate:
+            populate_project_revision_from_current_documents(rev)
+        issue_project_revision(rev, self.manager)
+        return rev
+
+    # 1. Documento corrente uguale a quello in baseline → Allineato
+    def test_aligned_when_same_version(self):
+        from projects.services import build_project_baseline_comparison
+        _, version = self._make_approved_version('BC-DOC-001')
+        self._make_baseline('00', 0)
+        _, rows = build_project_baseline_comparison(self.project)
+        row = next(r for r in rows if r['document'].code == 'BC-DOC-001')
+        self.assertEqual(row['status'], 'aligned')
+        self.assertEqual(row['current_version'].pk, row['baseline_version'].pk)
+
+    # 2. Documento aggiornato dopo la baseline → Modificato dopo baseline
+    def test_changed_when_newer_version(self):
+        from documents.models import DocumentVersion
+        from projects.services import build_project_baseline_comparison
+        doc, version_00 = self._make_approved_version('BC-DOC-002', '00', 0)
+        self._make_baseline('00', 0)
+
+        # Nuova revisione approvata dopo la baseline
+        version_00.__class__.objects.filter(pk=version_00.pk).update(is_current=False)
+        version_01 = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.APPROVED,
+            change_summary='update', created_by=self.manager, is_current=True,
+        )
+        doc.current_version = version_01
+        doc.save(update_fields=['current_version'])
+
+        _, rows = build_project_baseline_comparison(self.project)
+        row = next(r for r in rows if r['document'].code == 'BC-DOC-002')
+        self.assertEqual(row['status'], 'changed')
+        self.assertEqual(row['baseline_version'].pk, version_00.pk)
+        self.assertEqual(row['current_version'].pk, version_01.pk)
+
+    # 3. Documento corrente non presente nella baseline → Nuovo non in baseline
+    def test_new_when_not_in_baseline(self):
+        from projects.services import build_project_baseline_comparison
+        # Crea baseline vuota (senza documenti)
+        self._make_baseline('00', 0, populate=False)
+        # Aggiunge documento dopo l'emissione della baseline
+        self._make_approved_version('BC-DOC-003')
+        _, rows = build_project_baseline_comparison(self.project)
+        row = next(r for r in rows if r['document'].code == 'BC-DOC-003')
+        self.assertEqual(row['status'], 'new')
+        self.assertIsNone(row['baseline_version'])
+
+    # 4. Item in baseline il cui documento non è più tra i correnti → missing
+    def test_missing_when_doc_removed_from_current(self):
+        from projects.services import build_project_baseline_comparison
+        doc, _ = self._make_approved_version('BC-DOC-004')
+        self._make_baseline('00', 0)
+        # Rimuovi current_version dal documento (simula documento ritirato)
+        doc.current_version = None
+        doc.save(update_fields=['current_version'])
+        _, rows = build_project_baseline_comparison(self.project)
+        row = next(r for r in rows if r['document'].code == 'BC-DOC-004')
+        self.assertEqual(row['status'], 'missing')
+        self.assertIsNone(row['current_version'])
+        self.assertIsNotNone(row['baseline_version'])
+
+    # 5. Nessuna baseline corrente → funzione restituisce (None, [])
+    def test_no_baseline_returns_empty(self):
+        from projects.services import build_project_baseline_comparison
+        baseline, rows = build_project_baseline_comparison(self.project)
+        self.assertIsNone(baseline)
+        self.assertEqual(rows, [])
+
+    # 6. Project detail mostra la sezione confronto
+    def test_project_detail_shows_comparison_section(self):
+        self._make_approved_version('BC-DOC-005')
+        self._make_baseline('00', 0)
+        self.client.login(username='bc_mgr', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Confronto con baseline corrente')
+        self.assertIn('comparison_rows', response.context)
+        rows = list(response.context['comparison_rows'])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'aligned')

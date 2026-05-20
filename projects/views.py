@@ -130,12 +130,17 @@ def project_detail(request, project_id):
 
     revisions = project.revisions.order_by('-revision_number')
 
+    from projects.services import build_project_baseline_comparison
+    current_baseline, comparison_rows = build_project_baseline_comparison(project)
+
     return render(request, 'projects/project_detail.html', {
         'project': project,
         'documents': documents,
         'subfolders': subfolders,
         'revisions': revisions,
         'can_manage': _can_manage_project(request.user),
+        'current_baseline': current_baseline,
+        'comparison_rows': comparison_rows,
     })
 
 
