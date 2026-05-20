@@ -50,6 +50,12 @@
 </table>
 {% endif %}
 
+{% if can_create_doc %}
+<p style="margin-top:1rem">
+  <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary">+ Nuovo documento in questo progetto</a>
+</p>
+{% endif %}
+
 {% if documents %}
 <h2>Documenti nella cartella</h2>
 <table>

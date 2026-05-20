@@ -121,12 +121,26 @@ def my_drafts(request):
 @login_required
 def new_document(request):
     from documents.forms import DocumentCreateForm
+    from projects.models import Project
+    from projects.permissions import can_create_document_in_folder
 
-    if not can_create_document(request.user):
+    # Contesto progetto opzionale: ?project=<id>
+    from_project = None
+    fixed_folder = None
+    project_id_param = request.GET.get('project')
+    if project_id_param:
+        try:
+            from_project = get_object_or_404(Project, pk=int(project_id_param))
+        except (ValueError, TypeError):
+            raise PermissionDenied
+        if from_project.folder is None or not can_create_document_in_folder(request.user, from_project.folder):
+            raise PermissionDenied
+        fixed_folder = from_project.folder
+    elif not can_create_document(request.user):
         raise PermissionDenied
 
     if request.method == 'POST':
-        form = DocumentCreateForm(request.POST, request.FILES, user=request.user)
+        form = DocumentCreateForm(request.POST, request.FILES, user=request.user, fixed_project_folder=fixed_folder)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -156,14 +170,19 @@ def new_document(request):
                     request,
                     f'Documento {doc.code} creato con prima bozza Rev. {d["revision_label"]}.',
                 )
+                if from_project:
+                    return redirect('document_detail', document_id=doc.pk)
                 return redirect('my_drafts')
             except ValidationError as exc:
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentCreateForm(user=request.user)
+        form = DocumentCreateForm(user=request.user, fixed_project_folder=fixed_folder)
 
-    return render(request, 'documents/new_document.html', {'form': form})
+    return render(request, 'documents/new_document.html', {
+        'form': form,
+        'from_project': from_project,
+    })
 
 
 @login_required

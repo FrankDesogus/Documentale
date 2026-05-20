@@ -31,17 +31,24 @@ class DocumentCreateForm(forms.Form):
         empty_label='— nessuna —',
     )
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, fixed_project_folder=None, **kwargs):
         super().__init__(*args, **kwargs)
-        if user is not None and (user.is_superuser or user.is_staff):
+        if fixed_project_folder is not None:
+            self.fields['project_folder'].queryset = ProjectFolder.objects.filter(
+                pk=fixed_project_folder.pk
+            )
+            self.fields['project_folder'].initial = fixed_project_folder
+            self.fields['project_folder'].empty_label = None
+        elif user is not None and (user.is_superuser or user.is_staff):
             qs = ProjectFolder.objects.filter(status='active').order_by('code')
+            self.fields['project_folder'].queryset = qs
         elif user is not None:
             from projects.permissions import get_writable_folder_ids
             writable_ids = get_writable_folder_ids(user)
             qs = ProjectFolder.objects.filter(pk__in=writable_ids, status='active').order_by('code')
+            self.fields['project_folder'].queryset = qs
         else:
-            qs = ProjectFolder.objects.none()
-        self.fields['project_folder'].queryset = qs
+            pass  # queryset stays none
     revision_label = forms.CharField(
         max_length=20,
         initial='00',

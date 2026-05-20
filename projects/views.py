@@ -133,12 +133,19 @@ def project_detail(request, project_id):
     from projects.services import build_project_baseline_comparison
     current_baseline, comparison_rows = build_project_baseline_comparison(project)
 
+    from projects.permissions import can_create_document_in_folder
+    can_create_doc = (
+        project.folder is not None
+        and can_create_document_in_folder(request.user, project.folder)
+    )
+
     return render(request, 'projects/project_detail.html', {
         'project': project,
         'documents': documents,
         'subfolders': subfolders,
         'revisions': revisions,
         'can_manage': _can_manage_project(request.user),
+        'can_create_doc': can_create_doc,
         'current_baseline': current_baseline,
         'comparison_rows': comparison_rows,
     })

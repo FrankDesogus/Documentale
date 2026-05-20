@@ -2,10 +2,18 @@
 {% block title %}Nuovo documento — Documentale{% endblock %}
 
 {% block content %}
+{% if from_project %}
+<p class="meta"><a href="{% url 'project_detail' from_project.pk %}">← {{ from_project.code }} — {{ from_project.name }}</a></p>
+<h1>Nuovo documento in {{ from_project.code }}</h1>
+<div class="card" style="margin-bottom:1rem">
+  <p class="meta" style="margin:0">Il documento sarà creato nella cartella <strong>{{ from_project.folder }}</strong> associata al progetto.</p>
+</div>
+{% else %}
 <p class="meta"><a href="{% url 'dashboard' %}">← Dashboard</a></p>
 <h1>Nuovo documento</h1>
+{% endif %}
 
-<form method="post" enctype="multipart/form-data">
+<form method="post" action="{% url 'document_new' %}{% if from_project %}?project={{ from_project.pk }}{% endif %}" enctype="multipart/form-data">
   {% csrf_token %}
 
   <div class="card" style="margin-bottom:1rem">

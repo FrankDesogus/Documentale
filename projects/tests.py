@@ -1064,3 +1064,109 @@ class BaselineComparisonTests(TestCase):
         rows = list(response.context['comparison_rows'])
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['status'], 'aligned')
+
+
+# ---------------------------------------------------------------------------
+# New document from project context tests
+# ---------------------------------------------------------------------------
+
+class NewDocumentFromProjectTests(TestCase):
+    """Bottone 'Nuovo documento' nel dettaglio progetto e flusso /documents/new/?project=<id>."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.manager = User.objects.create_user('ndp_mgr', password='pw', is_staff=True)
+        self.author = User.objects.create_user('ndp_author', password='pw')
+        self.outsider = User.objects.create_user('ndp_out', password='pw')
+
+        g_authors = Group.objects.get_or_create(name='Document Authors')[0]
+        self.author.groups.add(g_authors)
+
+        self.project, self.folder = make_project_with_folder(code='NDP-PRJ-001', owner=self.manager)
+        # author ha ruolo author nella cartella del progetto
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.author, role='author')
+
+    # 1. Bottone visibile per manager (is_staff)
+    def test_button_visible_for_manager(self):
+        self.client.login(username='ndp_mgr', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['can_create_doc'])
+        self.assertContains(response, 'Nuovo documento in questo progetto')
+
+    # 2. Bottone visibile per author con membership nella cartella
+    def test_button_visible_for_folder_author(self):
+        self.client.login(username='ndp_author', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['can_create_doc'])
+        self.assertContains(response, 'Nuovo documento in questo progetto')
+
+    # 3. Bottone non visibile per utente senza write access alla cartella
+    def test_button_not_visible_for_outsider(self):
+        # outsider ha solo reader sulla cartella (per accedere alla pagina)
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.outsider, role='reader')
+        self.client.login(username='ndp_out', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_create_doc'])
+        self.assertNotContains(response, 'Nuovo documento in questo progetto')
+
+    # 4. GET /documents/new/?project=<id> preseleziona la cartella nel form
+    def test_new_document_with_project_param_preselects_folder(self):
+        self.client.login(username='ndp_mgr', password='pw')
+        url = reverse('document_new') + f'?project={self.project.pk}'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertEqual(form.fields['project_folder'].initial, self.folder)
+        # queryset deve contenere solo la cartella del progetto
+        qs = list(form.fields['project_folder'].queryset)
+        self.assertEqual(len(qs), 1)
+        self.assertEqual(qs[0].pk, self.folder.pk)
+
+    # 5. Utente senza permesso sulla cartella ottiene 403
+    def test_user_without_folder_write_gets_403(self):
+        self.client.login(username='ndp_out', password='pw')
+        url = reverse('document_new') + f'?project={self.project.pk}'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 403)
+
+    # 6. POST con ?project=<id> crea documento nella cartella del progetto
+    def test_post_creates_document_in_project_folder(self):
+        from documents.models import Document
+        self.client.login(username='ndp_mgr', password='pw')
+        url = reverse('document_new') + f'?project={self.project.pk}'
+        response = self.client.post(url, {
+            'code': 'NDP-DOC-001',
+            'title': 'Documento da progetto',
+            'category': 'QUALITY',
+            'document_type': '',
+            'description': '',
+            'project_folder': self.folder.pk,
+            'revision_label': '00',
+            'revision_number': 0,
+            'change_summary': '',
+        })
+        self.assertTrue(Document.objects.filter(code='NDP-DOC-001').exists())
+        doc = Document.objects.get(code='NDP-DOC-001')
+        self.assertEqual(doc.project_folder, self.folder)
+        # redirect al documento creato
+        self.assertRedirects(response, reverse('document_detail', args=[doc.pk]))
+
+    # 7. Progetto senza cartella associata: bottone non visibile
+    def test_button_not_shown_when_project_has_no_folder(self):
+        project_no_folder = Project.objects.create(
+            code='NDP-PRJ-NOFOLD',
+            name='No folder project',
+            status=Project.Status.ACTIVE,
+            project_type=Project.ProjectType.INTERNAL,
+            folder=None,
+            manager=self.manager,
+            created_by=self.manager,
+        )
+        self.client.login(username='ndp_mgr', password='pw')
+        response = self.client.get(reverse('project_detail', args=[project_no_folder.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_create_doc'])
+        self.assertNotContains(response, 'Nuovo documento in questo progetto')
