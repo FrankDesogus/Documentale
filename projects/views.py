@@ -166,6 +166,7 @@ def project_create(request):
 
 @login_required
 def project_revision_create(request, project_id):
+    from django.db import transaction
     from projects.forms import ProjectRevisionForm
     from projects.services import create_project_revision, populate_project_revision_from_current_documents
 
@@ -174,26 +175,41 @@ def project_revision_create(request, project_id):
     if not _can_manage_project(request.user):
         raise PermissionDenied
 
+    last = project.revisions.order_by('-revision_number').first()
+    next_number = (last.revision_number + 1) if last else 0
+    next_label = f'{next_number:02d}'
+
     if request.method == 'POST':
-        form = ProjectRevisionForm(request.POST)
+        form = ProjectRevisionForm(request.POST, project=project)
         if form.is_valid():
             d = form.cleaned_data
-            revision = create_project_revision(
-                project=project,
-                created_by=request.user,
-                revision_label=d['revision_label'],
-                revision_number=d['revision_number'],
-                title=d['title'],
-                description=d['description'],
-            )
-            added = populate_project_revision_from_current_documents(revision)
-            messages.success(
-                request,
-                f'Baseline {revision.revision_label} creata con {added} documenti.'
-            )
+            with transaction.atomic():
+                revision = create_project_revision(
+                    project=project,
+                    created_by=request.user,
+                    revision_label=d['revision_label'],
+                    revision_number=d['revision_number'],
+                    title=d['title'],
+                    description=d['description'],
+                )
+                added = populate_project_revision_from_current_documents(revision)
+            if added == 0:
+                messages.warning(
+                    request,
+                    f'Baseline {revision.revision_label} creata senza documenti: '
+                    'nessun documento approvato trovato nelle cartelle del progetto.',
+                )
+            else:
+                messages.success(
+                    request,
+                    f'Baseline {revision.revision_label} creata con {added} documenti.',
+                )
             return redirect('project_revision_detail', revision_id=revision.pk)
     else:
-        form = ProjectRevisionForm()
+        form = ProjectRevisionForm(
+            project=project,
+            initial={'revision_number': next_number, 'revision_label': next_label},
+        )
 
     return render(request, 'projects/project_revision_form.html', {
         'form': form,

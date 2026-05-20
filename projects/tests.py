@@ -713,3 +713,226 @@ class DemoWorkflowBaselineTests(TestCase):
         current = baselines.filter(is_current=True).first()
         self.assertIsNotNone(current)
         self.assertEqual(current.status, ProjectRevision.Status.ISSUED)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_demo_baseline_has_items(self):
+        """La baseline demo deve contenere almeno un documento (documento è nella stessa cartella del progetto)."""
+        from django.core.management import call_command
+        from io import StringIO
+        call_command('demo_workflow', '--no-email', stdout=StringIO())
+        project = Project.objects.get(code='PRJ-DEMO-001')
+        current = ProjectRevision.objects.get(project=project, is_current=True)
+        self.assertGreater(current.items.count(), 0)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_demo_idempotent_with_reset(self):
+        """demo_workflow --reset --no-email può essere eseguito due volte di fila senza errori."""
+        from django.core.management import call_command
+        from io import StringIO
+        call_command('demo_workflow', '--no-email', stdout=StringIO())
+        # Seconda esecuzione con --reset: non deve sollevare IntegrityError
+        call_command('demo_workflow', '--reset', '--no-email', stdout=StringIO())
+        project = Project.objects.get(code='PRJ-DEMO-001')
+        current = ProjectRevision.objects.filter(project=project, is_current=True).first()
+        self.assertIsNotNone(current)
+        self.assertEqual(current.status, ProjectRevision.Status.ISSUED)
+
+
+# ---------------------------------------------------------------------------
+# create_project_revision validation tests
+# ---------------------------------------------------------------------------
+
+class CreateProjectRevisionValidationTests(TestCase):
+    """create_project_revision solleva ValidationError su duplicati, non IntegrityError."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user('cpvt_mgr', password='pw', is_staff=True)
+        self.project, self.folder = make_project_with_folder(code='CPVT-PRJ-001', owner=self.manager)
+
+    def test_duplicate_revision_label_raises_validation_error(self):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from projects.services import create_project_revision
+        create_project_revision(self.project, self.manager, '00', 0)
+        with self.assertRaises(DjangoValidationError):
+            create_project_revision(self.project, self.manager, '00', 1)
+
+    def test_duplicate_revision_number_raises_validation_error(self):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from projects.services import create_project_revision
+        create_project_revision(self.project, self.manager, '00', 0)
+        with self.assertRaises(DjangoValidationError):
+            create_project_revision(self.project, self.manager, '01', 0)
+
+    def test_different_label_and_number_succeeds(self):
+        from projects.services import create_project_revision
+        create_project_revision(self.project, self.manager, '00', 0)
+        rev = create_project_revision(self.project, self.manager, '01', 1)
+        self.assertEqual(rev.revision_label, '01')
+
+
+# ---------------------------------------------------------------------------
+# Step 13B — Bug fix tests
+# ---------------------------------------------------------------------------
+
+class BaselineBugFixTests(TestCase):
+    """
+    Test per i bug corretti nello step 13B:
+    - validazione form unicità revision_label/revision_number
+    - pre-popolamento valori suggeriti
+    - popolamento con documenti anche da sottocartelle
+    - immutabilità snapshot baseline
+    - baseline vuota ammessa con messaggio chiaro
+    """
+
+    def setUp(self):
+        self.manager = User.objects.create_user('bbf_mgr', password='pw', is_staff=True)
+        self.project, self.folder = make_project_with_folder(code='BBF-PRJ-001', owner=self.manager)
+
+    def _make_approved_doc(self, code, folder=None):
+        from documents.models import Document, DocumentVersion
+        folder = folder or self.folder
+        doc = Document.objects.create(
+            code=code, title=f'Doc {code}',
+            category=Document.Category.QUALITY,
+            project_folder=folder,
+            owner=self.manager, created_by=self.manager,
+        )
+        version = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED,
+            change_summary='first', created_by=self.manager,
+            is_current=True,
+        )
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        return doc, version
+
+    # 1. Il GET propone automaticamente revision_number e revision_label corretti
+    def test_get_form_preloads_next_revision_values_when_no_existing(self):
+        self.client.login(username='bbf_mgr', password='pw')
+        response = self.client.get(reverse('project_revision_create', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertEqual(form.initial.get('revision_number'), 0)
+        self.assertEqual(form.initial.get('revision_label'), '00')
+
+    def test_get_form_preloads_next_revision_values_after_existing(self):
+        from projects.services import create_project_revision
+        create_project_revision(self.project, self.manager, '00', 0)
+        self.client.login(username='bbf_mgr', password='pw')
+        response = self.client.get(reverse('project_revision_create', args=[self.project.pk]))
+        form = response.context['form']
+        self.assertEqual(form.initial.get('revision_number'), 1)
+        self.assertEqual(form.initial.get('revision_label'), '01')
+
+    # 2. Il form blocca revision_number duplicato senza IntegrityError
+    def test_duplicate_revision_number_shows_form_error(self):
+        from projects.services import create_project_revision
+        create_project_revision(self.project, self.manager, '00', 0)
+        self.client.login(username='bbf_mgr', password='pw')
+        response = self.client.post(
+            reverse('project_revision_create', args=[self.project.pk]),
+            {'revision_label': '99', 'revision_number': 0, 'title': 'Dup num', 'description': ''},
+        )
+        # Deve restare sulla pagina (200) con errore nel form, non IntegrityError (500)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['form'].is_valid())
+        self.assertIn('revision_number', response.context['form'].errors)
+
+    # 3. Il form blocca revision_label duplicata senza IntegrityError
+    def test_duplicate_revision_label_shows_form_error(self):
+        from projects.services import create_project_revision
+        create_project_revision(self.project, self.manager, '00', 0)
+        self.client.login(username='bbf_mgr', password='pw')
+        response = self.client.post(
+            reverse('project_revision_create', args=[self.project.pk]),
+            {'revision_label': '00', 'revision_number': 99, 'title': 'Dup label', 'description': ''},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['form'].is_valid())
+        self.assertIn('revision_label', response.context['form'].errors)
+
+    # 4. Creare baseline da UI con documento approvato crea ProjectRevisionItem
+    def test_create_via_ui_with_approved_doc_creates_item(self):
+        self._make_approved_doc('BBF-DOC-001')
+        self.client.login(username='bbf_mgr', password='pw')
+        self.client.post(
+            reverse('project_revision_create', args=[self.project.pk]),
+            {'revision_label': '00', 'revision_number': 0, 'title': 'B00', 'description': ''},
+        )
+        rev = ProjectRevision.objects.get(project=self.project, revision_label='00')
+        self.assertEqual(rev.items.count(), 1)
+        self.assertEqual(rev.items.first().document_version.document.code, 'BBF-DOC-001')
+
+    # 5. project_revision_detail mostra gli item salvati
+    def test_detail_view_shows_saved_items(self):
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        self._make_approved_doc('BBF-DOC-002')
+        rev = create_project_revision(self.project, self.manager, '00', 0)
+        populate_project_revision_from_current_documents(rev)
+        self.client.login(username='bbf_mgr', password='pw')
+        response = self.client.get(reverse('project_revision_detail', args=[rev.pk]))
+        self.assertEqual(response.status_code, 200)
+        items = list(response.context['items'])
+        self.assertEqual(len(items), 1)
+        self.assertContains(response, 'BBF-DOC-002')
+
+    # 6. Vecchia baseline continua a mostrare la vecchia DocumentVersion dopo aggiornamento documento
+    def test_old_baseline_preserves_snapshot_after_document_update(self):
+        from documents.models import DocumentVersion
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        doc, version_00 = self._make_approved_doc('BBF-DOC-003')
+        rev = create_project_revision(self.project, self.manager, '00', 0)
+        populate_project_revision_from_current_documents(rev)
+
+        # Approva nuova revisione del documento (Rev.01 diventa current_version)
+        # Prima revoca is_current dalla vecchia versione per rispettare il constraint DB
+        from documents.models import DocumentVersion as DV
+        DV.objects.filter(pk=version_00.pk).update(is_current=False)
+        version_01 = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.APPROVED,
+            change_summary='update', created_by=self.manager,
+            is_current=True,
+        )
+        doc.current_version = version_01
+        doc.save(update_fields=['current_version'])
+
+        # La vecchia baseline deve ancora puntare a Rev.00
+        item = rev.items.select_related('document_version').first()
+        self.assertEqual(item.document_version.pk, version_00.pk)
+        self.assertEqual(item.document_version.revision_label, '00')
+
+    # 7. Baseline con documenti in sottocartella include quei documenti
+    def test_populate_includes_documents_in_subfolders(self):
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        subfolder = ProjectFolder.objects.create(
+            code='BBF-SUB', name='Subfolder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            parent=self.folder,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.manager,
+        )
+        self._make_approved_doc('BBF-MAIN-DOC', folder=self.folder)
+        self._make_approved_doc('BBF-SUB-DOC', folder=subfolder)
+
+        rev = create_project_revision(self.project, self.manager, '00', 0)
+        added = populate_project_revision_from_current_documents(rev)
+
+        self.assertEqual(added, 2)
+        codes = list(rev.items.values_list('document_version__document__code', flat=True))
+        self.assertIn('BBF-MAIN-DOC', codes)
+        self.assertIn('BBF-SUB-DOC', codes)
+
+    # 8. Baseline vuota ammessa: issue funziona e detail mostra messaggio chiaro
+    def test_empty_baseline_can_be_issued_and_shows_clear_message(self):
+        from projects.services import create_project_revision, issue_project_revision
+        rev = create_project_revision(self.project, self.manager, '00', 0, 'Vuota')
+        issue_project_revision(rev, self.manager)
+        rev.refresh_from_db()
+        self.assertEqual(rev.status, ProjectRevision.Status.ISSUED)
+        self.assertEqual(rev.items.count(), 0)
+
+        self.client.login(username='bbf_mgr', password='pw')
+        response = self.client.get(reverse('project_revision_detail', args=[rev.pk]))
+        self.assertContains(response, 'non contiene documenti')

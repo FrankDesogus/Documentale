@@ -50,11 +50,25 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def _reset(self):
+        from projects.models import ProjectRevision
+
+        # Elimina prima le revisioni progetto demo (cascade → ProjectRevisionItem).
+        # Deve avvenire PRIMA di eliminare il documento perché ProjectRevisionItem
+        # ha FK PROTECT verso DocumentVersion.
+        try:
+            progetto = Project.objects.get(code='PRJ-DEMO-001')
+            rev_count, _ = ProjectRevision.objects.filter(project=progetto).delete()
+            if rev_count:
+                self.stdout.write(f'  → {rev_count} oggetti revisione progetto demo eliminati.')
+        except Project.DoesNotExist:
+            pass
+
+        # Elimina documento demo e cascade
+        # (DocumentVersion → ApprovalRequest → ApprovalRequestApprover, ApprovalDecision)
         try:
             doc = Document.objects.get(code=DEMO_DOCUMENT_CODE)
-            # Pulisce i log prima di eliminare il documento
             deleted_logs, _ = AuditLog.objects.filter(changes__document_id=doc.pk).delete()
-            doc.delete()  # cascade: DocumentVersion → ApprovalRequest → ApprovalRequestApprover, ApprovalDecision
+            doc.delete()
             self.stdout.write(
                 self.style.SUCCESS(
                     f'Dati demo eliminati ({deleted_logs} voci AuditLog rimosse).'
@@ -119,17 +133,22 @@ class Command(BaseCommand):
         self._step(f'Cartelle: {cartella_ing} → {cartella_std}, {cartella_prj}')
 
         # 2b. Progetto demo
-        progetto, _ = Project.objects.get_or_create(
+        # La cartella usata è cartella_std: anche il documento demo è in cartella_std,
+        # così populate_project_revision_from_current_documents trova i documenti.
+        progetto, created = Project.objects.get_or_create(
             code='PRJ-DEMO-001',
             defaults={
                 'name': 'Progetto Demo Documentale',
                 'status': Project.Status.ACTIVE,
                 'project_type': Project.ProjectType.INTERNAL,
-                'folder': cartella_prj,
+                'folder': cartella_std,
                 'manager': autore,
                 'created_by': autore,
             },
         )
+        if not created and progetto.folder_id != cartella_std.pk:
+            progetto.folder = cartella_std
+            progetto.save(update_fields=['folder'])
         self._step(f'Progetto: {progetto}')
 
         # 3. Membership per-cartella su ING-STD

@@ -1,8 +1,22 @@
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from .models import Project, ProjectRevision, ProjectRevisionItem
+
+
+def get_project_document_folders(project):
+    """Restituisce la cartella del progetto e tutte le sottocartelle (BFS, qualsiasi stato)."""
+    if project.folder is None:
+        return []
+    result = [project.folder]
+    queue = list(project.folder.subfolders.all())
+    while queue:
+        folder = queue.pop(0)
+        result.append(folder)
+        queue.extend(folder.subfolders.all())
+    return result
 
 
 def create_project_revision(
@@ -13,6 +27,16 @@ def create_project_revision(
     title: str = '',
     description: str = '',
 ) -> ProjectRevision:
+    if ProjectRevision.objects.filter(project=project, revision_label=revision_label).exists():
+        raise ValidationError(
+            f'Esiste già una baseline con etichetta "{revision_label}" '
+            f'per il progetto {project.code}.'
+        )
+    if ProjectRevision.objects.filter(project=project, revision_number=revision_number).exists():
+        raise ValidationError(
+            f'Esiste già una baseline con numero progressivo {revision_number} '
+            f'per il progetto {project.code}.'
+        )
     revision = ProjectRevision.objects.create(
         project=project,
         revision_label=revision_label,
@@ -36,20 +60,25 @@ def populate_project_revision_from_current_documents(project_revision: ProjectRe
     from documents.models import Document
 
     if project_revision.status != ProjectRevision.Status.DRAFT:
-        raise ValueError('Solo le baseline in bozza possono essere popolate automaticamente.')
+        raise ValueError('Solo le revisioni in bozza possono essere popolate automaticamente.')
 
-    folder = project_revision.project.folder
-    if folder is None:
+    folders = get_project_document_folders(project_revision.project)
+    if not folders:
         return 0
 
-    documents = Document.objects.filter(
-        project_folder=folder,
-    ).select_related('current_version').order_by('code')
+    documents = (
+        Document.objects
+        .filter(project_folder__in=folders, current_version__isnull=False)
+        .select_related('current_version')
+        .order_by('code')
+    )
 
-    added = 0
     existing_version_ids = set(
         project_revision.items.values_list('document_version_id', flat=True)
     )
+
+    added = 0
+    item_number = project_revision.items.count()
 
     for doc in documents:
         version = doc.current_version
@@ -57,7 +86,7 @@ def populate_project_revision_from_current_documents(project_revision: ProjectRe
             continue
         if version.pk in existing_version_ids:
             continue
-        item_number = project_revision.items.count() + 1
+        item_number += 1
         ProjectRevisionItem.objects.create(
             revision=project_revision,
             item_number=item_number,
@@ -67,13 +96,6 @@ def populate_project_revision_from_current_documents(project_revision: ProjectRe
         existing_version_ids.add(version.pk)
         added += 1
 
-    _write_audit(
-        actor=project_revision.created_by,
-        action='populate_project_revision',
-        project=project_revision.project,
-        revision=project_revision,
-        extra={'items_added': added},
-    )
     return added
 
 
