@@ -253,10 +253,18 @@ class AuthorWorkflowViewTests(TestCase):
 
     def setUp(self):
         from django.contrib.auth.models import Group
+        from projects.models import ProjectFolder, ProjectFolderMembership
         mail.outbox = []
         self.author = User.objects.create_user('author', email='a@t.com', password='pw')
         self.approver = User.objects.create_user('approver', email='ap@t.com', password='pw')
         Group.objects.get_or_create(name='Document Authors')[0].user_set.add(self.author)
+        self.folder = ProjectFolder.objects.create(
+            code='AW-FOLD', name='Author Workflow Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.author,
+        )
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.author, role='author')
         self.client.login(username='author', password='pw')
 
     def test_unauthenticated_new_document_redirects_to_login(self):
@@ -270,6 +278,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'code': 'UI-001',
                 'title': 'Documento test UI',
                 'category': 'QUALITY',
+                'project_folder': self.folder.pk,
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -288,6 +297,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'code': 'UI-002',
                 'title': 'Documento con file',
                 'category': 'QUALITY',
+                'project_folder': self.folder.pk,
                 'revision_label': '00',
                 'revision_number': '0',
                 'file': uploaded,
@@ -306,6 +316,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'code': 'UI-003',
                 'title': 'Documento revisioni',
                 'category': 'QUALITY',
+                'project_folder': self.folder.pk,
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -330,6 +341,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'code': 'UI-004',
                 'title': 'Documento submit',
                 'category': 'QUALITY',
+                'project_folder': self.folder.pk,
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -357,6 +369,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'code': 'UI-DUP',
                 'title': 'Primo',
                 'category': 'QUALITY',
+                'project_folder': self.folder.pk,
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -364,6 +377,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'code': 'UI-DUP',
                 'title': 'Secondo con stesso codice',
                 'category': 'QUALITY',
+                'project_folder': self.folder.pk,
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -513,11 +527,20 @@ class PermissionGroupTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_document_author_can_create_document(self):
+        from projects.models import ProjectFolder, ProjectFolderMembership
+        folder = ProjectFolder.objects.create(
+            code='PG-FOLD', name='PG Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.author,
+        )
+        ProjectFolderMembership.objects.create(folder=folder, user=self.author, role='author')
         self.client.login(username='pg_author', password='pw')
         response = self.client.post(reverse('document_new'), {
             'code': 'PG-AUTH',
             'title': 'Documento autore',
             'category': 'QUALITY',
+            'project_folder': folder.pk,
             'revision_label': '00',
             'revision_number': '0',
         })
@@ -955,3 +978,126 @@ class DocumentDetailApprovalTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.context['latest_approval_request'])
         self.assertContains(response, 'Nessun dettaglio approvativo disponibile.')
+
+
+# ---------------------------------------------------------------------------
+# DocumentCreateForm: cartella obbligatoria
+# ---------------------------------------------------------------------------
+
+class NewDocumentFolderRequiredTests(TestCase):
+    """La cartella è obbligatoria nella creazione documento da UI."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from projects.models import ProjectFolder, ProjectFolderMembership
+
+        self.manager = User.objects.create_user('ndfr_mgr', password='pw', is_staff=True)
+        self.author = User.objects.create_user('ndfr_author', password='pw')
+        self.global_author = User.objects.create_user('ndfr_global_author', password='pw')
+
+        g_authors = Group.objects.get_or_create(name='Document Authors')[0]
+        self.author.groups.add(g_authors)
+        self.global_author.groups.add(g_authors)
+
+        self.folder = ProjectFolder.objects.create(
+            code='NDFR-FOLD',
+            name='Cartella test',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.manager,
+        )
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.author, role='author')
+        # global_author ha il gruppo ma NESSUNA membership → nessuna cartella scrivibile
+
+    def _post_new_document(self, user_login, extra_data=None):
+        self.client.login(username=user_login, password='pw')
+        data = {
+            'code': 'NDFR-DOC-001',
+            'title': 'Test',
+            'category': 'QUALITY',
+            'document_type': '',
+            'description': '',
+            'revision_label': '00',
+            'revision_number': 0,
+            'change_summary': '',
+        }
+        if extra_data:
+            data.update(extra_data)
+        return self.client.post(reverse('document_new'), data)
+
+    # 1. POST senza project_folder fallisce con errore campo obbligatorio
+    def test_post_without_folder_fails(self):
+        response = self._post_new_document('ndfr_mgr')
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertFalse(form.is_valid())
+        self.assertIn('project_folder', form.errors)
+
+    # 2. POST con cartella valida crea il documento
+    def test_post_with_folder_creates_document(self):
+        response = self._post_new_document('ndfr_mgr', {'project_folder': self.folder.pk})
+        self.assertTrue(Document.objects.filter(code='NDFR-DOC-001').exists())
+        doc = Document.objects.get(code='NDFR-DOC-001')
+        self.assertEqual(doc.project_folder, self.folder)
+
+    # 3. Author con membership crea documento nella sua cartella
+    def test_author_with_membership_can_create_with_folder(self):
+        response = self._post_new_document('ndfr_author', {'project_folder': self.folder.pk})
+        self.assertTrue(Document.objects.filter(code='NDFR-DOC-001').exists())
+
+    # 4. Author con membership: il campo cartella ha nel queryset solo la sua cartella
+    def test_author_folder_queryset_limited_to_writable(self):
+        self.client.login(username='ndfr_author', password='pw')
+        response = self.client.get(reverse('document_new'))
+        self.assertEqual(response.status_code, 200)
+        qs = list(response.context['form'].fields['project_folder'].queryset)
+        self.assertEqual(len(qs), 1)
+        self.assertEqual(qs[0].pk, self.folder.pk)
+
+    # 5. Author globale senza membership vede form con queryset vuoto e messaggio warning
+    def test_global_author_without_membership_sees_warning(self):
+        self.client.login(username='ndfr_global_author', password='pw')
+        response = self.client.get(reverse('document_new'))
+        self.assertEqual(response.status_code, 200)
+        qs = list(response.context['form'].fields['project_folder'].queryset)
+        self.assertEqual(len(qs), 0)
+        # Il warning deve essere nei messaggi della response
+        msgs = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('nessuna cartella' in m.lower() for m in msgs))
+
+    # 6. Il campo cartella è required=True nel form
+    def test_project_folder_is_required(self):
+        self.client.login(username='ndfr_mgr', password='pw')
+        response = self.client.get(reverse('document_new'))
+        form = response.context['form']
+        self.assertTrue(form.fields['project_folder'].required)
+
+    # 7. Creazione da progetto (fixed_folder) funziona e associa il documento alla cartella
+    def test_create_from_project_context_uses_fixed_folder(self):
+        from projects.models import Project
+        project = Project.objects.create(
+            code='NDFR-PRJ-001',
+            name='Progetto test',
+            status=Project.Status.ACTIVE,
+            project_type=Project.ProjectType.INTERNAL,
+            folder=self.folder,
+            manager=self.manager,
+            created_by=self.manager,
+        )
+        self.client.login(username='ndfr_mgr', password='pw')
+        url = reverse('document_new') + f'?project={project.pk}'
+        response = self.client.post(url, {
+            'code': 'NDFR-PRJ-DOC-001',
+            'title': 'Doc da progetto',
+            'category': 'QUALITY',
+            'document_type': '',
+            'description': '',
+            'project_folder': self.folder.pk,
+            'revision_label': '00',
+            'revision_number': 0,
+            'change_summary': '',
+        })
+        self.assertTrue(Document.objects.filter(code='NDFR-PRJ-DOC-001').exists())
+        doc = Document.objects.get(code='NDFR-PRJ-DOC-001')
+        self.assertEqual(doc.project_folder, self.folder)
+        self.assertRedirects(response, reverse('document_detail', args=[doc.pk]))

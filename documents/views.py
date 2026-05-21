@@ -178,6 +178,12 @@ def new_document(request):
                     messages.error(request, msg)
     else:
         form = DocumentCreateForm(user=request.user, fixed_project_folder=fixed_folder)
+        if fixed_folder is None and not form.fields['project_folder'].queryset.exists():
+            messages.warning(
+                request,
+                'Non hai accesso in scrittura a nessuna cartella. '
+                'Richiedi i permessi necessari a un amministratore.',
+            )
 
     return render(request, 'documents/new_document.html', {
         'form': form,

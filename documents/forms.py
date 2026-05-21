@@ -26,9 +26,10 @@ class DocumentCreateForm(forms.Form):
     )
     project_folder = forms.ModelChoiceField(
         queryset=ProjectFolder.objects.none(),
-        required=False,
+        required=True,
         label='Cartella',
-        empty_label='— nessuna —',
+        empty_label='— seleziona cartella —',
+        help_text='La cartella determina dove il documento viene archiviato e quali utenti possono accedervi.',
     )
 
     def __init__(self, *args, user=None, fixed_project_folder=None, **kwargs):
