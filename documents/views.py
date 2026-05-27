@@ -14,6 +14,7 @@ from documents.permissions import (
     can_create_revision,
     can_edit_version,
     can_submit_for_approval,
+    can_view_audit,
     can_view_document,
     is_document_auditor,
     is_document_manager,
@@ -65,17 +66,18 @@ def document_detail(request, document_id):
     if not can_view_document(request.user, doc):
         raise Http404
 
-    show_history = (
-        request.user.is_staff
-        or request.user.is_superuser
-        or is_document_auditor(request.user)
-        or is_document_manager(request.user)
-    )
+    show_history = can_view_audit(request.user, folder=doc.project_folder)
+
     versions = None
+    audit_logs = None
     if show_history:
         versions = doc.versions.select_related(
             'created_by', 'approved_by'
         ).order_by('-revision_number')
+        from auditlog.models import AuditLog
+        audit_logs = AuditLog.objects.filter(
+            changes__document_id=doc.pk
+        ).select_related('user').order_by('-timestamp')[:20]
 
     latest_approval_request = None
     latest_approval_approvers = []
@@ -103,6 +105,7 @@ def document_detail(request, document_id):
         'document': doc,
         'versions': versions,
         'show_history': show_history,
+        'audit_logs': audit_logs,
         'latest_approval_request': latest_approval_request,
         'latest_approval_approvers': latest_approval_approvers,
         'latest_approval_attachments': latest_approval_attachments,

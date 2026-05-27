@@ -1101,3 +1101,115 @@ class NewDocumentFolderRequiredTests(TestCase):
         doc = Document.objects.get(code='NDFR-PRJ-DOC-001')
         self.assertEqual(doc.project_folder, self.folder)
         self.assertRedirects(response, reverse('document_detail', args=[doc.pk]))
+
+
+# ---------------------------------------------------------------------------
+# Step Audit UI — document_detail
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class AuditUIDocumentDetailTests(TestCase):
+    """Sezione 'Storico eventi' nel dettaglio documento."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        mail.outbox = []
+        self.author = User.objects.create_user('au_author', email='a@t.com', password='pw')
+        self.approver = User.objects.create_user('au_approver', email='ap@t.com', password='pw')
+        self.auditor = User.objects.create_user('au_auditor', password='pw')
+        self.manager = User.objects.create_user('au_manager', password='pw')
+        self.reader = User.objects.create_user('au_reader', password='pw')
+
+        Group.objects.get_or_create(name='Document Auditors')[0].user_set.add(self.auditor)
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+        Group.objects.get_or_create(name='Document Readers')[0].user_set.add(self.reader)
+
+        self.doc = make_document(code='AU-DOC-001', owner=self.author)
+
+    def _approve_doc(self, doc=None):
+        from approvals.services import approve_version
+        doc = doc or self.doc
+        v = create_new_revision(doc, self.author, 'A', 1)
+        req = submit_version_for_approval(v, self.author, [self.approver])
+        approve_version(req, self.approver)
+        doc.refresh_from_db()
+        return v
+
+    # 1. Auditor vede "Storico eventi"
+    def test_auditor_sees_storico_eventi(self):
+        self._approve_doc()
+        self.client.login(username='au_auditor', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_history'])
+        self.assertContains(response, 'Storico eventi')
+
+    # 2. Manager vede "Storico eventi"
+    def test_manager_sees_storico_eventi(self):
+        self._approve_doc()
+        self.client.login(username='au_manager', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_history'])
+        self.assertContains(response, 'Storico eventi')
+
+    # 3. Reader normale NON vede "Storico eventi"
+    def test_reader_does_not_see_storico_eventi(self):
+        self._approve_doc()
+        self.client.login(username='au_reader', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['show_history'])
+        self.assertNotContains(response, 'Storico eventi')
+        self.assertIsNone(response.context['audit_logs'])
+
+    # 4. Con AuditLog presenti il contesto non è vuoto
+    def test_audit_logs_present_in_context_when_events_exist(self):
+        self._approve_doc()
+        self.client.login(username='au_auditor', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        audit_logs = list(response.context['audit_logs'])
+        self.assertGreater(len(audit_logs), 0)
+
+    # 5. Pagina funziona anche senza AuditLog (messaggio "Nessun evento")
+    def test_detail_works_without_audit_logs(self):
+        from auditlog.models import AuditLog
+        self._approve_doc()
+        AuditLog.objects.all().delete()
+
+        self.client.login(username='au_auditor', password='pw')
+        response = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(list(response.context['audit_logs'])), 0)
+        self.assertContains(response, 'Nessun evento registrato per questo documento.')
+
+    # 6. Folder-auditor (membership cartella) vede lo storico del documento nella cartella
+    def test_folder_auditor_sees_storico_in_document_with_folder(self):
+        from projects.models import ProjectFolder, ProjectFolderMembership
+        folder_auditor = User.objects.create_user('au_foldaud', password='pw')
+        folder = ProjectFolder.objects.create(
+            code='AU-FOLD', name='Audit Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.author,
+        )
+        ProjectFolderMembership.objects.create(folder=folder, user=folder_auditor, role='auditor')
+
+        doc_in_folder = Document.objects.create(
+            code='AU-DOC-FOLD', title='Doc in cartella',
+            category=Document.Category.QUALITY,
+            project_folder=folder,
+            owner=self.author, created_by=self.author,
+        )
+        from approvals.services import approve_version
+        v = create_new_revision(doc_in_folder, self.author, 'A', 1)
+        req = submit_version_for_approval(v, self.author, [self.approver])
+        approve_version(req, self.approver)
+        doc_in_folder.refresh_from_db()
+
+        self.client.login(username='au_foldaud', password='pw')
+        response = self.client.get(reverse('document_detail', args=[doc_in_folder.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_history'])
+        self.assertContains(response, 'Storico eventi')

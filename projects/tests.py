@@ -1170,3 +1170,73 @@ class NewDocumentFromProjectTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context['can_create_doc'])
         self.assertNotContains(response, 'Nuovo documento in questo progetto')
+
+
+# ---------------------------------------------------------------------------
+# Step Audit UI — project_detail
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND=EMAIL_LOCMEM)
+class AuditUIProjectDetailTests(TestCase):
+    """Sezione 'Storico eventi progetto' nel dettaglio progetto."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from documents.permissions import GROUP_AUDITORS
+
+        self.manager_staff = User.objects.create_user('apd_mgr', password='pw', is_staff=True)
+        self.global_auditor = User.objects.create_user('apd_auditor', password='pw')
+        self.reader = User.objects.create_user('apd_reader', password='pw')
+
+        Group.objects.get_or_create(name=GROUP_AUDITORS)[0].user_set.add(self.global_auditor)
+
+        self.project, self.folder = make_project_with_folder(code='APD-PRJ-001', owner=self.manager_staff)
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.reader, role='reader')
+
+    # 1. Manager (staff) vede "Storico eventi progetto"
+    def test_manager_sees_storico_eventi_progetto(self):
+        self.client.login(username='apd_mgr', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_audit'])
+        self.assertContains(response, 'Storico eventi progetto')
+
+    # 2. Auditor globale vede "Storico eventi progetto"
+    def test_global_auditor_sees_storico_eventi_progetto(self):
+        self.client.login(username='apd_auditor', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_audit'])
+        self.assertContains(response, 'Storico eventi progetto')
+
+    # 3. Reader normale NON vede "Storico eventi progetto"
+    def test_reader_does_not_see_storico_eventi_progetto(self):
+        self.client.login(username='apd_reader', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['show_audit'])
+        self.assertNotContains(response, 'Storico eventi progetto')
+        self.assertIsNone(response.context['audit_logs'])
+
+    # 4. Pagina funziona anche senza AuditLog
+    def test_detail_works_without_audit_logs(self):
+        from auditlog.models import AuditLog
+        AuditLog.objects.all().delete()
+
+        self.client.login(username='apd_mgr', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(list(response.context['audit_logs'])), 0)
+        self.assertContains(response, 'Nessun evento registrato per questo progetto.')
+
+    # 5. Folder-auditor (membership cartella) vede "Storico eventi progetto"
+    def test_folder_auditor_sees_storico_eventi_progetto(self):
+        folder_auditor = User.objects.create_user('apd_foldaud', password='pw')
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=folder_auditor, role='auditor'
+        )
+        self.client.login(username='apd_foldaud', password='pw')
+        response = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['show_audit'])
+        self.assertContains(response, 'Storico eventi progetto')

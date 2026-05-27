@@ -139,6 +139,26 @@ def project_detail(request, project_id):
         and can_create_document_in_folder(request.user, project.folder)
     )
 
+    from documents.permissions import can_view_audit
+    show_audit = can_view_audit(request.user, folder=project.folder)
+
+    audit_logs = None
+    if show_audit:
+        from auditlog.models import AuditLog
+        from django.db.models import Q
+        from documents.models import Document as _Doc
+        from projects.services import get_project_document_folders
+        _folders = get_project_document_folders(project)
+        _doc_ids = []
+        if _folders:
+            _doc_ids = list(_Doc.objects.filter(
+                project_folder__in=_folders
+            ).values_list('pk', flat=True))
+        audit_logs = AuditLog.objects.filter(
+            Q(changes__project_id=project.pk)
+            | Q(changes__document_id__in=_doc_ids)
+        ).select_related('user').order_by('-timestamp')[:20]
+
     return render(request, 'projects/project_detail.html', {
         'project': project,
         'documents': documents,
@@ -148,6 +168,8 @@ def project_detail(request, project_id):
         'can_create_doc': can_create_doc,
         'current_baseline': current_baseline,
         'comparison_rows': comparison_rows,
+        'show_audit': show_audit,
+        'audit_logs': audit_logs,
     })
 
 

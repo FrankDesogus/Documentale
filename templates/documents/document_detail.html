@@ -102,6 +102,34 @@
 </div>
 {% endif %}
 
+{% if show_history %}
+<h2 style="margin-top:2rem">Storico eventi</h2>
+{% if audit_logs %}
+<table>
+  <thead>
+    <tr>
+      <th>Data/ora</th>
+      <th>Utente</th>
+      <th>Azione</th>
+      <th>Oggetto</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for entry in audit_logs %}
+    <tr>
+      <td class="meta" style="white-space:nowrap">{{ entry.timestamp|date:"d/m/Y H:i" }}</td>
+      <td>{% if entry.user %}{{ entry.user.get_full_name|default:entry.user.username }}{% else %}—{% endif %}</td>
+      <td><code style="font-size:.85rem">{{ entry.action }}</code></td>
+      <td class="meta" style="font-size:.85rem">{{ entry.object_repr }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="meta">Nessun evento registrato per questo documento.</p>
+{% endif %}
+{% endif %}
+
 {% if show_history and versions %}
 <h2>Tutte le revisioni</h2>
 <table>

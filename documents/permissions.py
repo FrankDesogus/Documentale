@@ -166,6 +166,24 @@ def can_edit_version(user, version):
     return False
 
 
+def can_view_audit(user, folder=None):
+    """True se l'utente può vedere lo storico audit per un documento o progetto.
+
+    Visibile a: superuser, staff, Document Managers globali, Document Auditors globali.
+    Se viene passata una cartella, anche manager/auditor di quella cartella possono vedere.
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser or user.is_staff:
+        return True
+    if _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS):
+        return True
+    if folder is not None:
+        from projects.permissions import get_folder_role, AUDIT_ROLES
+        return get_folder_role(user, folder) in AUDIT_ROLES
+    return False
+
+
 def can_download_version_file(user, version):
     if not user.is_authenticated:
         return False

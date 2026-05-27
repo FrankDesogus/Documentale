@@ -52,19 +52,19 @@ class Command(BaseCommand):
     def _reset(self):
         from projects.models import ProjectRevision
 
-        # Elimina prima le revisioni progetto demo (cascade → ProjectRevisionItem).
+        # Elimina prima le revisioni progetto demo (cascade -> ProjectRevisionItem).
         # Deve avvenire PRIMA di eliminare il documento perché ProjectRevisionItem
         # ha FK PROTECT verso DocumentVersion.
         try:
             progetto = Project.objects.get(code='PRJ-DEMO-001')
             rev_count, _ = ProjectRevision.objects.filter(project=progetto).delete()
             if rev_count:
-                self.stdout.write(f'  → {rev_count} oggetti revisione progetto demo eliminati.')
+                self.stdout.write(f'  >> {rev_count} oggetti revisione progetto demo eliminati.')
         except Project.DoesNotExist:
             pass
 
         # Elimina documento demo e cascade
-        # (DocumentVersion → ApprovalRequest → ApprovalRequestApprover, ApprovalDecision)
+        # (DocumentVersion -> ApprovalRequest -> ApprovalRequestApprover, ApprovalDecision)
         try:
             doc = Document.objects.get(code=DEMO_DOCUMENT_CODE)
             deleted_logs, _ = AuditLog.objects.filter(changes__document_id=doc.pk).delete()
@@ -95,7 +95,7 @@ class Command(BaseCommand):
         Group.objects.get_or_create(name=GROUP_AUTHORS)[0].user_set.add(autore)
         Group.objects.get_or_create(name=GROUP_APPROVERS)[0].user_set.add(approvatore)
         Group.objects.get_or_create(name=GROUP_READERS)[0].user_set.add(lettore)
-        self._step('Gruppi assegnati: autore→Authors, approvatore→Approvers, lettore→Readers')
+        self._step('Gruppi assegnati: autore->Authors, approvatore->Approvers, lettore->Readers')
 
         # 2. Cartelle demo
         cartella_ing, _ = ProjectFolder.objects.get_or_create(
@@ -130,7 +130,7 @@ class Command(BaseCommand):
                 'created_by': autore,
             },
         )
-        self._step(f'Cartelle: {cartella_ing} → {cartella_std}, {cartella_prj}')
+        self._step(f'Cartelle: {cartella_ing} -> {cartella_std}, {cartella_prj}')
 
         # 2b. Progetto demo
         # La cartella usata è cartella_std: anche il documento demo è in cartella_std,
@@ -203,7 +203,7 @@ class Command(BaseCommand):
         # 5. Approva Rev.00
         approve_version(req00, approvatore, comment='Prima emissione approvata.')
         rev00.refresh_from_db()
-        self._step(f'Rev.00 approvata → {rev00.get_status_display()}, is_current={rev00.is_current}')
+        self._step(f'Rev.00 approvata -> {rev00.get_status_display()}, is_current={rev00.is_current}')
 
         # 6. Crea Rev.01
         doc.refresh_from_db()
@@ -226,12 +226,12 @@ class Command(BaseCommand):
             comment='Rivedere interamente la sezione 3.2.',
         )
         rev01.refresh_from_db()
-        self._step(f'Rev.01 rifiutata → {rev01.get_status_display()}')
+        self._step(f'Rev.01 rifiutata -> {rev01.get_status_display()}')
 
         # 9. Riapri Rev.01 come bozza
         reopen_rejected_version_as_draft(rev01, autore)
         rev01.refresh_from_db()
-        self._step(f'Rev.01 riaperta come bozza → {rev01.get_status_display()}')
+        self._step(f'Rev.01 riaperta come bozza -> {rev01.get_status_display()}')
 
         # 10. Reinvia Rev.01 in approvazione
         req01b = submit_version_for_approval(rev01, autore, [approvatore])
@@ -241,7 +241,7 @@ class Command(BaseCommand):
         approve_version(req01b, approvatore, comment='Approvato dopo correzioni sezione 3.2.')
         rev01.refresh_from_db()
         doc.refresh_from_db()
-        self._step(f'Rev.01 approvata → {rev01.get_status_display()}, is_current={rev01.is_current}')
+        self._step(f'Rev.01 approvata -> {rev01.get_status_display()}, is_current={rev01.is_current}')
 
         # 12. Baseline progetto
         baseline = create_project_revision(
@@ -255,7 +255,7 @@ class Command(BaseCommand):
         added = populate_project_revision_from_current_documents(baseline)
         self._step(f'Baseline A creata con {added} documenti')
         issue_project_revision(baseline, autore)
-        self._step(f'Baseline A emessa → is_current={baseline.is_current}')
+        self._step(f'Baseline A emessa -> is_current={baseline.is_current}')
 
         # Riepilogo finale
         rev00.refresh_from_db()
@@ -294,4 +294,4 @@ class Command(BaseCommand):
         return user
 
     def _step(self, message):
-        self.stdout.write(f'  → {message}')
+        self.stdout.write(f'  >> {message}')

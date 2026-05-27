@@ -214,8 +214,12 @@ def _write_audit(actor, action, project, revision, extra=None):
         if extra:
             changes.update(extra)
         AuditLog.objects.create(
-            actor=actor,
+            user=actor,
             action=action,
+            app_label='projects',
+            model_name='projectrevision',
+            object_id=str(revision.pk),
+            object_repr=str(revision)[:255],
             changes=changes,
         )
     except Exception:
