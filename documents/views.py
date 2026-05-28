@@ -101,6 +101,20 @@ def document_detail(request, document_id):
         if latest_approval_request else []
     )
 
+    # ECN collegati al documento (visibili all'utente)
+    doc_ecns = []
+    show_create_ecn = False
+    try:
+        from ecn.permissions import can_create_ecn, can_view_ecn
+        raw_ecns = doc.ecns.select_related('proposed_by').order_by('-proposed_at')
+        doc_ecns = [e for e in raw_ecns if can_view_ecn(request.user, e)]
+        show_create_ecn = (
+            doc.current_version is not None
+            and can_create_ecn(request.user, doc)
+        )
+    except Exception:
+        pass
+
     return render(request, 'documents/document_detail.html', {
         'document': doc,
         'versions': versions,
@@ -109,6 +123,8 @@ def document_detail(request, document_id):
         'latest_approval_request': latest_approval_request,
         'latest_approval_approvers': latest_approval_approvers,
         'latest_approval_attachments': latest_approval_attachments,
+        'doc_ecns': doc_ecns,
+        'show_create_ecn': show_create_ecn,
     })
 
 

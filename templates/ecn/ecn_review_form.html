@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Revisione CCB — {{ ecn.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
+</p>
+<h1>Revisione CCB — {{ ecn.code }}</h1>
+<p class="meta">{{ ecn.title }}</p>
+
+<div class="card" style="margin-bottom:1rem">
+  <dl class="dl-grid">
+    <dt>Documento</dt>          <dd>{{ ecn.document.code }} — {{ ecn.document.title }}</dd>
+    <dt>Rev. riferimento</dt>   <dd>Rev. {{ ecn.document_version.revision_label }}</dd>
+    <dt>Proponente</dt>         <dd>{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</dd>
+    <dt>Categoria motivazione</dt><dd>{{ ecn.get_motivation_display }}</dd>
+    {% if ecn.motivation_detail %}
+    <dt>Motivazione</dt>        <dd style="white-space:pre-wrap">{{ ecn.motivation_detail }}</dd>
+    {% endif %}
+    {% if ecn.description %}
+    <dt>Descrizione modifica</dt><dd style="white-space:pre-wrap">{{ ecn.description }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="card">
+    <fieldset>
+      <legend>Decisione *</legend>
+      <div style="margin-bottom:1rem">
+        {% for radio in form.action %}
+        <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;font-weight:normal">
+          {{ radio.tag }} {{ radio.choice_label }}
+        </label>
+        {% endfor %}
+        {% if form.action.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.action.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Classificazione CCB</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_ccb_class">{{ form.ccb_class.label }}</label>
+        <select name="ccb_class" id="id_ccb_class" style="border:1px solid #ccc;border-radius:3px;padding:.4rem .6rem;font-size:.95rem;width:100%">
+          {% for val, label in form.ccb_class.field.choices %}
+          <option value="{{ val }}" {% if form.ccb_class.value == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_class.help_text }}</p>
+        {% if form.ccb_class.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_class.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Analisi di impatto</legend>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_requirements.label }}</label>
+        {{ form.ccb_requirements }}
+        {% if form.ccb_requirements.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_requirements.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_technical_impact.label }}</label>
+        {{ form.ccb_technical_impact }}
+        {% if form.ccb_technical_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_technical_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_cost_impact.label }}</label>
+        {{ form.ccb_cost_impact }}
+        {% if form.ccb_cost_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_cost_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_time_impact.label }}</label>
+        {{ form.ccb_time_impact }}
+        {% if form.ccb_time_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_time_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_quality_impact.label }}</label>
+        {{ form.ccb_quality_impact }}
+        {% if form.ccb_quality_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_quality_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_other_impact.label }}</label>
+        {{ form.ccb_other_impact }}
+        {% if form.ccb_other_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_other_impact.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Note CCB</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_ccb_notes">{{ form.ccb_notes.label }}</label>
+        {{ form.ccb_notes }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_notes.help_text }}</p>
+        {% if form.ccb_notes.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_notes.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Conferma decisione</button>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

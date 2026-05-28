@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}ECN / Varianti — Documentale{% endblock %}
+
+{% block content %}
+<h1>ECN / Varianti</h1>
+
+<p>
+  <a href="{% url 'ecn:ecn_create' %}" class="btn btn-primary">+ Nuova richiesta ECN</a>
+</p>
+
+{# Filtro stato #}
+<form method="get" style="margin-bottom:1rem;display:flex;gap:.5rem;align-items:center">
+  <label for="status-filter" style="margin:0;font-weight:normal">Filtra per stato:</label>
+  <select id="status-filter" name="status" onchange="this.form.submit()" style="border:1px solid #ccc;border-radius:3px;padding:.3rem .5rem;font-size:.9rem">
+    <option value="">— tutti —</option>
+    {% for val, label in status_choices %}
+    <option value="{{ val }}" {% if val == current_status %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% if current_status %}
+  <a href="{% url 'ecn:ecn_list' %}" class="btn btn-secondary" style="padding:.3rem .7rem;font-size:.85rem">Rimuovi filtro</a>
+  {% endif %}
+</form>
+
+{% if ecns %}
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th>
+      <th>Titolo</th>
+      <th>Documento</th>
+      <th>Stato</th>
+      <th>Proponente</th>
+      <th>Data proposta</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ecn in ecns %}
+    <tr>
+      <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a></td>
+      <td>{{ ecn.title }}</td>
+      <td><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a></td>
+      <td><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></td>
+      <td>{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
+      <td class="meta" style="white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="meta">Nessun ECN trovato.</p>
+{% endif %}
+{% endblock %}

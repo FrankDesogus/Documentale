@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}{{ ecn.code }} — ECN — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'ecn:ecn_list' %}">← ECN / Varianti</a>
+  &nbsp;|&nbsp;
+  <a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a>
+</p>
+
+<h1>{{ ecn.code }} — {{ ecn.title }}</h1>
+
+{# Azioni principali #}
+<div style="margin-bottom:1.25rem;display:flex;gap:.5rem;flex-wrap:wrap">
+  {% if ecn.status == 'draft' and can_submit %}
+  <form method="post" action="{% url 'ecn:ecn_submit' ecn.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary"
+            onclick="return confirm('Inviare questo ECN alla CCB?')">
+      Invia alla CCB
+    </button>
+  </form>
+  {% endif %}
+
+  {% if ecn.status == 'under_review' and can_review %}
+  <a href="{% url 'ecn:ecn_review' ecn.pk %}" class="btn btn-primary">Revisione CCB</a>
+  {% endif %}
+
+  {% if ecn.status == 'approved' and can_close %}
+  <a href="{% url 'ecn:ecn_close' ecn.pk %}" class="btn btn-success">Chiudi ECN</a>
+  {% endif %}
+
+  {% if can_attach %}
+  <a href="{% url 'ecn:ecn_add_attachment' ecn.pk %}" class="btn btn-secondary">+ Allegato</a>
+  {% endif %}
+</div>
+
+{# Scheda ECN #}
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Codice</dt>         <dd>{{ ecn.code }}</dd>
+    <dt>Stato</dt>          <dd><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></dd>
+    <dt>Documento</dt>      <dd><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }} — {{ ecn.document.title }}</a></dd>
+    <dt>Rev. riferimento</dt><dd>Rev. {{ ecn.document_version.revision_label }}</dd>
+    {% if ecn.project %}
+    <dt>Progetto</dt>       <dd>{{ ecn.project }}</dd>
+    {% endif %}
+    <dt>Proponente</dt>     <dd>{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</dd>
+    {% if ecn.created_by_id != ecn.proposed_by_id %}
+    <dt>Creato da</dt>      <dd>{{ ecn.created_by.get_full_name|default:ecn.created_by.username }}</dd>
+    {% endif %}
+    <dt>Data proposta</dt>  <dd>{{ ecn.proposed_at|date:"d/m/Y H:i" }}</dd>
+    {% if ecn.submitted_at %}
+    <dt>Inviato a CCB</dt>  <dd>{{ ecn.submitted_at|date:"d/m/Y H:i" }}</dd>
+    {% endif %}
+    {% if ecn.commessa %}
+    <dt>Commessa</dt>       <dd>{{ ecn.commessa }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{# Descrizione proposta #}
+<h2>Proposta di variante</h2>
+<div class="card">
+  <dl class="dl-grid">
+    <dt>Categoria motivazione</dt>
+    <dd>{{ ecn.get_motivation_display }}</dd>
+    {% if ecn.motivation_detail %}
+    <dt>Motivazione (dettaglio)</dt>
+    <dd style="white-space:pre-wrap">{{ ecn.motivation_detail }}</dd>
+    {% endif %}
+    {% if ecn.description %}
+    <dt>Descrizione modifica</dt>
+    <dd style="white-space:pre-wrap">{{ ecn.description }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{# Valutazione CCB #}
+{% if ecn.status == 'approved' or ecn.status == 'rejected' or ecn.status == 'closed' or ecn.ccb_reviewed_by %}
+<h2>Valutazione CCB</h2>
+<div class="card">
+  <dl class="dl-grid">
+    {% if ecn.ccb_reviewed_by %}
+    <dt>Revisore</dt>       <dd>{{ ecn.ccb_reviewed_by.get_full_name|default:ecn.ccb_reviewed_by.username }}</dd>
+    {% endif %}
+    {% if ecn.ccb_reviewed_at %}
+    <dt>Revisionato il</dt> <dd>{{ ecn.ccb_reviewed_at|date:"d/m/Y H:i" }}</dd>
+    {% endif %}
+    {% if ecn.ccb_class %}
+    <dt>Classe variante</dt><dd>{{ ecn.get_ccb_class_display }}</dd>
+    {% endif %}
+    {% if ecn.ccb_requirements %}
+    <dt>Analisi requisiti</dt><dd style="white-space:pre-wrap">{{ ecn.ccb_requirements }}</dd>
+    {% endif %}
+    {% if ecn.ccb_technical_impact %}
+    <dt>Impatto tecnico</dt><dd style="white-space:pre-wrap">{{ ecn.ccb_technical_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_cost_impact %}
+    <dt>Impatto costi</dt>  <dd style="white-space:pre-wrap">{{ ecn.ccb_cost_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_time_impact %}
+    <dt>Impatto tempi</dt>  <dd style="white-space:pre-wrap">{{ ecn.ccb_time_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_quality_impact %}
+    <dt>Impatto qualità</dt><dd style="white-space:pre-wrap">{{ ecn.ccb_quality_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_other_impact %}
+    <dt>Impatto altri doc.</dt><dd style="white-space:pre-wrap">{{ ecn.ccb_other_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_notes %}
+    <dt>Note CCB</dt>       <dd style="white-space:pre-wrap">{{ ecn.ccb_notes }}</dd>
+    {% endif %}
+  </dl>
+</div>
+{% endif %}
+
+{# Esecuzione / revisione collegata #}
+{% if ecn.status == 'approved' or ecn.status == 'closed' %}
+<h2>Esecuzione</h2>
+<div class="card">
+  {% if ecn.executed_version %}
+  <dl class="dl-grid">
+    <dt>Revisione eseguita</dt>
+    <dd>Rev. {{ ecn.executed_version.revision_label }} — <span class="badge badge-{{ ecn.executed_version.status }}">{{ ecn.executed_version.get_status_display }}</span></dd>
+  </dl>
+  {% else %}
+  <p class="meta" style="color:#856404">
+    Nessuna revisione di esecuzione collegata. La nuova revisione del documento verrà collegata a questo ECN nel passo successivo.
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Chiusura #}
+{% if ecn.status == 'closed' %}
+<h2>Chiusura</h2>
+<div class="card">
+  <dl class="dl-grid">
+    {% if ecn.closed_by %}
+    <dt>Chiuso da</dt>    <dd>{{ ecn.closed_by.get_full_name|default:ecn.closed_by.username }}</dd>
+    {% endif %}
+    {% if ecn.closed_at %}
+    <dt>Chiuso il</dt>    <dd>{{ ecn.closed_at|date:"d/m/Y H:i" }}</dd>
+    {% endif %}
+    {% if ecn.close_notes %}
+    <dt>Note chiusura</dt><dd style="white-space:pre-wrap">{{ ecn.close_notes }}</dd>
+    {% endif %}
+  </dl>
+</div>
+{% endif %}
+
+{# Allegati #}
+<h2>Allegati</h2>
+<div class="card">
+  {% if attachments %}
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">File</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Titolo</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Caricato da</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Data</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for att in attachments %}
+      <tr>
+        <td style="padding:.3rem .5rem">{{ att.original_filename|default:att.file.name }}</td>
+        <td style="padding:.3rem .5rem">{{ att.title|default:"—" }}</td>
+        <td style="padding:.3rem .5rem;color:#6c757d">{{ att.uploaded_by.get_full_name|default:att.uploaded_by.username }}</td>
+        <td style="padding:.3rem .5rem;color:#6c757d;white-space:nowrap">{{ att.uploaded_at|date:"d/m/Y" }}</td>
+        <td style="padding:.3rem .5rem">
+          <a href="{% url 'ecn:ecn_attachment_download' att.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Scarica</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Nessun allegato.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -102,6 +102,40 @@
 </div>
 {% endif %}
 
+{# ---- ECN / Varianti collegate ---- #}
+<h2 style="margin-top:2rem">ECN / Varianti collegate</h2>
+<div class="card" style="padding-bottom:.75rem">
+  {% if doc_ecns %}
+  <table style="width:100%;border-collapse:collapse;margin-bottom:.5rem">
+    <thead>
+      <tr>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Codice</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Titolo</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Stato</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Proponente</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Data</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ecn in doc_ecns %}
+      <tr>
+        <td style="padding:.3rem .5rem"><a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a></td>
+        <td style="padding:.3rem .5rem">{{ ecn.title }}</td>
+        <td style="padding:.3rem .5rem"><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></td>
+        <td style="padding:.3rem .5rem;color:#6c757d">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
+        <td style="padding:.3rem .5rem;color:#6c757d;white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Nessuna variante ECN registrata per questo documento.</p>
+  {% endif %}
+  {% if show_create_ecn %}
+  <a href="{% url 'ecn:ecn_create' %}?document={{ document.pk }}" class="btn btn-primary" style="font-size:.9rem">+ Richiedi variante / ECN</a>
+  {% endif %}
+</div>
+
 {% if show_history %}
 <h2 style="margin-top:2rem">Storico eventi</h2>
 {% if audit_logs %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Aggiungi allegato — {{ ecn.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
+</p>
+<h1>Aggiungi allegato — {{ ecn.code }}</h1>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+
+  <div class="card">
+    <div style="margin-bottom:1rem">
+      <label for="id_file">{{ form.file.label }} *</label>
+      {{ form.file }}
+      {% if form.file.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.file.errors.as_text }}</p>{% endif %}
+    </div>
+    <div style="margin-bottom:1rem">
+      <label for="id_title">{{ form.title.label }}</label>
+      {{ form.title }}
+      <p class="meta" style="margin:.2rem 0 0">{{ form.title.help_text }}</p>
+      {% if form.title.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.title.errors.as_text }}</p>{% endif %}
+    </div>
+    <div style="margin-bottom:1rem">
+      <label for="id_description">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% if form.description.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.description.errors.as_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Carica allegato</button>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

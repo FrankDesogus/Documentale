@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Chiudi ECN — {{ ecn.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
+</p>
+<h1>Chiudi ECN — {{ ecn.code }}</h1>
+<p class="meta">{{ ecn.title }}</p>
+
+{% if warn_no_version %}
+<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:3px;padding:.75rem 1rem;margin-bottom:1rem;color:#856404">
+  <strong>Attenzione:</strong> non risulta ancora collegata una revisione di esecuzione a questo ECN.
+  Puoi procedere con la chiusura, ma la revisione eseguita dovrà essere collegata successivamente.
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <dl class="dl-grid">
+    <dt>Documento</dt>         <dd>{{ ecn.document.code }} — {{ ecn.document.title }}</dd>
+    <dt>Rev. riferimento</dt>  <dd>Rev. {{ ecn.document_version.revision_label }}</dd>
+    {% if ecn.executed_version %}
+    <dt>Revisione eseguita</dt><dd>Rev. {{ ecn.executed_version.revision_label }}</dd>
+    {% endif %}
+    <dt>Stato</dt>             <dd><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></dd>
+  </dl>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="card">
+    <div style="margin-bottom:1rem">
+      <label for="id_close_notes">{{ form.close_notes.label }}</label>
+      {{ form.close_notes }}
+      <p class="meta" style="margin:.2rem 0 0">{{ form.close_notes.help_text }}</p>
+      {% if form.close_notes.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.close_notes.errors.as_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-success">Conferma chiusura ECN</button>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

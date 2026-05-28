@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'projects',
     'auditlog',
     'notifications',
+    'ecn',
 ]
 
 MIDDLEWARE = [

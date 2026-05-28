@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Nuova richiesta ECN — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'document_detail' document.pk %}">← {{ document.code }}</a>
+</p>
+<h1>Nuova richiesta ECN / Variante</h1>
+<p class="meta">Documento: <strong>{{ document.code }} — {{ document.title }}</strong></p>
+
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="document" value="{{ document.pk }}">
+
+  <div class="card">
+    <fieldset>
+      <legend>Identificazione</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_title">{{ form.title.label }} *</label>
+        {{ form.title }}
+        {% if form.title.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.title.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label for="id_commessa">{{ form.commessa.label }}</label>
+        {{ form.commessa }}
+        {% if form.commessa.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.commessa.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Motivazione</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_motivation">{{ form.motivation.label }} *</label>
+        {{ form.motivation }}
+        {% if form.motivation.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.motivation.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label for="id_motivation_detail">{{ form.motivation_detail.label }}</label>
+        {{ form.motivation_detail }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.motivation_detail.help_text }}</p>
+        {% if form.motivation_detail.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.motivation_detail.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Descrizione modifica proposta</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_description">{{ form.description.label }}</label>
+        {{ form.description }}
+        {% if form.description.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.description.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Crea ECN in bozza</button>
+  <a href="{% url 'document_detail' document.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}
