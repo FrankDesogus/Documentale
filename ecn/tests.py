@@ -1235,3 +1235,78 @@ class ECNViewTests(TestCase):
         r = self.client.get(f'/documents/{self.document.pk}/')
         # stranger non vede il documento → 404
         self.assertEqual(r.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# ECN-C: pulsante "Crea revisione da ECN" nel dettaglio ECN
+# ---------------------------------------------------------------------------
+
+class ECNCCreateRevisionButtonTests(TestCase):
+    """Verifica il pulsante 'Crea revisione da ECN' in ecn_detail."""
+
+    def setUp(self):
+        from approvals.services import approve_version as _approve_version
+
+        self.manager  = _make_user('crev_manager')
+        self.stranger = _make_user('crev_stranger')
+        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        self.manager.groups.add(grp_mgr)
+
+        self.folder   = _make_folder(self.manager, code='FOLD-CREV')
+        self.document = _make_document(self.manager, self.folder, code='DOC-CREV-001')
+        # Approva la prima revisione
+        self.version  = _make_version(self.document, self.manager)
+        self.document.current_version = self.version
+        self.document.save(update_fields=['current_version'])
+
+        # ECN approvato, senza executed_version
+        from ecn.services import create_change_notice, approve_change_notice
+        self.ecn = create_change_notice(
+            document=self.document,
+            proposed_by=self.manager,
+            title='Variante per test pulsante',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+        )
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
+        self.manager.groups.add(grp_ccb)
+        approve_change_notice(
+            self.ecn, self.manager, ccb_class=ChangeNotice.CCBClass.CLASS1
+        )
+        self.ecn.refresh_from_db()
+
+    # 1. Dettaglio ECN approvato mostra "Crea revisione da ECN" a utente con permesso
+    def test_ecn_detail_approved_shows_create_revision_button(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Crea revisione da ECN')
+
+    # 2. ECN in stato draft non mostra il pulsante
+    def test_ecn_detail_draft_hides_create_revision_button(self):
+        draft_ecn = _make_ecn(self.document, self.version, self.manager, code='ECN-CREV-DRAFT')
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{draft_ecn.pk}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'Crea revisione da ECN')
+
+    # 3. ECN approvato già usato (executed_version presente) non mostra il pulsante
+    def test_ecn_detail_already_executed_hides_button(self):
+        from documents.services import create_new_revision
+        version2 = create_new_revision(
+            self.document, self.manager, '01', 1, ecn=self.ecn
+        )
+        self.ecn.refresh_from_db()
+        self.assertIsNotNone(self.ecn.executed_version)
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'Crea revisione da ECN')
+
+    # 4. Click sul pulsante apre correttamente la view nuova revisione con ecn param
+    def test_crea_revisione_link_points_to_new_revision_with_ecn(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        expected_url = f'/documents/{self.document.pk}/new-revision/?ecn={self.ecn.pk}'
+        self.assertContains(r, f'href="{expected_url}"')

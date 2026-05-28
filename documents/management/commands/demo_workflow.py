@@ -206,12 +206,15 @@ class Command(BaseCommand):
         self._step(f'Rev.00 approvata -> {rev00.get_status_display()}, is_current={rev00.is_current}')
 
         # 6. Crea Rev.01
+        # _bypass_ecn_check=True: il comando demo non gestisce ECN,
+        # bypassa il gate per semplicità dello scenario demo.
         doc.refresh_from_db()
         rev01 = create_new_revision(
             doc, autore,
             revision_label='01',
             revision_number=1,
             change_summary='Aggiornamento procedure operative sezione 3.',
+            _bypass_ecn_check=True,
         )
         self._step(f'Rev.01 creata in bozza: {rev01}')
 

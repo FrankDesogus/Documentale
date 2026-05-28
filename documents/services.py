@@ -17,9 +17,52 @@ def create_new_revision(
     revision_number,
     file=None,
     change_summary="",
+    ecn=None,
+    _bypass_ecn_check=False,
 ):
+    """
+    Crea una nuova DocumentVersion in stato DRAFT.
+
+    Parametri:
+      ecn              — istanza ChangeNotice approvata che autorizza la revisione.
+                         Obbligatoria quando il documento ha già una current_version
+                         approvata (gate ECN-C), salvo bypass esplicito.
+      _bypass_ecn_check — True solo per script di admin, comandi di gestione e test
+                         che testano logiche indipendenti dall'ECN. Non esposto nella UI.
+    """
     if document.status != Document.Status.ACTIVE:
         raise ValidationError("Il documento non è attivo.")
+
+    # ----------------------------------------------------------------
+    # Gate ECN: obbligatorio quando il documento ha una versione corrente
+    # approvata. Garantisce che ogni nuova revisione sia tracciata da un ECN.
+    # Il bypass è riservato a usi tecnici (admin, test, import).
+    # ----------------------------------------------------------------
+    if (
+        not _bypass_ecn_check
+        and document.current_version is not None
+        and document.current_version.status == DocumentVersion.Status.APPROVED
+    ):
+        if ecn is None:
+            raise ValidationError(
+                "Per creare una nuova revisione di un documento approvato è necessario "
+                "un ECN approvato. Richiedere prima una variante ECN."
+            )
+        # Import locale per evitare import circolari (ecn → documents)
+        from ecn.models import ChangeNotice
+        if ecn.document_id != document.pk:
+            raise ValidationError(
+                "L'ECN indicato non è relativo a questo documento."
+            )
+        if ecn.status != ChangeNotice.Status.APPROVED:
+            raise ValidationError(
+                f"L'ECN deve essere approvato per creare una nuova revisione. "
+                f"Stato attuale: {ecn.get_status_display()}."
+            )
+        if ecn.executed_version_id is not None:
+            raise ValidationError(
+                "L'ECN è già stato utilizzato per creare una revisione del documento."
+            )
 
     if DocumentVersion.objects.filter(document=document, revision_label=revision_label).exists():
         raise ValidationError(
@@ -57,6 +100,24 @@ def create_new_revision(
         document=document,
         document_version=version,
     )
+
+    # Collega l'ECN alla nuova revisione (esecuzione)
+    if ecn is not None:
+        from django.utils import timezone as tz
+        ecn.executed_version = version
+        ecn.executed_at = tz.now()
+        ecn.save(update_fields=['executed_version', 'executed_at'])
+        try:
+            from ecn.services import _write_audit
+            _write_audit(
+                actor=created_by,
+                action='ECN_EXECUTED',
+                ecn=ecn,
+                old_status=ecn.status,
+                new_status=ecn.status,
+            )
+        except Exception:
+            pass
 
     return version
 

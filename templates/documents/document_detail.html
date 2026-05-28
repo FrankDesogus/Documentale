@@ -5,7 +5,16 @@
 <p class="meta">
   <a href="{% url 'document_list' %}">← Documenti</a>
   {% if document.status == 'active' %}
-  <a href="{% url 'document_new_revision' document.pk %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuova revisione</a>
+    {% if document.current_version and document.current_version.status == 'approved' %}
+      {# Documento approvato: la nuova revisione richiede un ECN. Mostriamo il link
+         alla view nuova-revisione che gestirà il gate e mostrerà gli ECN disponibili. #}
+      {% if show_create_ecn %}
+      <a href="{% url 'document_new_revision' document.pk %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuova revisione (via ECN)</a>
+      {% endif %}
+    {% else %}
+      {# Documento senza versione approvata (es. primo documento): revisione libera #}
+      <a href="{% url 'document_new_revision' document.pk %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuova revisione</a>
+    {% endif %}
   {% endif %}
 </p>
 <h1>{{ document.code }} — {{ document.title }}</h1>

@@ -13,8 +13,67 @@
 </div>
 {% endif %}
 
+{% if needs_ecn and not ecn %}
+{# Documento approvato senza ECN: mostra messaggio e link agli ECN disponibili #}
+<div style="background:#f8d7da;border:1px solid #f5c6cb;border-radius:3px;padding:.75rem 1rem;margin-bottom:1rem;color:#721c24">
+  <strong>ECN richiesto.</strong>
+  Per creare una nuova revisione di un documento approvato è necessario un ECN approvato.
+  Seleziona un ECN approvato tra quelli disponibili, oppure crea un nuovo ECN.
+</div>
+
+{% if available_ecns %}
+<h2>ECN approvati disponibili per {{ document.code }}</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th>
+      <th>Titolo</th>
+      <th>Classe</th>
+      <th>Approvato il</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ecn_item in available_ecns %}
+    <tr>
+      <td><a href="{% url 'ecn:ecn_detail' ecn_item.pk %}">{{ ecn_item.code }}</a></td>
+      <td>{{ ecn_item.title }}</td>
+      <td>{{ ecn_item.get_ccb_class_display|default:"—" }}</td>
+      <td class="meta">{{ ecn_item.ccb_reviewed_at|date:"d/m/Y"|default:"—" }}</td>
+      <td>
+        <a href="{% url 'document_new_revision' document.pk %}?ecn={{ ecn_item.pk }}"
+           class="btn btn-primary" style="padding:.25rem .7rem;font-size:.85rem">
+          Usa questo ECN
+        </a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="meta">Nessun ECN approvato disponibile per questo documento.</p>
+{% endif %}
+
+<div style="margin-top:1rem">
+  <a href="{% url 'ecn:ecn_create' %}?document={{ document.pk }}" class="btn btn-secondary">
+    + Richiedi nuova variante ECN
+  </a>
+</div>
+
+{% else %}
+
+{% if ecn %}
+<div style="background:#d4edda;border:1px solid #c3e6cb;border-radius:3px;padding:.75rem 1rem;margin-bottom:1rem;color:#155724">
+  <strong>ECN autorizzante:</strong>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" style="color:#155724">{{ ecn.code }}</a>
+  — {{ ecn.title }}
+  {% if ecn.ccb_class %}({{ ecn.get_ccb_class_display }}){% endif %}
+</div>
+{% endif %}
+
 <form method="post" enctype="multipart/form-data">
   {% csrf_token %}
+  {% if ecn %}<input type="hidden" name="ecn_id" value="{{ ecn.pk }}">{% endif %}
   <div class="card">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
 
@@ -52,4 +111,6 @@
   <button type="submit" class="btn btn-primary">Crea bozza</button>
   <a href="{% url 'document_detail' document.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
 </form>
+
+{% endif %}
 {% endblock %}

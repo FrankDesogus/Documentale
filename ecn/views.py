@@ -87,6 +87,18 @@ def ecn_detail(request, ecn_id):
 
     attachments = ecn.attachments.select_related('uploaded_by').order_by('uploaded_at')
 
+    # Pulsante "Crea revisione da ECN": visibile se ECN approvato, non ancora eseguito,
+    # documento ha current_version approvata e l'utente può creare revisioni.
+    can_create_rev_from_ecn = False
+    if (
+        ecn.status == ChangeNotice.Status.APPROVED
+        and ecn.executed_version_id is None
+        and ecn.document.current_version is not None
+        and ecn.document.current_version.status == 'approved'
+    ):
+        from documents.permissions import can_create_revision
+        can_create_rev_from_ecn = can_create_revision(request.user, ecn.document)
+
     return render(request, 'ecn/ecn_detail.html', {
         'ecn': ecn,
         'attachments': attachments,
@@ -94,6 +106,7 @@ def ecn_detail(request, ecn_id):
         'can_review': can_review_ecn(request.user, ecn),
         'can_close': can_close_ecn(request.user, ecn),
         'can_attach': can_add_ecn_attachment(request.user, ecn),
+        'can_create_rev_from_ecn': can_create_rev_from_ecn,
     })
 
 

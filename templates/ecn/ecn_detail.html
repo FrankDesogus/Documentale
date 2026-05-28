@@ -33,6 +33,13 @@
   {% if can_attach %}
   <a href="{% url 'ecn:ecn_add_attachment' ecn.pk %}" class="btn btn-secondary">+ Allegato</a>
   {% endif %}
+
+  {% if can_create_rev_from_ecn %}
+  <a href="{% url 'document_new_revision' ecn.document_id %}?ecn={{ ecn.pk }}"
+     class="btn btn-success">
+    Crea revisione da ECN
+  </a>
+  {% endif %}
 </div>
 
 {# Scheda ECN #}

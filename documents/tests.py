@@ -55,7 +55,9 @@ class CreateNewRevisionTests(TestCase):
         self.document.current_version = v1
         self.document.save(update_fields=['current_version'])
 
-        v2 = create_new_revision(self.document, self.author, 'B', 2)
+        # _bypass_ecn_check=True: questo test verifica solo replaces_version,
+        # non il gate ECN (che ha test dedicati in ECNGateServiceTests).
+        v2 = create_new_revision(self.document, self.author, 'B', 2, _bypass_ecn_check=True)
         self.assertEqual(v2.replaces_version, v1)
 
     def test_replaces_version_none_when_no_current(self):
@@ -468,7 +470,15 @@ class DownloadViewTests(TestCase):
         with self.settings(MEDIA_ROOT=self.temp_media):
             v1 = self._make_version_with_file('A', 1)
             self._approve_version(v1)
-            v2 = self._make_version_with_file('B', 2)
+            # Dopo che v1 è approvato il gate ECN blocca create_new_revision.
+            # Usiamo _bypass_ecn_check=True perché questo test verifica il download,
+            # non il flusso ECN (che ha test dedicati in ECNGateServiceTests).
+            uploaded = SimpleUploadedFile('doc2.pdf', b'%PDF-1.4 v2', content_type='application/pdf')
+            doc_file2 = create_document_file(uploaded, self.author)
+            self.document.refresh_from_db()
+            v2 = create_new_revision(
+                self.document, self.author, 'B', 2, file=doc_file2, _bypass_ecn_check=True,
+            )
             self._approve_version(v2)
             v1.refresh_from_db()
             self.assertEqual(v1.status, DocumentVersion.Status.SUPERSEDED)
@@ -1213,3 +1223,225 @@ class AuditUIDocumentDetailTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['show_history'])
         self.assertContains(response, 'Storico eventi')
+
+
+# ---------------------------------------------------------------------------
+# ECN gate — service (ECN-C)
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class ECNGateServiceTests(TestCase):
+    """
+    Verifica il gate ECN nel service create_new_revision (ECN-C).
+    Dipende dall'app ecn; usa import locali per evitare dipendenze al livello modulo.
+    """
+
+    def setUp(self):
+        from approvals.services import approve_version
+        self.author   = User.objects.create_user('ecng_author', password='pw')
+        self.approver = User.objects.create_user('ecng_approver', password='pw')
+        self.document = make_document(code='ECNG-DOC-001', owner=self.author)
+
+        # Approva la prima revisione così il documento ha current_version
+        v0 = create_new_revision(self.document, self.author, '00', 0)
+        req = submit_version_for_approval(v0, self.author, [self.approver])
+        approve_version(req, self.approver)
+        self.document.refresh_from_db()
+        self.v0 = v0
+
+    def _make_ecn(self, status='approved', doc=None, executed_version=None):
+        from ecn.models import ChangeNotice
+        doc = doc or self.document
+        # Se il doc non ha current_version (es. bozza), usa la prima versione disponibile
+        version = doc.current_version or doc.versions.order_by('revision_number').first()
+        ecn = ChangeNotice.objects.create(
+            code=f'ECN-GATE-{ChangeNotice.objects.count()+1:03d}',
+            title='ECN gate test',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            document=doc,
+            document_version=version,
+            proposed_by=self.author,
+            created_by=self.author,
+            status=status,
+            executed_version=executed_version,
+        )
+        return ecn
+
+    # 1. senza ECN su documento approvato → ValidationError
+    def test_approved_document_without_ecn_raises(self):
+        with self.assertRaises(ValidationError):
+            create_new_revision(self.document, self.author, '01', 1)
+
+    # 2. ECN in stato DRAFT → ValidationError
+    def test_draft_ecn_raises(self):
+        ecn = self._make_ecn(status='draft')
+        with self.assertRaises(ValidationError):
+            create_new_revision(self.document, self.author, '01', 1, ecn=ecn)
+
+    # 3. ECN in stato UNDER_REVIEW → ValidationError
+    def test_under_review_ecn_raises(self):
+        ecn = self._make_ecn(status='under_review')
+        with self.assertRaises(ValidationError):
+            create_new_revision(self.document, self.author, '01', 1, ecn=ecn)
+
+    # 4. ECN in stato REJECTED → ValidationError
+    def test_rejected_ecn_raises(self):
+        ecn = self._make_ecn(status='rejected')
+        with self.assertRaises(ValidationError):
+            create_new_revision(self.document, self.author, '01', 1, ecn=ecn)
+
+    # 5. ECN approvato → crea nuova revisione draft
+    def test_approved_ecn_creates_draft(self):
+        ecn = self._make_ecn(status='approved')
+        version = create_new_revision(self.document, self.author, '01', 1, ecn=ecn)
+        self.assertEqual(version.status, DocumentVersion.Status.DRAFT)
+        self.assertEqual(version.document, self.document)
+
+    # 6. Dopo la creazione l'ECN ha executed_version valorizzata
+    def test_ecn_executed_version_set_after_creation(self):
+        ecn = self._make_ecn(status='approved')
+        version = create_new_revision(self.document, self.author, '01', 1, ecn=ecn)
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.executed_version, version)
+        self.assertIsNotNone(ecn.executed_at)
+
+    # 7. ECN già usato (executed_version presente) → ValidationError
+    def test_already_used_ecn_raises(self):
+        existing_version = create_new_revision(
+            self.document, self.author, '01', 1, _bypass_ecn_check=True
+        )
+        ecn = self._make_ecn(status='approved', executed_version=existing_version)
+        with self.assertRaises(ValidationError):
+            create_new_revision(self.document, self.author, '02', 2, ecn=ecn)
+
+    # 8. ECN di un altro documento → ValidationError
+    def test_ecn_wrong_document_raises(self):
+        other_doc = make_document(code='ECNG-DOC-OTHER', owner=self.author)
+        # Crea versione per il secondo documento (senza current_version → non ha bisogno di ECN)
+        v_other = create_new_revision(other_doc, self.author, '00', 0)
+        ecn = self._make_ecn(status='approved', doc=other_doc)
+        with self.assertRaises(ValidationError):
+            create_new_revision(self.document, self.author, '01', 1, ecn=ecn)
+
+    # 9. Documento senza current_version (prima revisione) → nessun gate ECN
+    def test_document_without_current_version_no_gate(self):
+        new_doc = make_document(code='ECNG-NODOC', owner=self.author)
+        # Nessuna current_version → create_new_revision deve funzionare senza ECN
+        version = create_new_revision(new_doc, self.author, '00', 0)
+        self.assertEqual(version.status, DocumentVersion.Status.DRAFT)
+
+    # 10. _bypass_ecn_check=True bypassa il gate anche senza ECN
+    def test_bypass_skips_gate(self):
+        version = create_new_revision(
+            self.document, self.author, '01', 1, _bypass_ecn_check=True
+        )
+        self.assertEqual(version.status, DocumentVersion.Status.DRAFT)
+
+
+# ---------------------------------------------------------------------------
+# ECN gate — view (ECN-C)
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class ECNGateViewTests(TestCase):
+    """Verifica la view new_revision con il gate ECN attivo."""
+
+    def setUp(self):
+        from approvals.services import approve_version
+        from django.contrib.auth.models import Group
+        from projects.models import ProjectFolder, ProjectFolderMembership
+
+        self.author   = User.objects.create_user('egv_author', password='pw')
+        self.approver = User.objects.create_user('egv_approver', password='pw')
+        self.stranger = User.objects.create_user('egv_stranger', password='pw')
+
+        Group.objects.get_or_create(name='Document Authors')[0].user_set.add(self.author)
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.approver)
+
+        self.folder = ProjectFolder.objects.create(
+            code='EGV-FOLD', name='ECN Gate View Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.author,
+        )
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.author, role='author')
+
+        self.document = Document.objects.create(
+            code='EGV-DOC-001', title='Doc gate ECN view',
+            category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+            project_folder=self.folder,
+        )
+        v0 = create_new_revision(self.document, self.author, '00', 0)
+        req = submit_version_for_approval(v0, self.author, [self.approver])
+        approve_version(req, self.approver)
+        self.document.refresh_from_db()
+
+    def _make_approved_ecn(self, doc=None):
+        from ecn.models import ChangeNotice
+        doc = doc or self.document
+        return ChangeNotice.objects.create(
+            code=f'ECN-EGV-{ChangeNotice.objects.count()+1:03d}',
+            title='ECN view gate',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            document=doc,
+            document_version=doc.current_version,
+            proposed_by=self.author,
+            created_by=self.author,
+            status=ChangeNotice.Status.APPROVED,
+        )
+
+    # 1. Accesso senza ECN param → mostra pagina "ECN richiesto"
+    def test_new_revision_without_ecn_shows_requires_ecn(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_new_revision', args=[self.document.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'ECN richiesto')
+
+    # 2. Con ECN approvato → mostra il form di creazione revisione
+    def test_new_revision_with_valid_ecn_shows_form(self):
+        ecn = self._make_approved_ecn()
+        self.client.force_login(self.author)
+        r = self.client.get(
+            reverse('document_new_revision', args=[self.document.pk]) + f'?ecn={ecn.pk}'
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNotNone(r.context.get('form'))
+        self.assertContains(r, ecn.code)
+
+    # 3. POST con ECN valido → crea revisione e redirect a my_drafts
+    def test_new_revision_post_with_valid_ecn_creates_revision(self):
+        ecn = self._make_approved_ecn()
+        self.client.force_login(self.author)
+        r = self.client.post(
+            reverse('document_new_revision', args=[self.document.pk]) + f'?ecn={ecn.pk}',
+            {
+                'revision_label': '01',
+                'revision_number': '1',
+                'change_summary': 'Revisione da ECN test',
+                'ecn_id': ecn.pk,
+            },
+        )
+        self.assertRedirects(r, reverse('my_drafts'), fetch_redirect_response=False)
+        from documents.models import DocumentVersion
+        self.assertTrue(
+            DocumentVersion.objects.filter(
+                document=self.document, revision_label='01'
+            ).exists()
+        )
+        ecn.refresh_from_db()
+        self.assertIsNotNone(ecn.executed_version)
+
+    # 4. document_detail mostra "Nuova revisione (via ECN)" per utente con permesso
+    def test_document_detail_shows_via_ecn_button_for_author(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_detail', args=[self.document.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Nuova revisione (via ECN)')
+
+    # 5. document_detail NON mostra pulsante revisione a utente senza permesso
+    def test_document_detail_hides_revision_button_for_stranger(self):
+        self.client.force_login(self.stranger)
+        # stranger non ha accesso al documento → 404
+        r = self.client.get(reverse('document_detail', args=[self.document.pk]))
+        self.assertEqual(r.status_code, 404)

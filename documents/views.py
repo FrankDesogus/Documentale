@@ -219,6 +219,53 @@ def new_revision(request, document_id):
     if not can_create_revision(request.user, doc):
         raise PermissionDenied
 
+    # Gate ECN: se il documento ha una versione corrente approvata è necessario un ECN.
+    needs_ecn = (
+        doc.current_version is not None
+        and doc.current_version.status == DocumentVersion.Status.APPROVED
+    )
+
+    ecn = None
+    if needs_ecn:
+        # L'ECN pk può arrivare come GET param o come hidden field nel POST
+        ecn_pk = request.GET.get('ecn') or request.POST.get('ecn_id')
+        if not ecn_pk:
+            # Mostra pagina informativa con gli ECN disponibili
+            from ecn.models import ChangeNotice
+            available_ecns = ChangeNotice.objects.filter(
+                document=doc,
+                status=ChangeNotice.Status.APPROVED,
+                executed_version__isnull=True,
+            ).order_by('-proposed_at')
+            return render(request, 'documents/new_revision.html', {
+                'document': doc,
+                'needs_ecn': True,
+                'available_ecns': available_ecns,
+                'form': None,
+            })
+
+        try:
+            ecn_pk = int(ecn_pk)
+        except (ValueError, TypeError):
+            messages.error(request, "Parametro ECN non valido.")
+            return redirect('document_new_revision', document_id=doc.pk)
+
+        from ecn.models import ChangeNotice
+        try:
+            ecn = ChangeNotice.objects.get(
+                pk=ecn_pk,
+                document=doc,
+                status=ChangeNotice.Status.APPROVED,
+                executed_version__isnull=True,
+            )
+        except ChangeNotice.DoesNotExist:
+            messages.error(
+                request,
+                "ECN non trovato, non approvato, non relativo a questo documento "
+                "o già utilizzato per creare una revisione.",
+            )
+            return redirect('document_new_revision', document_id=doc.pk)
+
     last_version = doc.versions.order_by('-revision_number').first()
     if last_version:
         next_number = last_version.revision_number + 1
@@ -243,6 +290,7 @@ def new_revision(request, document_id):
                         revision_number=d['revision_number'],
                         file=doc_file,
                         change_summary=d['change_summary'],
+                        ecn=ecn,
                     )
                 messages.success(
                     request,
@@ -261,6 +309,8 @@ def new_revision(request, document_id):
     return render(request, 'documents/new_revision.html', {
         'form': form,
         'document': doc,
+        'ecn': ecn,
+        'needs_ecn': needs_ecn,
     })
 
 
