@@ -98,6 +98,31 @@
 </div>
 {% endif %}
 
+{# ECN collegati ai documenti del progetto #}
+{% if project_ecns %}
+<h2 style="margin-top:2rem;margin-bottom:.5rem">ECN / Varianti collegate</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th><th>Titolo</th><th>Documento</th><th>Stato</th><th>Proponente</th><th>Data</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ecn in project_ecns %}
+    <tr>
+      <td><strong>{{ ecn.code }}</strong></td>
+      <td>{{ ecn.title }}</td>
+      <td><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a></td>
+      <td><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></td>
+      <td class="meta">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
+      <td class="meta" style="white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
+      <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
 <h2 style="margin-top:2rem">Baseline</h2>
 <p class="meta">Una baseline è una fotografia dei documenti approvati del progetto in un determinato momento. Le modifiche successive ai documenti non aggiornano automaticamente la baseline corrente.</p>
 {% if can_manage %}

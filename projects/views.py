@@ -49,12 +49,16 @@ def folder_detail(request, folder_id):
     documents = folder.documents.select_related(
         'current_version', 'owner',
     ).order_by('code')
+    # Progetti associati a questa cartella (per mostrare link e bottone "Crea progetto")
+    folder_projects = Project.objects.filter(folder=folder).select_related('manager').order_by('code')
     return render(request, 'projects/folder_detail.html', {
         'folder': folder,
         'subfolders': subfolders,
         'documents': documents,
+        'folder_projects': folder_projects,
         'can_create': _can_create_folder(request.user),
         'can_manage': can_manage_folder(request.user, folder),
+        'can_create_project': _can_manage_project(request.user),
     })
 
 
@@ -159,6 +163,17 @@ def project_detail(request, project_id):
             | Q(changes__document_id__in=_doc_ids)
         ).select_related('user').order_by('-timestamp')[:20]
 
+    # ECN collegati ai documenti nelle cartelle del progetto
+    project_ecns = []
+    if project.folder:
+        from ecn.models import ChangeNotice
+        project_ecns = list(
+            ChangeNotice.objects
+            .filter(document__project_folder=project.folder)
+            .select_related('document', 'proposed_by')
+            .order_by('-proposed_at')[:20]
+        )
+
     return render(request, 'projects/project_detail.html', {
         'project': project,
         'documents': documents,
@@ -170,6 +185,7 @@ def project_detail(request, project_id):
         'comparison_rows': comparison_rows,
         'show_audit': show_audit,
         'audit_logs': audit_logs,
+        'project_ecns': project_ecns,
     })
 
 

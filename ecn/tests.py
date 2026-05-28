@@ -1893,3 +1893,101 @@ class ECNViewTests(TestCase):
         r = self.client.get(f'/documents/{self.document.pk}/')
         # stranger non vede il documento → 404
         self.assertEqual(r.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# Test nuove viste: ECN Dashboard e Le mie ECN
+# ---------------------------------------------------------------------------
+
+class ECNDashboardAndMyViewTests(TestCase):
+    """Test per ecn_dashboard e ecn_my."""
+
+    def setUp(self):
+        self.manager   = _make_user('dash_manager')
+        self.auditor   = _make_user('dash_auditor')
+        self.proposer  = _make_user('dash_proposer')
+        self.ccb_user  = _make_user('dash_ccb')
+        self.stranger  = _make_user('dash_stranger')
+
+        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_aud = Group.objects.get_or_create(name='Document Auditors')[0]
+        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
+        self.manager.groups.add(grp_mgr)
+        self.auditor.groups.add(grp_aud)
+        self.ccb_user.groups.add(grp_ccb)
+
+        self.folder   = _make_folder(self.manager, code='FOLD-DASH')
+        self.document = _make_document(self.manager, self.folder, code='DOC-DASH-001')
+        self.version  = _make_version(self.document, self.manager)
+        self.document.current_version = self.version
+        self.document.save(update_fields=['current_version'])
+
+        self.ecn = _make_ecn(
+            self.document, self.version, self.proposer,
+            code='ECN-DASH-001',
+        )
+
+    # --- ecn_dashboard ------------------------------------------------------
+
+    def test_ecn_dashboard_requires_login(self):
+        r = self.client.get('/ecn/dashboard/')
+        self.assertEqual(r.status_code, 302)
+        self.assertIn('/accounts/login/', r['Location'])
+
+    def test_ecn_dashboard_manager_can_access(self):
+        self.client.force_login(self.manager)
+        r = self.client.get('/ecn/dashboard/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Cruscotto ECN')
+
+    def test_ecn_dashboard_auditor_can_access(self):
+        self.client.force_login(self.auditor)
+        r = self.client.get('/ecn/dashboard/')
+        self.assertEqual(r.status_code, 200)
+
+    def test_ecn_dashboard_proposer_forbidden(self):
+        """Utenti normali (non manager/auditor) non possono accedere al cruscotto."""
+        self.client.force_login(self.proposer)
+        r = self.client.get('/ecn/dashboard/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_ecn_dashboard_shows_draft_no_ccb(self):
+        """ECN in bozza senza CCB appare nella sezione 'Da analizzare'."""
+        # ECN-DASH-001 è in bozza senza approvatori → deve apparire
+        self.client.force_login(self.manager)
+        r = self.client.get('/ecn/dashboard/')
+        self.assertContains(r, 'ECN-DASH-001')
+
+    # --- ecn_my -------------------------------------------------------------
+
+    def test_ecn_my_requires_login(self):
+        r = self.client.get('/ecn/my-ecn/')
+        self.assertEqual(r.status_code, 302)
+        self.assertIn('/accounts/login/', r['Location'])
+
+    def test_ecn_my_proposer_sees_own_ecns(self):
+        self.client.force_login(self.proposer)
+        r = self.client.get('/ecn/my-ecn/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'ECN-DASH-001')
+
+    def test_ecn_my_stranger_sees_no_ecns(self):
+        """Utente senza ECN propri non vede nulla nella sezione richieste."""
+        self.client.force_login(self.stranger)
+        r = self.client.get('/ecn/my-ecn/')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'ECN-DASH-001')
+
+    def test_ecn_my_shows_pending_ccb_decision(self):
+        """Un approver assegnato vede l'ECN in 'Decisioni CCB da prendere'."""
+        # Metti l'ECN in revisione con ccb_user come approvatore
+        ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_user, order=1,
+        )
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+
+        self.client.force_login(self.ccb_user)
+        r = self.client.get('/ecn/my-ecn/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'ECN-DASH-001')

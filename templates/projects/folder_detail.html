@@ -2,18 +2,29 @@
 {% block title %}{{ folder.name }} — Cartelle — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'folder_list' %}">← Cartelle</a>
-  {% if folder.parent %}
-  &nbsp;/ <a href="{% url 'folder_detail' folder.parent.pk %}">{{ folder.parent.name }}</a>
-  {% endif %}
-  {% if can_create %}
-  <a href="{% url 'folder_create' %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuova sottocartella</a>
-  {% endif %}
-</p>
-<h1>{{ folder.name }}</h1>
 
-<div class="card">
+{# Breadcrumb + azioni #}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
+  <p class="meta" style="margin:0">
+    <a href="{% url 'folder_list' %}">Cartelle</a>
+    {% if folder.parent %}
+    &nbsp;/&nbsp;<a href="{% url 'folder_detail' folder.parent.pk %}">{{ folder.parent.name }}</a>
+    {% endif %}
+    &nbsp;/&nbsp;<strong>{{ folder.name }}</strong>
+  </p>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+    {% if can_create %}
+    <a href="{% url 'folder_create' %}" class="btn btn-secondary" style="font-size:.85rem;padding:.3rem .75rem">+ Sottocartella</a>
+    {% endif %}
+    {% if can_create_project and not folder_projects %}
+    <a href="{% url 'project_create' %}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Crea progetto</a>
+    {% endif %}
+  </div>
+</div>
+
+<h1 style="margin-bottom:.5rem">{{ folder.name }}</h1>
+
+<div class="card" style="margin-bottom:1.25rem">
   <dl class="dl-grid">
     <dt>Codice</dt>    <dd>{{ folder.code }}</dd>
     <dt>Tipo</dt>      <dd>{{ folder.get_folder_kind_display }}</dd>
@@ -28,33 +39,50 @@
   </dl>
 </div>
 
-{% if subfolders %}
-<h2>Sottocartelle</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Codice</th>
-      <th>Nome</th>
-      <th>Tipo</th>
-      <th>Stato</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for sub in subfolders %}
-    <tr>
-      <td><strong>{{ sub.code }}</strong></td>
-      <td>{{ sub.name }}</td>
-      <td>{{ sub.get_folder_kind_display }}</td>
-      <td><span class="badge badge-{{ sub.status }}">{{ sub.get_status_display }}</span></td>
-      <td><a href="{% url 'folder_detail' sub.pk %}" class="btn btn-primary">Apri</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{# Progetti associati #}
+{% if folder_projects %}
+<h2 style="margin-bottom:.5rem">Progetti</h2>
+<div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem">
+  {% for proj in folder_projects %}
+  <a href="{% url 'project_detail' proj.pk %}" style="text-decoration:none;color:inherit">
+    <div class="card" style="cursor:pointer;padding:.75rem 1.25rem;min-width:200px">
+      <div style="font-weight:600;color:#1a3a5c">{{ proj.code }}</div>
+      <div style="font-size:.9rem">{{ proj.name }}</div>
+      {% if proj.manager %}
+      <div class="meta" style="font-size:.8rem">{{ proj.manager.get_full_name|default:proj.manager.username }}</div>
+      {% endif %}
+      <span class="badge badge-{{ proj.status }}" style="font-size:.75rem;margin-top:.3rem">{{ proj.get_status_display }}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
 {% endif %}
 
-<h2 style="margin-top:1.5rem">Documenti</h2>
+{# Sottocartelle — card explorer #}
+{% if subfolders %}
+<h2 style="margin-bottom:.5rem">Sottocartelle</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;margin-bottom:1.25rem">
+  {% for sub in subfolders %}
+  <a href="{% url 'folder_detail' sub.pk %}" style="text-decoration:none;color:inherit">
+    <div class="card" style="cursor:pointer;padding:.75rem 1rem;display:flex;align-items:center;gap:.6rem">
+      <span style="font-size:1.5rem;line-height:1">📁</span>
+      <div style="min-width:0">
+        <div style="font-weight:600;color:#1a3a5c;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sub.name }}</div>
+        <div class="meta" style="font-size:.78rem">{{ sub.code }} · {{ sub.get_folder_kind_display }}</div>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# Documenti #}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+  <h2 style="margin:0">Documenti</h2>
+  {% if can_create %}
+  <a href="{% url 'document_new' %}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Nuovo documento</a>
+  {% endif %}
+</div>
 {% if documents %}
 <table>
   <thead>
@@ -62,7 +90,7 @@
       <th>Codice</th>
       <th>Titolo</th>
       <th>Categoria</th>
-      <th>Revisione corrente</th>
+      <th>Revisione</th>
       <th>Stato</th>
       <th></th>
     </tr>
@@ -84,10 +112,10 @@
         {% if doc.current_version %}
         <span class="badge badge-{{ doc.current_version.status }}">{{ doc.current_version.get_status_display }}</span>
         {% else %}
-        <span class="badge badge-draft">Nessuna versione approvata</span>
+        <span class="badge badge-draft">Nessuna approvata</span>
         {% endif %}
       </td>
-      <td><a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary">Apri</a></td>
+      <td><a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary" style="padding:.2rem .6rem;font-size:.85rem">Apri</a></td>
     </tr>
     {% endfor %}
   </tbody>
@@ -95,6 +123,9 @@
 {% else %}
 <div class="card">
   <p class="meta">Nessun documento associato a questa cartella.</p>
+  {% if can_create %}
+  <a href="{% url 'document_new' %}" class="btn btn-primary" style="margin-top:.5rem;font-size:.85rem;padding:.3rem .75rem">+ Nuovo documento</a>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

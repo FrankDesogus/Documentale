@@ -1,3 +1,4 @@
+{% load ecn_tags %}
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -57,6 +58,10 @@
     <a href="{% url 'document_list' %}">Documenti</a>
     <a href="{% url 'folder_list' %}">Cartelle</a>
     <a href="{% url 'project_list' %}">Progetti</a>
+    <a href="{% url 'ecn:ecn_list' %}">ECN</a>
+    <a href="{% url 'ecn:ecn_my' %}">Le mie ECN</a>
+    {% user_can_view_ecn_dashboard as can_ecn_dash %}
+    {% if can_ecn_dash %}<a href="{% url 'ecn:ecn_dashboard' %}">Cruscotto ECN</a>{% endif %}
     <a href="{% url 'my_drafts' %}">Mie bozze</a>
     <a href="{% url 'approval_queue' %}">Da approvare</a>
     {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}

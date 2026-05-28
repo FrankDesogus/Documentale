@@ -10,6 +10,79 @@
 
 <h1>{{ ecn.code }} — {{ ecn.title }}</h1>
 
+{# Prossima azione #}
+{% if ecn.status == 'draft' %}
+  {% if not has_ccb_configured %}
+  <div class="card" style="background:#fff3cd;border-left:4px solid #ffc107;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#856404">Prossima azione:</strong>
+    <span style="color:#856404">
+      {% if can_configure_ccb %}
+        Configura gli approvatori CCB e la politica di approvazione, poi invia l'ECN.
+      {% else %}
+        In attesa che il Responsabile Qualità configuri la CCB prima dell'invio.
+      {% endif %}
+    </span>
+  </div>
+  {% else %}
+  <div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#004085">Prossima azione:</strong>
+    <span style="color:#004085">
+      {% if can_submit %}
+        CCB configurata. Invia l'ECN alla CCB per avviare la revisione.
+      {% else %}
+        CCB configurata. In attesa dell'invio da parte del Responsabile Qualità.
+      {% endif %}
+    </span>
+  </div>
+  {% endif %}
+{% elif ecn.status == 'under_review' %}
+  {% if can_review %}
+  <div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#004085">Prossima azione:</strong>
+    <span style="color:#004085">La tua decisione CCB è richiesta. Esprimi la tua valutazione.</span>
+  </div>
+  {% else %}
+  <div class="card" style="background:#e2e3e5;border-left:4px solid #6c757d;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#383d41">In revisione:</strong>
+    <span style="color:#383d41">L'ECN è in corso di revisione da parte della CCB.</span>
+  </div>
+  {% endif %}
+{% elif ecn.status == 'approved' %}
+  {% if ecn.executed_version %}
+  <div class="card" style="background:#d4edda;border-left:4px solid #28a745;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#155724">Prossima azione:</strong>
+    <span style="color:#155724">
+      {% if can_close %}
+        Revisione documento eseguita. Procedi con la chiusura formale dell'ECN.
+      {% else %}
+        Revisione documento eseguita. Il Responsabile Qualità procederà con la chiusura.
+      {% endif %}
+    </span>
+  </div>
+  {% else %}
+  <div class="card" style="background:#d4edda;border-left:4px solid #28a745;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#155724">Prossima azione:</strong>
+    <span style="color:#155724">
+      {% if can_create_rev_from_ecn %}
+        ECN approvato. Crea la nuova revisione del documento per implementare la variante.
+      {% else %}
+        ECN approvato. In attesa della creazione della nuova revisione del documento.
+      {% endif %}
+    </span>
+  </div>
+  {% endif %}
+{% elif ecn.status == 'closed' %}
+  <div class="card" style="background:#e2e3e5;border-left:4px solid #6c757d;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#383d41">Completato:</strong>
+    <span style="color:#383d41">ECN chiuso il {{ ecn.closed_at|date:"d/m/Y" }}.</span>
+  </div>
+{% elif ecn.status == 'rejected' %}
+  <div class="card" style="background:#f8d7da;border-left:4px solid #dc3545;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#721c24">Rifiutato:</strong>
+    <span style="color:#721c24">Questo ECN è stato rifiutato dalla CCB.{% if ecn.ccb_notes %} Motivo: {{ ecn.ccb_notes }}{% endif %}</span>
+  </div>
+{% endif %}
+
 {# Azioni principali #}
 <div style="margin-bottom:1.25rem;display:flex;gap:.5rem;flex-wrap:wrap">
   {% if ecn.status == 'draft' and can_configure_ccb %}
@@ -47,20 +120,6 @@
   </a>
   {% endif %}
 </div>
-
-{# Avviso CCB non ancora configurata #}
-{% if ecn.status == 'draft' and not has_ccb_configured %}
-<div class="card" style="background:#fff3cd;border-color:#ffc107;margin-bottom:1rem">
-  <p style="margin:0;color:#856404">
-    <strong>In attesa di configurazione CCB.</strong>
-    {% if can_configure_ccb %}
-      Configura gli approvatori e la politica CCB prima di inviare l'ECN in revisione.
-    {% else %}
-      Il Responsabile Qualità / Document Manager deve configurare la CCB prima dell'invio.
-    {% endif %}
-  </p>
-</div>
-{% endif %}
 
 {# Scheda ECN #}
 <div class="card">

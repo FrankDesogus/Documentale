@@ -25,17 +25,43 @@ from documents.services import create_document_file, create_new_revision
 @login_required
 def dashboard(request):
     from approvals.models import ApprovalRequest
+    from django.db.models import Q
+
+    user = request.user
+
     pending_count = ApprovalRequest.objects.filter(
         status=ApprovalRequest.Status.PENDING,
-        approvers__approver=request.user,
+        approvers__approver=user,
     ).count()
     draft_count = DocumentVersion.objects.filter(
-        created_by=request.user,
+        created_by=user,
         status__in=[DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED],
     ).count()
+
+    # ECN personali (proposti o creati dall'utente) ancora aperti
+    from ecn.models import ChangeNotice
+    my_ecn_count = ChangeNotice.objects.filter(
+        Q(proposed_by=user) | Q(created_by=user),
+        status__in=[ChangeNotice.Status.DRAFT, ChangeNotice.Status.UNDER_REVIEW, ChangeNotice.Status.APPROVED],
+    ).distinct().count()
+
+    # Decisioni CCB in attesa (solo se l'utente è un approvatore assegnato)
+    from ecn.models import ChangeNoticeApprover, ChangeNoticeDecision
+    decided_ids = set(
+        ChangeNoticeDecision.objects.filter(user=user).values_list('approver_id', flat=True)
+    )
+    pending_ccb_count = (
+        ChangeNoticeApprover.objects
+        .filter(user=user, change_notice__status=ChangeNotice.Status.UNDER_REVIEW)
+        .exclude(pk__in=decided_ids)
+        .count()
+    )
+
     return render(request, 'dashboard.html', {
         'pending_count': pending_count,
         'draft_count': draft_count,
+        'my_ecn_count': my_ecn_count,
+        'pending_ccb_count': pending_ccb_count,
     })
 
 

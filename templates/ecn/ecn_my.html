@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Le mie ECN — Documentale{% endblock %}
+
+{% block content %}
+<h1>Le mie ECN</h1>
+
+{# ---- 1: Le mie richieste ---- #}
+<h2 style="margin-bottom:.4rem">
+  Le mie richieste
+  {% if my_ecns %}<span class="badge badge-draft" style="margin-left:.4rem">{{ my_ecns|length }}</span>{% endif %}
+</h2>
+<p class="meta" style="margin-bottom:.75rem">ECN che hai proposto o creato.</p>
+{% if my_ecns %}
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th><th>Titolo</th><th>Documento</th><th>Stato</th><th>Data</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ecn in my_ecns %}
+    <tr>
+      <td><strong>{{ ecn.code }}</strong></td>
+      <td>{{ ecn.title }}</td>
+      <td><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a></td>
+      <td><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></td>
+      <td class="meta" style="white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
+      <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="padding:.2rem .6rem;font-size:.85rem">Dettaglio</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card"><p class="meta">Non hai ancora creato nessuna richiesta ECN.</p></div>
+{% endif %}
+
+{# ---- 2: Decisioni CCB da prendere ---- #}
+<h2 style="margin-top:2rem;margin-bottom:.4rem">
+  Decisioni CCB da prendere
+  {% if pending_approvals %}<span class="badge badge-under_review" style="margin-left:.4rem">{{ pending_approvals|length }}</span>{% endif %}
+</h2>
+<p class="meta" style="margin-bottom:.75rem">ECN in revisione dove sei designato come approvatore CCB e non hai ancora espresso il voto.</p>
+{% if pending_approvals %}
+<table>
+  <thead>
+    <tr>
+      <th>Codice</th><th>Titolo</th><th>Documento</th><th>Proponente</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for app in pending_approvals %}
+    <tr>
+      <td><strong>{{ app.change_notice.code }}</strong></td>
+      <td>{{ app.change_notice.title }}</td>
+      <td><a href="{% url 'document_detail' app.change_notice.document_id %}">{{ app.change_notice.document.code }}</a></td>
+      <td class="meta">{{ app.change_notice.proposed_by.get_full_name|default:app.change_notice.proposed_by.username }}</td>
+      <td>
+        <a href="{% url 'ecn:ecn_review' app.change_notice.pk %}" class="btn btn-primary" style="padding:.2rem .6rem;font-size:.85rem">Revisiona</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card"><p class="meta">Nessuna decisione CCB in attesa.</p></div>
+{% endif %}
+
+{# ---- 3: Storico decisioni ---- #}
+<h2 style="margin-top:2rem;margin-bottom:.4rem">Storico decisioni espresse</h2>
+{% if my_decisions %}
+<table>
+  <thead>
+    <tr>
+      <th>ECN</th><th>Documento</th><th>Decisione</th><th>Data</th><th>Commento</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for dec in my_decisions %}
+    <tr>
+      <td><strong>{{ dec.change_notice.code }}</strong></td>
+      <td><a href="{% url 'document_detail' dec.change_notice.document_id %}">{{ dec.change_notice.document.code }}</a></td>
+      <td>
+        <span class="badge badge-{% if dec.decision == 'approve' %}approved{% else %}rejected{% endif %}">
+          {{ dec.get_decision_display }}
+        </span>
+      </td>
+      <td class="meta" style="white-space:nowrap">{{ dec.decided_at|date:"d/m/Y H:i" }}</td>
+      <td class="meta">{{ dec.comment|default:"—" }}</td>
+      <td><a href="{% url 'ecn:ecn_detail' dec.change_notice.pk %}" class="btn btn-secondary" style="padding:.2rem .6rem;font-size:.85rem">Dettaglio</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card"><p class="meta">Nessuna decisione CCB espressa finora.</p></div>
+{% endif %}
+{% endblock %}

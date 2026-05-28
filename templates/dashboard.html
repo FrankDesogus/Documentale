@@ -37,6 +37,28 @@
     </div>
   </a>
 
+  <a href="{% url 'ecn:ecn_my' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer">
+      <div style="font-size:2rem;margin-bottom:.5rem">🔄</div>
+      <div style="font-weight:600;color:#1a3a5c">Le mie ECN</div>
+      {% if my_ecn_count %}
+        <div class="meta">{{ my_ecn_count }} ECN attiv{% if my_ecn_count == 1 %}a{% else %}e{% endif %}</div>
+      {% else %}
+        <div class="meta">Nessuna ECN attiva</div>
+      {% endif %}
+    </div>
+  </a>
+
+  {% if pending_ccb_count %}
+  <a href="{% url 'ecn:ecn_my' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer;border:2px solid #004085">
+      <div style="font-size:2rem;margin-bottom:.5rem">🗳️</div>
+      <div style="font-weight:600;color:#1a3a5c">Decisioni CCB</div>
+      <div class="meta" style="color:#004085;font-weight:600">{{ pending_ccb_count }} voto/i in attesa</div>
+    </div>
+  </a>
+  {% endif %}
+
   <a href="{% url 'folder_list' %}" style="text-decoration:none">
     <div class="card" style="text-align:center;cursor:pointer">
       <div style="font-size:2rem;margin-bottom:.5rem">📁</div>

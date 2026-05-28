@@ -10,30 +10,27 @@
 </div>
 
 {% if folders %}
-<table>
-  <thead>
-    <tr>
-      <th>Codice</th>
-      <th>Nome</th>
-      <th>Tipo</th>
-      <th>Sottocartelle</th>
-      <th>Documenti</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for folder in folders %}
-    <tr>
-      <td><strong>{{ folder.code }}</strong></td>
-      <td>{{ folder.name }}</td>
-      <td><span class="badge badge-{{ folder.folder_kind }}">{{ folder.get_folder_kind_display }}</span></td>
-      <td class="meta">{{ folder.subfolders.count }}</td>
-      <td class="meta">{{ folder.documents.count }}</td>
-      <td><a href="{% url 'folder_detail' folder.pk %}" class="btn btn-primary">Apri</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem">
+  {% for folder in folders %}
+  <a href="{% url 'folder_detail' folder.pk %}" style="text-decoration:none;color:inherit">
+    <div class="card" style="cursor:pointer;transition:box-shadow .15s">
+      <div style="display:flex;align-items:flex-start;gap:.75rem">
+        <span style="font-size:2rem;line-height:1">📁</span>
+        <div style="min-width:0;flex:1">
+          <div style="font-weight:600;color:#1a3a5c;font-size:1rem;margin-bottom:.15rem;word-break:break-word">
+            {{ folder.name }}
+          </div>
+          <div class="meta" style="font-size:.8rem;margin-bottom:.35rem">{{ folder.code }}</div>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+            <span class="badge badge-{{ folder.folder_kind }}" style="font-size:.75rem">{{ folder.get_folder_kind_display }}</span>
+            <span class="meta" style="font-size:.8rem">{{ folder.subfolders.count }} sottocartelle · {{ folder.documents.count }} doc.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
 {% else %}
 <div class="card">
   <p class="meta">Nessuna cartella radice attiva.</p>

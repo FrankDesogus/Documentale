@@ -8,7 +8,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
-from ecn.models import ChangeNotice, ChangeNoticeAttachment
+from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeAttachment, ChangeNoticeDecision
 from ecn.permissions import (
     can_add_ecn_attachment,
     can_close_ecn,
@@ -476,3 +476,139 @@ def ecn_attachment_download(request, attachment_id):
         as_attachment=True,
         filename=attachment.original_filename or attachment.file.name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cruscotto ECN operativo  (Manager / Auditor / Staff)
+# ---------------------------------------------------------------------------
+
+@login_required
+def ecn_dashboard(request):
+    """
+    Vista riepilogativa di tutti gli ECN attivi, raggruppati per stato operativo.
+
+    Accesso: superuser, staff, Document Managers, Document Auditors.
+    """
+    from ecn.permissions import _is_superuser_or_staff, _in_group
+    from documents.permissions import GROUP_MANAGERS, GROUP_AUDITORS
+
+    user = request.user
+    if not (_is_superuser_or_staff(user) or _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS)):
+        raise PermissionDenied
+
+    # 1 & 2: DRAFT — divisi per CCB configurata o meno
+    all_draft = (
+        ChangeNotice.objects
+        .filter(status=ChangeNotice.Status.DRAFT)
+        .select_related('document', 'proposed_by')
+        .prefetch_related('approvers')
+        .order_by('-proposed_at')
+    )
+    draft_no_ccb = [e for e in all_draft if not e.approvers.exists()]
+    draft_ccb_ready = [e for e in all_draft if e.approvers.exists()]
+
+    # 3: IN REVISIONE CCB — con progresso approvatori
+    under_review_raw = (
+        ChangeNotice.objects
+        .filter(status=ChangeNotice.Status.UNDER_REVIEW)
+        .select_related('document', 'proposed_by')
+        .prefetch_related('approvers__user', 'decisions')
+        .order_by('-proposed_at')
+    )
+    under_review_data = []
+    for ecn in under_review_raw:
+        approvers = list(ecn.approvers.all())
+        decisions = list(ecn.decisions.all())
+        decided_ids = {d.approver_id for d in decisions}
+        pending = [a for a in approvers if a.pk not in decided_ids]
+        under_review_data.append({
+            'ecn': ecn,
+            'total': len(approvers),
+            'decided': len(decisions),
+            'pending': pending,
+        })
+
+    # 4: APPROVATE senza revisione eseguita → da eseguire
+    approved_no_exec = (
+        ChangeNotice.objects
+        .filter(status=ChangeNotice.Status.APPROVED, executed_version__isnull=True)
+        .select_related('document', 'proposed_by')
+        .order_by('-proposed_at')
+    )
+
+    # 5: APPROVATE con revisione eseguita → da chiudere formalmente
+    approved_exec = (
+        ChangeNotice.objects
+        .filter(status=ChangeNotice.Status.APPROVED, executed_version__isnull=False)
+        .select_related('document', 'proposed_by', 'executed_version')
+        .order_by('-proposed_at')
+    )
+
+    rejected_count = ChangeNotice.objects.filter(status=ChangeNotice.Status.REJECTED).count()
+    closed_count = ChangeNotice.objects.filter(status=ChangeNotice.Status.CLOSED).count()
+
+    return render(request, 'ecn/ecn_dashboard.html', {
+        'draft_no_ccb': draft_no_ccb,
+        'draft_ccb_ready': draft_ccb_ready,
+        'under_review_data': under_review_data,
+        'approved_no_exec': approved_no_exec,
+        'approved_exec': approved_exec,
+        'rejected_count': rejected_count,
+        'closed_count': closed_count,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Le mie ECN  (vista personale — tutti gli utenti autenticati)
+# ---------------------------------------------------------------------------
+
+@login_required
+def ecn_my(request):
+    """
+    Vista personale ECN:
+      - ECN proposti o creati dall'utente corrente
+      - Decisioni CCB assegnate e non ancora espresse
+      - Storico decisioni già espresse
+    """
+    from django.db.models import Q
+
+    user = request.user
+
+    # Sezione 1: le mie richieste ECN
+    my_ecns = (
+        ChangeNotice.objects
+        .filter(Q(proposed_by=user) | Q(created_by=user))
+        .distinct()
+        .select_related('document')
+        .order_by('-proposed_at')
+    )
+
+    # Sezione 2: decisioni CCB in attesa
+    decided_approver_ids = set(
+        ChangeNoticeDecision.objects
+        .filter(user=user)
+        .values_list('approver_id', flat=True)
+    )
+    pending_approvals = (
+        ChangeNoticeApprover.objects
+        .filter(
+            user=user,
+            change_notice__status=ChangeNotice.Status.UNDER_REVIEW,
+        )
+        .exclude(pk__in=decided_approver_ids)
+        .select_related('change_notice__document', 'change_notice__proposed_by')
+    )
+
+    # Sezione 3: storico decisioni già espresse
+    my_decisions = (
+        ChangeNoticeDecision.objects
+        .filter(user=user)
+        .select_related('change_notice__document')
+        .order_by('-decided_at')
+    )
+
+    return render(request, 'ecn/ecn_my.html', {
+        'my_ecns': my_ecns,
+        'pending_approvals': pending_approvals,
+        'my_decisions': my_decisions,
+    })
