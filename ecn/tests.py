@@ -10,6 +10,7 @@ from ecn.models import ChangeNotice, ChangeNoticeAttachment, ChangeNoticeApprove
 from ecn.permissions import (
     GROUP_CCB,
     can_close_ecn,
+    can_configure_ccb,
     can_create_ecn,
     can_review_ecn,
     can_submit_ecn,
@@ -604,10 +605,31 @@ class ECNPermissionsTests(TestCase):
         )
         self.assertTrue(can_create_ecn(fold_author, self.document))
 
+    # --- can_configure_ccb --------------------------------------------------
+
+    def test_manager_can_configure_ccb(self):
+        self.assertTrue(can_configure_ccb(self.manager, self.ecn))
+
+    def test_superuser_can_configure_ccb(self):
+        self.assertTrue(can_configure_ccb(self.superuser, self.ecn))
+
+    def test_staff_can_configure_ccb(self):
+        self.assertTrue(can_configure_ccb(self.staff, self.ecn))
+
+    def test_proposer_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.proposer, self.ecn))
+
+    def test_ccb_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.ccb, self.ecn))
+
+    def test_author_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.author, self.ecn))
+
     # --- can_submit_ecn -----------------------------------------------------
 
-    def test_proposer_can_submit_own_ecn(self):
-        self.assertTrue(can_submit_ecn(self.proposer, self.ecn))
+    def test_proposer_cannot_submit(self):
+        """Il proponente non può più inviare direttamente alla CCB."""
+        self.assertFalse(can_submit_ecn(self.proposer, self.ecn))
 
     def test_manager_can_submit(self):
         self.assertTrue(can_submit_ecn(self.manager, self.ecn))
@@ -616,7 +638,7 @@ class ECNPermissionsTests(TestCase):
         self.assertFalse(can_submit_ecn(self.stranger, self.ecn))
 
     def test_ccb_cannot_submit(self):
-        # CCB non è proponente, né manager
+        # CCB non è manager
         self.assertFalse(can_submit_ecn(self.ccb, self.ecn))
 
     # --- can_review_ecn (ECN-E: solo approvatori assegnati) -----------------
@@ -902,7 +924,7 @@ class ECNServiceApproverTests(TestCase):
 # ===========================================================================
 
 class ECNFormApproverQuerysetTests(TestCase):
-    """Verifica che ChangeNoticeForm popoli il queryset approvatori dai gruppi corretti."""
+    """Verifica che ChangeNoticeCCBConfigForm popoli il queryset approvatori dai gruppi corretti."""
 
     def setUp(self):
         from documents.permissions import GROUP_APPROVERS, GROUP_MANAGERS
@@ -912,8 +934,8 @@ class ECNFormApproverQuerysetTests(TestCase):
         self.other_user = _make_user('qs_other')  # nessun gruppo rilevante
 
     def _get_form_approver_ids(self):
-        from ecn.forms import ChangeNoticeForm
-        form = ChangeNoticeForm()
+        from ecn.forms import ChangeNoticeCCBConfigForm
+        form = ChangeNoticeCCBConfigForm()
         return set(form.fields['approvers'].queryset.values_list('pk', flat=True))
 
     def test_ccb_group_members_are_candidates(self):
@@ -936,8 +958,8 @@ class ECNFormApproverQuerysetTests(TestCase):
         """Utente in CCB e Managers compare una sola volta."""
         from documents.permissions import GROUP_MANAGERS
         multi_user = _make_user_in_groups('qs_multi', GROUP_CCB, GROUP_MANAGERS)
-        from ecn.forms import ChangeNoticeForm
-        form = ChangeNoticeForm()
+        from ecn.forms import ChangeNoticeCCBConfigForm
+        form = ChangeNoticeCCBConfigForm()
         qs = form.fields['approvers'].queryset
         count = qs.filter(pk=multi_user.pk).count()
         self.assertEqual(count, 1)
@@ -986,7 +1008,7 @@ class ECNServiceWorkflowTests(TestCase):
 
     def _to_under_review(self, code='ECN-WF-UR'):
         ecn = self._create_draft(code)
-        return submit_change_notice(ecn, self.proposer)
+        return submit_change_notice(ecn, self.manager)
 
     def _to_approved(self, code='ECN-WF-APP'):
         ecn = self._to_under_review(code)
@@ -1006,28 +1028,34 @@ class ECNServiceWorkflowTests(TestCase):
 
     def test_submit_changes_status_to_under_review(self):
         ecn = self._create_draft()
-        result = submit_change_notice(ecn, self.proposer)
+        result = submit_change_notice(ecn, self.manager)
         result.refresh_from_db()
         self.assertEqual(result.status, ChangeNotice.Status.UNDER_REVIEW)
 
     def test_submit_sets_submitted_at(self):
         ecn = self._create_draft('ECN-WF-SUBM')
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         ecn.refresh_from_db()
         self.assertIsNotNone(ecn.submitted_at)
 
     def test_submit_fails_if_not_draft(self):
         ecn = self._to_under_review('ECN-WF-SUBM-FAIL')
         with self.assertRaises(ValidationError):
-            submit_change_notice(ecn, self.proposer)
+            submit_change_notice(ecn, self.manager)
 
     def test_submit_raises_permission_denied_for_stranger(self):
         ecn = self._create_draft('ECN-WF-SUBM-PERM')
         with self.assertRaises(PermissionDenied):
             submit_change_notice(ecn, self.stranger)
 
+    def test_submit_raises_permission_denied_for_proposer(self):
+        """Il proponente non può più inviare direttamente alla CCB."""
+        ecn = self._create_draft('ECN-WF-SUBM-PROP')
+        with self.assertRaises(PermissionDenied):
+            submit_change_notice(ecn, self.proposer)
+
     def test_submit_fails_without_approvers(self):
-        """ECN-E: submit richiede almeno un approvatore assegnato."""
+        """submit richiede almeno un approvatore assegnato."""
         ecn = create_change_notice(
             document=self.document,
             proposed_by=self.proposer,
@@ -1037,12 +1065,12 @@ class ECNServiceWorkflowTests(TestCase):
         )
         # Nessun approvatore assegnato
         with self.assertRaises(ValidationError):
-            submit_change_notice(ecn, self.proposer)
+            submit_change_notice(ecn, self.manager)
 
     def test_submit_writes_auditlog(self):
         ecn = self._create_draft('ECN-WF-SUBM-LOG')
         AuditLog.objects.all().delete()
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         log = AuditLog.objects.filter(action='ECN_SUBMITTED').first()
         self.assertIsNotNone(log)
         self.assertEqual(log.changes['old_values']['status'], ChangeNotice.Status.DRAFT)
@@ -1108,7 +1136,7 @@ class ECNServiceWorkflowTests(TestCase):
             approve_change_notice(ecn, self.stranger, ccb_class=ChangeNotice.CCBClass.CLASS1)
 
     def test_manager_can_approve_when_assigned(self):
-        """ECN-E: manager può approvare se è stato assegnato come approvatore."""
+        """manager può approvare se è stato assegnato come approvatore."""
         ecn = create_change_notice(
             document=self.document,
             proposed_by=self.proposer,
@@ -1117,7 +1145,7 @@ class ECNServiceWorkflowTests(TestCase):
             code='ECN-WF-APR-MGR2',
         )
         set_change_notice_approvers(ecn, [self.manager])
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         approve_change_notice(ecn, self.manager, ccb_class=ChangeNotice.CCBClass.CLASS2)
         ecn.refresh_from_db()
         self.assertEqual(ecn.status, ChangeNotice.Status.APPROVED)
@@ -1154,7 +1182,7 @@ class ECNServiceWorkflowTests(TestCase):
         )
         ccb2 = _make_user_in_groups('wf_ccb2', GROUP_CCB)
         set_change_notice_approvers(ecn, [self.ccb, ccb2], policy='any')
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         # Primo approvatore approva → APPROVED subito
         approve_change_notice(ecn, self.ccb, ccb_class=ChangeNotice.CCBClass.CLASS1)
         ecn.refresh_from_db()
@@ -1173,7 +1201,7 @@ class ECNServiceWorkflowTests(TestCase):
         )
         ccb2 = _make_user_in_groups('wf_ccb2b', GROUP_CCB)
         set_change_notice_approvers(ecn, [self.ccb, ccb2], policy='all')
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         # Primo approva: NOT yet approved
         approve_change_notice(ecn, self.ccb, ccb_class=ChangeNotice.CCBClass.CLASS1)
         ecn.refresh_from_db()
@@ -1196,7 +1224,7 @@ class ECNServiceWorkflowTests(TestCase):
         )
         ccb2 = _make_user_in_groups('wf_ccb2c', GROUP_CCB)
         set_change_notice_approvers(ecn, [self.ccb, ccb2], policy='sequential')
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         # ccb2 (order=2) tenta di approvare prima di ccb (order=1) → PermissionDenied
         with self.assertRaises(PermissionDenied):
             approve_change_notice(ecn, ccb2, ccb_class=ChangeNotice.CCBClass.CLASS1)
@@ -1212,7 +1240,7 @@ class ECNServiceWorkflowTests(TestCase):
         )
         ccb2 = _make_user_in_groups('wf_ccb2d', GROUP_CCB)
         set_change_notice_approvers(ecn, [self.ccb, ccb2], policy='sequential')
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         # Primo approva: UNDER_REVIEW
         approve_change_notice(ecn, self.ccb, ccb_class=ChangeNotice.CCBClass.CLASS1)
         ecn.refresh_from_db()
@@ -1343,7 +1371,7 @@ class ECNServiceWorkflowTests(TestCase):
         set_change_notice_approvers(ecn, [self.ccb])
         self.assertEqual(ecn.status, ChangeNotice.Status.DRAFT)
 
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         ecn.refresh_from_db()
         self.assertEqual(ecn.status, ChangeNotice.Status.UNDER_REVIEW)
 
@@ -1366,7 +1394,7 @@ class ECNServiceWorkflowTests(TestCase):
             code='ECN-WF-REJ-FULL',
         )
         set_change_notice_approvers(ecn, [self.ccb])
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         reject_change_notice(ecn, self.ccb, reason='Analisi insufficiente.')
         ecn.refresh_from_db()
         self.assertEqual(ecn.status, ChangeNotice.Status.REJECTED)
@@ -1387,7 +1415,7 @@ class ECNServiceWorkflowTests(TestCase):
             code='ECN-WF-AUD-ALL',
         )
         set_change_notice_approvers(ecn, [self.ccb])
-        submit_change_notice(ecn, self.proposer)
+        submit_change_notice(ecn, self.manager)
         approve_change_notice(ecn, self.ccb, ccb_class=ChangeNotice.CCBClass.CLASS2)
         _make_executed_version(ecn, self.proposer)
         close_change_notice(ecn, self.manager)
@@ -1489,10 +1517,25 @@ class ECNViewTests(TestCase):
         r = self.client.get(f'/ecn/{self.ecn.pk}/')
         self.assertEqual(r.status_code, 404)
 
-    def test_ecn_detail_shows_submit_button_to_proposer(self):
+    def test_ecn_detail_hides_submit_button_from_proposer(self):
+        """Il proponente non vede il pulsante 'Invia alla CCB'."""
         self.client.force_login(self.proposer)
         r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertNotContains(r, 'Invia alla CCB')
+
+    def test_ecn_detail_shows_submit_button_to_manager_when_ccb_configured(self):
+        """Il manager vede 'Invia alla CCB' solo se la CCB è configurata."""
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        # CCB è configurata (ccb è approvatore nel setUp)
         self.assertContains(r, 'Invia alla CCB')
+
+    def test_ecn_detail_shows_configure_ccb_button_to_manager(self):
+        """Il manager vede il pulsante 'Modifica CCB' in bozza (setUp ha già un approvatore)."""
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        # setUp ha già un approvatore → il pulsante dice "Modifica CCB"
+        self.assertContains(r, 'configure-ccb')
 
     def test_ecn_detail_hides_review_button_in_draft(self):
         self.client.force_login(self.ccb)
@@ -1536,6 +1579,7 @@ class ECNViewTests(TestCase):
         self.assertEqual(r.status_code, 403)
 
     def test_ecn_create_post_creates_ecn_and_redirects(self):
+        """Il proponente/manager crea ECN senza approvatori (CCB verrà configurata separatamente)."""
         self.client.force_login(self.manager)
         r = self.client.post(f'/ecn/new/?document={self.document.pk}', {
             'document': self.document.pk,
@@ -1544,31 +1588,14 @@ class ECNViewTests(TestCase):
             'motivation_detail': '',
             'description': '',
             'commessa': '',
-            'ccb_policy': 'all',
-            'approvers': [self.ccb.pk],
         })
         self.assertEqual(r.status_code, 302)
         new_ecn = ChangeNotice.objects.filter(title='Variante UI test').first()
         self.assertIsNotNone(new_ecn)
         self.assertEqual(new_ecn.status, ChangeNotice.Status.DRAFT)
         self.assertIn(f'/ecn/{new_ecn.pk}/', r['Location'])
-        # Verifica approvatore assegnato
-        self.assertEqual(new_ecn.approvers.count(), 1)
-
-    def test_ecn_create_post_without_approvers_shows_error(self):
-        """ECN-E: il form di creazione richiede almeno un approvatore."""
-        self.client.force_login(self.manager)
-        r = self.client.post(f'/ecn/new/?document={self.document.pk}', {
-            'document': self.document.pk,
-            'title': 'ECN senza approvatori',
-            'motivation': ChangeNotice.Motivation.CUSTOMER,
-            'ccb_policy': 'all',
-            # approvers: mancante
-        })
-        # Il form non è valido → rimane sulla pagina (200)
-        self.assertEqual(r.status_code, 200)
-        # L'ECN non deve essere stato creato
-        self.assertFalse(ChangeNotice.objects.filter(title='ECN senza approvatori').exists())
+        # Nessun approvatore assegnato alla creazione
+        self.assertEqual(new_ecn.approvers.count(), 0)
 
     # --- ecn_submit ---------------------------------------------------------
 
@@ -1578,11 +1605,20 @@ class ECNViewTests(TestCase):
         self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
 
     def test_ecn_submit_post_transitions_to_under_review(self):
-        self.client.force_login(self.proposer)
+        """Il manager può inviare l'ECN alla CCB."""
+        self.client.force_login(self.manager)
         r = self.client.post(f'/ecn/{self.ecn.pk}/submit/')
         self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
         self.ecn.refresh_from_db()
         self.assertEqual(self.ecn.status, ChangeNotice.Status.UNDER_REVIEW)
+
+    def test_ecn_submit_post_proposer_blocked(self):
+        """Il proponente non può inviare l'ECN alla CCB (permesso revocato)."""
+        self.client.force_login(self.proposer)
+        self.client.post(f'/ecn/{self.ecn.pk}/submit/')
+        self.ecn.refresh_from_db()
+        # Lo stato deve rimanere DRAFT
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.DRAFT)
 
     def test_ecn_submit_stranger_raises_error_message(self):
         self.client.force_login(self.stranger)
@@ -1752,6 +1788,88 @@ class ECNViewTests(TestCase):
         self.ecn.refresh_from_db()
         # Lo stato NON deve essere cambiato
         self.assertEqual(self.ecn.status, ChangeNotice.Status.APPROVED)
+
+    # --- ecn_configure_ccb --------------------------------------------------
+
+    def test_ecn_configure_ccb_requires_login(self):
+        r = self.client.get(f'/ecn/{self.ecn.pk}/configure-ccb/')
+        self.assertEqual(r.status_code, 302)
+        self.assertIn('/accounts/login/', r['Location'])
+
+    def test_ecn_configure_ccb_manager_sees_form(self):
+        """Il manager può accedere alla pagina di configurazione CCB."""
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/configure-ccb/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Configura CCB')
+
+    def test_ecn_configure_ccb_proposer_forbidden(self):
+        """Il proponente non può configurare la CCB."""
+        self.client.force_login(self.proposer)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/configure-ccb/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_ecn_configure_ccb_stranger_forbidden(self):
+        """Utenti senza permesso ricevono 403."""
+        self.client.force_login(self.stranger)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/configure-ccb/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_ecn_configure_ccb_post_assigns_approvers(self):
+        """POST con approvatori validi → redirect e approvatori assegnati."""
+        # Crea un ECN senza approvatori
+        ecn_no_appr = _make_ecn(
+            self.document, self.version, self.proposer,
+            code='ECN-VIEW-CONF',
+        )
+        self.client.force_login(self.manager)
+        r = self.client.post(f'/ecn/{ecn_no_appr.pk}/configure-ccb/', {
+            'ccb_policy': 'all',
+            'approvers': [self.ccb.pk],
+        })
+        self.assertRedirects(r, f'/ecn/{ecn_no_appr.pk}/', fetch_redirect_response=False)
+        ecn_no_appr.refresh_from_db()
+        self.assertEqual(ecn_no_appr.approvers.count(), 1)
+
+    def test_ecn_configure_ccb_post_sets_policy(self):
+        """POST aggiorna la policy dell'ECN."""
+        ecn_cfg = _make_ecn(
+            self.document, self.version, self.proposer,
+            code='ECN-VIEW-CFG-POL',
+        )
+        self.client.force_login(self.manager)
+        self.client.post(f'/ecn/{ecn_cfg.pk}/configure-ccb/', {
+            'ccb_policy': 'any',
+            'approvers': [self.ccb.pk],
+        })
+        ecn_cfg.refresh_from_db()
+        self.assertEqual(ecn_cfg.ccb_policy, 'any')
+
+    def test_ecn_configure_ccb_post_without_approvers_shows_error(self):
+        """POST senza approvatori → form non valido (200)."""
+        ecn_no_appr = _make_ecn(
+            self.document, self.version, self.proposer,
+            code='ECN-VIEW-CFG-NOAPPR',
+        )
+        self.client.force_login(self.manager)
+        r = self.client.post(f'/ecn/{ecn_no_appr.pk}/configure-ccb/', {
+            'ccb_policy': 'all',
+            # approvers mancante
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(ecn_no_appr.approvers.count(), 0)
+
+    def test_ecn_configure_ccb_blocked_if_not_draft(self):
+        """Non è possibile configurare la CCB su un ECN non in bozza."""
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        self.client.force_login(self.manager)
+        r = self.client.post(f'/ecn/{self.ecn.pk}/configure-ccb/', {
+            'ccb_policy': 'all',
+            'approvers': [self.ccb.pk],
+        })
+        # Deve redirigere al dettaglio con messaggio di errore
+        self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
 
     # --- document_detail integration ----------------------------------------
 

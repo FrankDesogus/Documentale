@@ -12,7 +12,13 @@
 
 {# Azioni principali #}
 <div style="margin-bottom:1.25rem;display:flex;gap:.5rem;flex-wrap:wrap">
-  {% if ecn.status == 'draft' and can_submit %}
+  {% if ecn.status == 'draft' and can_configure_ccb %}
+  <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-secondary">
+    {% if has_ccb_configured %}Modifica CCB{% else %}Configura CCB{% endif %}
+  </a>
+  {% endif %}
+
+  {% if ecn.status == 'draft' and can_submit and has_ccb_configured %}
   <form method="post" action="{% url 'ecn:ecn_submit' ecn.pk %}">
     {% csrf_token %}
     <button type="submit" class="btn btn-primary"
@@ -41,6 +47,20 @@
   </a>
   {% endif %}
 </div>
+
+{# Avviso CCB non ancora configurata #}
+{% if ecn.status == 'draft' and not has_ccb_configured %}
+<div class="card" style="background:#fff3cd;border-color:#ffc107;margin-bottom:1rem">
+  <p style="margin:0;color:#856404">
+    <strong>In attesa di configurazione CCB.</strong>
+    {% if can_configure_ccb %}
+      Configura gli approvatori e la politica CCB prima di inviare l'ECN in revisione.
+    {% else %}
+      Il Responsabile Qualità / Document Manager deve configurare la CCB prima dell'invio.
+    {% endif %}
+  </p>
+</div>
+{% endif %}
 
 {# Scheda ECN #}
 <div class="card">

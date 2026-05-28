@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Configura CCB — {{ ecn.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
+</p>
+<h1>Configura CCB — {{ ecn.code }}</h1>
+<p class="meta">Documento: <strong>{{ ecn.document.code }} — {{ ecn.document.title }}</strong></p>
+<p class="meta">Proposto da: {{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</p>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="card">
+    <fieldset>
+      <legend>Politica di approvazione CCB</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_ccb_policy">{{ form.ccb_policy.label }}</label>
+        {{ form.ccb_policy }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_policy.help_text }}</p>
+        {% if form.ccb_policy.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_policy.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Approvatori CCB *</legend>
+      <p class="meta" style="margin:.2rem 0 .5rem">{{ form.approvers.help_text }}</p>
+      {% for checkbox in form.approvers %}
+      <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem;font-weight:normal">
+        {{ checkbox.tag }} {{ checkbox.choice_label }}
+      </label>
+      {% empty %}
+      <p class="meta" style="color:#856404">
+        Nessun approvatore CCB disponibile. Aggiungi almeno un utente a uno
+        dei gruppi: <strong>Change Control Board</strong>,
+        <strong>Document Managers</strong> o
+        <strong>Document Approvers</strong>.
+      </p>
+      {% endfor %}
+      {% if form.approvers.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.approvers.errors.as_text }}</p>{% endif %}
+    </fieldset>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Salva configurazione CCB</button>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

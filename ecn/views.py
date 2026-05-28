@@ -12,6 +12,7 @@ from ecn.models import ChangeNotice, ChangeNoticeAttachment
 from ecn.permissions import (
     can_add_ecn_attachment,
     can_close_ecn,
+    can_configure_ccb,
     can_create_ecn,
     can_review_ecn,
     can_submit_ecn,
@@ -101,12 +102,16 @@ def ecn_detail(request, ecn_id):
         from documents.permissions import can_create_revision
         can_create_rev_from_ecn = can_create_revision(request.user, ecn.document)
 
+    has_ccb_configured = ecn.approvers.exists()
+
     return render(request, 'ecn/ecn_detail.html', {
         'ecn': ecn,
         'attachments': attachments,
         'approvers': approvers,
         'decisions': decisions,
         'can_submit': can_submit_ecn(request.user, ecn),
+        'can_configure_ccb': can_configure_ccb(request.user, ecn),
+        'has_ccb_configured': has_ccb_configured,
         'can_review': can_review_ecn(request.user, ecn),
         'can_close': can_close_ecn(request.user, ecn),
         'can_attach': can_add_ecn_attachment(request.user, ecn),
@@ -157,7 +162,7 @@ def ecn_create(request):
                     pass
 
             try:
-                from ecn.services import create_change_notice, set_change_notice_approvers
+                from ecn.services import create_change_notice
                 ecn = create_change_notice(
                     document=document,
                     proposed_by=request.user,
@@ -168,13 +173,10 @@ def ecn_create(request):
                     commessa=d.get('commessa', ''),
                     project=project,
                 )
-                # Assegna approvatori e policy
-                approvers = list(d.get('approvers', []))
-                policy = d.get('ccb_policy')
-                set_change_notice_approvers(ecn, approvers, policy=policy)
                 messages.success(
                     request,
-                    f'ECN {ecn.code} creato come bozza.',
+                    f'ECN {ecn.code} creato come bozza. '
+                    f'Il Responsabile Qualità configurerà gli approvatori CCB.',
                 )
                 return redirect('ecn:ecn_detail', ecn_id=ecn.pk)
             except ValidationError as exc:
@@ -186,6 +188,66 @@ def ecn_create(request):
     return render(request, 'ecn/ecn_form.html', {
         'form': form,
         'document': document,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Configura CCB: seleziona approvatori e policy (solo Manager / staff)
+# ---------------------------------------------------------------------------
+
+@login_required
+def ecn_configure_ccb(request, ecn_id):
+    """
+    Permette al Responsabile Qualità / Document Manager di configurare
+    gli approvatori CCB e la policy per un ECN in bozza.
+
+    Solo utenti con can_configure_ccb possono accedere.
+    """
+    from ecn.forms import ChangeNoticeCCBConfigForm
+    from ecn.services import set_change_notice_approvers
+
+    ecn = get_object_or_404(
+        ChangeNotice.objects.select_related('document', 'proposed_by'),
+        pk=ecn_id,
+    )
+
+    if not can_configure_ccb(request.user, ecn):
+        raise PermissionDenied
+
+    if ecn.status != ChangeNotice.Status.DRAFT:
+        messages.error(
+            request,
+            f'La configurazione CCB è possibile solo su ECN in bozza (stato: {ecn.get_status_display()}).',
+        )
+        return redirect('ecn:ecn_detail', ecn_id=ecn_id)
+
+    # Prepopola con la policy corrente (se già configurata parzialmente)
+    initial = {'ccb_policy': ecn.ccb_policy}
+
+    if request.method == 'POST':
+        form = ChangeNoticeCCBConfigForm(request.POST)
+        if form.is_valid():
+            d = form.cleaned_data
+            try:
+                set_change_notice_approvers(
+                    ecn,
+                    list(d['approvers']),
+                    policy=d['ccb_policy'],
+                )
+                messages.success(
+                    request,
+                    f'CCB configurata per {ecn.code}: {ecn.approvers.count()} approvatori assegnati.',
+                )
+                return redirect('ecn:ecn_detail', ecn_id=ecn_id)
+            except ValidationError as exc:
+                for msg in exc.messages:
+                    messages.error(request, msg)
+    else:
+        form = ChangeNoticeCCBConfigForm(initial=initial)
+
+    return render(request, 'ecn/ecn_configure_ccb.html', {
+        'form': form,
+        'ecn': ecn,
     })
 
 

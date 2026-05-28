@@ -6,15 +6,16 @@ notifiche di approvazione documenti).
 
 
 def notify_ecn_submitted(change_notice):
-    """Invia email a tutti gli approvatori quando un ECN è inviato alla CCB."""
+    """Invia email a tutti gli approvatori quando un ECN è inviato alla CCB dal Manager."""
     from notifications.services import _send_and_log
     for app in change_notice.approvers.select_related('user').order_by('order', 'id'):
-        subject = f"[ECN] Richiesta di revisione: {change_notice.code}"
+        subject = f"[ECN] Richiesta di revisione CCB: {change_notice.code}"
         body = (
             f"Gentile {app.user.get_full_name() or app.user.username},\n\n"
             f"l'ECN {change_notice.code} «{change_notice.title}» è stato inviato alla CCB "
-            f"per revisione e ti è stato assegnato come approvatore.\n\n"
+            f"per revisione. Sei stato designato come approvatore CCB.\n\n"
             f"Documento: {change_notice.document.code} — {change_notice.document.title}\n"
+            f"Proponente: {change_notice.proposed_by.get_full_name() or change_notice.proposed_by.username}\n"
             f"Motivazione: {change_notice.get_motivation_display()}\n\n"
             f"Accedi al sistema per revisionare e decidere."
         )

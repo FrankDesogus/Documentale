@@ -89,12 +89,14 @@ def can_create_ecn(user, document):
     return False
 
 
-def can_submit_ecn(user, change_notice):
+def can_configure_ccb(user, change_notice):
     """
-    Può inviare l'ECN alla CCB (draft → under_review):
+    Può configurare la CCB (selezionare approvatori e policy) per un ECN in bozza:
       - superuser/staff
       - Document Managers globali
-      - Proponente o created_by dell'ECN
+
+    Il proponente non può configurare la CCB: questa responsabilità spetta
+    al Responsabile Qualità / Document Manager.
     """
     if not user.is_authenticated:
         return False
@@ -102,7 +104,23 @@ def can_submit_ecn(user, change_notice):
         return True
     if _is_global_manager(user):
         return True
-    if change_notice.proposed_by_id == user.pk or change_notice.created_by_id == user.pk:
+    return False
+
+
+def can_submit_ecn(user, change_notice):
+    """
+    Può inviare l'ECN alla CCB (draft → under_review):
+      - superuser/staff
+      - Document Managers globali
+
+    Il proponente NON può inviare direttamente alla CCB: deve prima passare
+    per la configurazione CCB da parte del Responsabile Qualità / Manager.
+    """
+    if not user.is_authenticated:
+        return False
+    if _is_superuser_or_staff(user):
+        return True
+    if _is_global_manager(user):
         return True
     return False
 

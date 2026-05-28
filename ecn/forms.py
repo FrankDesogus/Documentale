@@ -7,7 +7,11 @@ from ecn.models import ChangeNotice
 
 
 class ChangeNoticeForm(forms.Form):
-    """Form per la creazione di un nuovo ECN con selezione approvatori CCB."""
+    """Form per la creazione di un nuovo ECN da parte del proponente.
+
+    Non include la selezione degli approvatori CCB: quella è responsabilità
+    del Responsabile Qualità / Document Manager, tramite ChangeNoticeCCBConfigForm.
+    """
 
     title = forms.CharField(
         max_length=255,
@@ -39,11 +43,19 @@ class ChangeNoticeForm(forms.Form):
         required=False,
         widget=forms.HiddenInput,
     )
+
+
+class ChangeNoticeCCBConfigForm(forms.Form):
+    """Form per la configurazione CCB di un ECN da parte del Responsabile Qualità / Manager.
+
+    Seleziona approvatori e politica di approvazione.
+    """
+
     ccb_policy = forms.ChoiceField(
         choices=ChangeNotice.CCBPolicy.choices,
         initial=ChangeNotice.CCBPolicy.ALL,
         label='Politica approvazione CCB',
-        help_text='ANY: basta un approvatore; ALL: tutti; SEQUENTIAL: in ordine.',
+        help_text='ANY: basta un approvatore; ALL: tutti devono approvare; SEQUENTIAL: in ordine.',
     )
     approvers = forms.ModelMultipleChoiceField(
         queryset=User.objects.none(),
