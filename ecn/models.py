@@ -24,6 +24,11 @@ class ChangeNotice(models.Model):
         CLASS1 = 'class1', 'Classe 1'
         CLASS2 = 'class2', 'Classe 2'
 
+    class CCBPolicy(models.TextChoices):
+        ANY        = 'any',        'Qualsiasi approvatore (ANY)'
+        ALL        = 'all',        'Tutti gli approvatori (ALL)'
+        SEQUENTIAL = 'sequential', 'Sequenziale (SEQUENTIAL)'
+
     # ------------------------------------------------------------------
     # Identificazione
     # ------------------------------------------------------------------
@@ -105,6 +110,17 @@ class ChangeNotice(models.Model):
         choices=Status.choices,
         default=Status.DRAFT,
         verbose_name='Stato',
+    )
+
+    # ------------------------------------------------------------------
+    # Politica di approvazione CCB
+    # ------------------------------------------------------------------
+    ccb_policy = models.CharField(
+        max_length=20,
+        choices=CCBPolicy.choices,
+        default=CCBPolicy.ALL,
+        verbose_name='Politica approvazione CCB',
+        help_text='ANY: basta un approvatore; ALL: tutti; SEQUENTIAL: in ordine.',
     )
 
     # ------------------------------------------------------------------
@@ -224,6 +240,94 @@ class ChangeNotice(models.Model):
 
     def __str__(self):
         return f"{self.code} — {self.title} [{self.get_status_display()}]"
+
+
+class ChangeNoticeApprover(models.Model):
+    """Approvatore CCB assegnato a un ECN."""
+
+    change_notice = models.ForeignKey(
+        ChangeNotice,
+        on_delete=models.CASCADE,
+        related_name='approvers',
+        verbose_name='ECN',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='ecn_approver_roles',
+        verbose_name='Approvatore',
+    )
+    order = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name='Ordine',
+        help_text='Usato per la politica SEQUENTIAL.',
+    )
+    is_required = models.BooleanField(
+        default=True,
+        verbose_name='Approvazione obbligatoria',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = 'Approvatore CCB'
+        verbose_name_plural = 'Approvatori CCB'
+        unique_together     = [['change_notice', 'user']]
+        ordering            = ['order', 'id']
+
+    def __str__(self):
+        return f"{self.change_notice.code} — {self.user.username}"
+
+
+class ChangeNoticeDecision(models.Model):
+    """Decisione individuale di un approvatore CCB su un ECN."""
+
+    class Decision(models.TextChoices):
+        APPROVE = 'approve', 'Approvato'
+        REJECT  = 'reject',  'Rifiutato'
+
+    change_notice = models.ForeignKey(
+        ChangeNotice,
+        on_delete=models.CASCADE,
+        related_name='decisions',
+        verbose_name='ECN',
+    )
+    approver = models.ForeignKey(
+        ChangeNoticeApprover,
+        on_delete=models.PROTECT,
+        related_name='decisions',
+        verbose_name='Approvatore',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='ecn_decisions',
+        verbose_name='Utente',
+    )
+    decision = models.CharField(
+        max_length=10,
+        choices=Decision.choices,
+        verbose_name='Decisione',
+    )
+    comment = models.TextField(
+        blank=True,
+        verbose_name='Commento',
+    )
+    decided_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Deciso il',
+    )
+
+    class Meta:
+        verbose_name        = 'Decisione CCB'
+        verbose_name_plural = 'Decisioni CCB'
+        unique_together     = [['change_notice', 'approver']]
+        ordering            = ['decided_at', 'id']
+
+    def __str__(self):
+        return (
+            f"{self.change_notice.code} — {self.user.username}: "
+            f"{self.get_decision_display()}"
+        )
 
 
 class ChangeNoticeAttachment(models.Model):

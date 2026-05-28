@@ -1,12 +1,13 @@
 """Form per l'app ECN / Varianti."""
 
 from django import forms
+from django.contrib.auth.models import User
 
 from ecn.models import ChangeNotice
 
 
 class ChangeNoticeForm(forms.Form):
-    """Form per la creazione di un nuovo ECN (step ECN-B)."""
+    """Form per la creazione di un nuovo ECN con selezione approvatori CCB."""
 
     title = forms.CharField(
         max_length=255,
@@ -38,10 +39,44 @@ class ChangeNoticeForm(forms.Form):
         required=False,
         widget=forms.HiddenInput,
     )
+    ccb_policy = forms.ChoiceField(
+        choices=ChangeNotice.CCBPolicy.choices,
+        initial=ChangeNotice.CCBPolicy.ALL,
+        label='Politica approvazione CCB',
+        help_text='ANY: basta un approvatore; ALL: tutti; SEQUENTIAL: in ordine.',
+    )
+    approvers = forms.ModelMultipleChoiceField(
+        queryset=User.objects.none(),
+        label='Approvatori CCB',
+        help_text='Seleziona almeno un approvatore CCB. Per SEQUENTIAL l\'ordine di selezione è l\'ordine di approvazione.',
+        widget=forms.CheckboxSelectMultiple,
+        required=True,
+        error_messages={
+            'required': 'Seleziona almeno un approvatore CCB.',
+        },
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from django.contrib.auth.models import Group
+        from ecn.permissions import GROUP_CCB
+        from documents.permissions import GROUP_MANAGERS, GROUP_APPROVERS
+
+        candidate_group_names = [GROUP_CCB, GROUP_MANAGERS, GROUP_APPROVERS]
+        qs = User.objects.none()
+        for name in candidate_group_names:
+            try:
+                qs = qs | Group.objects.get(name=name).user_set.all()
+            except Group.DoesNotExist:
+                pass
+
+        self.fields['approvers'].queryset = qs.distinct().order_by(
+            'last_name', 'first_name', 'username'
+        )
 
 
 class ChangeNoticeReviewForm(forms.Form):
-    """Form CCB per approvare o rifiutare un ECN.
+    """Form CCB per approvare o rifiutare un ECN (singolo approvatore).
 
     Validazione cross-field:
       - action == 'approve' → ccb_class obbligatorio
@@ -59,6 +94,12 @@ class ChangeNoticeReviewForm(forms.Form):
         choices=ACTION_CHOICES,
         label='Decisione',
         widget=forms.RadioSelect,
+    )
+    comment = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False,
+        label='Commento personale',
+        help_text='Commento individuale allegato alla tua decisione.',
     )
     ccb_class = forms.ChoiceField(
         choices=[('', '— seleziona classe —')] + list(ChangeNotice.CCBClass.choices),
@@ -100,7 +141,7 @@ class ChangeNoticeReviewForm(forms.Form):
     ccb_notes = forms.CharField(
         widget=forms.Textarea(attrs={'rows': 3}),
         required=False,
-        label='Note CCB',
+        label='Note CCB / Motivo rifiuto',
         help_text='Obbligatorio in caso di rifiuto: inserire il motivo.',
     )
 

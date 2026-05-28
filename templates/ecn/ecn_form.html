@@ -50,6 +50,33 @@
         {% if form.description.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.description.errors.as_text }}</p>{% endif %}
       </div>
     </fieldset>
+
+    <fieldset>
+      <legend>Approvatori CCB</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_ccb_policy">{{ form.ccb_policy.label }}</label>
+        {{ form.ccb_policy }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_policy.help_text }}</p>
+        {% if form.ccb_policy.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_policy.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.approvers.label }} *</label>
+        <p class="meta" style="margin:.2rem 0 .5rem">{{ form.approvers.help_text }}</p>
+        {% for checkbox in form.approvers %}
+        <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem;font-weight:normal">
+          {{ checkbox.tag }} {{ checkbox.choice_label }}
+        </label>
+        {% empty %}
+        <p class="meta" style="color:#856404">
+          Nessun approvatore CCB disponibile. Aggiungi almeno un utente a uno
+          dei gruppi: <strong>Change Control Board</strong>,
+          <strong>Document Managers</strong> o
+          <strong>Document Approvers</strong>.
+        </p>
+        {% endfor %}
+        {% if form.approvers.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.approvers.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
   </div>
 
   <button type="submit" class="btn btn-primary">Crea ECN in bozza</button>

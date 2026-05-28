@@ -86,6 +86,8 @@ def ecn_detail(request, ecn_id):
         raise Http404
 
     attachments = ecn.attachments.select_related('uploaded_by').order_by('uploaded_at')
+    approvers = ecn.approvers.select_related('user').order_by('order', 'id')
+    decisions = ecn.decisions.select_related('user', 'approver').order_by('decided_at')
 
     # Pulsante "Crea revisione da ECN": visibile se ECN approvato, non ancora eseguito,
     # documento ha current_version approvata e l'utente può creare revisioni.
@@ -102,6 +104,8 @@ def ecn_detail(request, ecn_id):
     return render(request, 'ecn/ecn_detail.html', {
         'ecn': ecn,
         'attachments': attachments,
+        'approvers': approvers,
+        'decisions': decisions,
         'can_submit': can_submit_ecn(request.user, ecn),
         'can_review': can_review_ecn(request.user, ecn),
         'can_close': can_close_ecn(request.user, ecn),
@@ -124,7 +128,6 @@ def ecn_create(request):
     """
     from documents.models import Document
     from ecn.forms import ChangeNoticeForm
-    from ecn.services import create_change_notice
 
     document_id = request.GET.get('document') or request.POST.get('document')
     if not document_id:
@@ -154,6 +157,7 @@ def ecn_create(request):
                     pass
 
             try:
+                from ecn.services import create_change_notice, set_change_notice_approvers
                 ecn = create_change_notice(
                     document=document,
                     proposed_by=request.user,
@@ -164,6 +168,10 @@ def ecn_create(request):
                     commessa=d.get('commessa', ''),
                     project=project,
                 )
+                # Assegna approvatori e policy
+                approvers = list(d.get('approvers', []))
+                policy = d.get('ccb_policy')
+                set_change_notice_approvers(ecn, approvers, policy=policy)
                 messages.success(
                     request,
                     f'ECN {ecn.code} creato come bozza.',
@@ -241,7 +249,7 @@ def ecn_review(request, ecn_id):
                     approve_change_notice(
                         ecn,
                         request.user,
-                        ccb_class=d['ccb_class'],
+                        ccb_class=d.get('ccb_class', ''),
                         ccb_requirements=d.get('ccb_requirements', ''),
                         ccb_technical_impact=d.get('ccb_technical_impact', ''),
                         ccb_cost_impact=d.get('ccb_cost_impact', ''),
@@ -249,13 +257,23 @@ def ecn_review(request, ecn_id):
                         ccb_quality_impact=d.get('ccb_quality_impact', ''),
                         ccb_other_impact=d.get('ccb_other_impact', ''),
                         ccb_notes=d.get('ccb_notes', ''),
+                        comment=d.get('comment', ''),
                     )
-                    messages.success(request, f'{ecn.code} approvato dalla CCB.')
+                    ecn.refresh_from_db()
+                    if ecn.status == ChangeNotice.Status.APPROVED:
+                        messages.success(request, f'{ecn.code} approvato dalla CCB.')
+                    else:
+                        messages.success(
+                            request,
+                            f'La tua approvazione è stata registrata. '
+                            f'In attesa degli altri approvatori.',
+                        )
                 else:
                     reject_change_notice(
                         ecn,
                         request.user,
                         reason=d['ccb_notes'],
+                        comment=d.get('comment', ''),
                     )
                     messages.success(request, f'{ecn.code} rifiutato dalla CCB.')
                 return redirect('ecn:ecn_detail', ecn_id=ecn_id)
@@ -299,6 +317,7 @@ def ecn_close(request, ecn_id):
         )
         return redirect('ecn:ecn_detail', ecn_id=ecn_id)
 
+    # Avvisa se non c'è ancora una revisione eseguita (il service blocca la chiusura)
     warn_no_version = ecn.executed_version is None
 
     if request.method == 'POST':

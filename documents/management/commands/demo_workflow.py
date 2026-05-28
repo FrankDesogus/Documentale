@@ -7,6 +7,7 @@ from approvals.services import approve_version, reject_version
 from auditlog.models import AuditLog
 from documents.models import Document, DocumentVersion
 from documents.permissions import GROUP_APPROVERS, GROUP_AUTHORS, GROUP_READERS
+from ecn.permissions import GROUP_CCB
 from projects.models import Project, ProjectFolder, ProjectFolderMembership
 from projects.services import create_project_revision, issue_project_revision, populate_project_revision_from_current_documents
 from documents.services import (
@@ -90,12 +91,14 @@ class Command(BaseCommand):
         autore = self._get_or_create_user('autore_demo', 'Autore', 'Demo', 'autore_demo@example.local')
         approvatore = self._get_or_create_user('approvatore_demo', 'Approvatore', 'Demo', 'approvatore_demo@example.local')
         lettore = self._get_or_create_user('lettore_demo', 'Lettore', 'Demo', 'lettore_demo@example.local')
+        ccb = self._get_or_create_user('ccb_demo', 'CCB', 'Demo', 'ccb_demo@example.local')
 
         # Assegna i gruppi documentali agli utenti demo
         Group.objects.get_or_create(name=GROUP_AUTHORS)[0].user_set.add(autore)
         Group.objects.get_or_create(name=GROUP_APPROVERS)[0].user_set.add(approvatore)
         Group.objects.get_or_create(name=GROUP_READERS)[0].user_set.add(lettore)
-        self._step('Gruppi assegnati: autore->Authors, approvatore->Approvers, lettore->Readers')
+        Group.objects.get_or_create(name=GROUP_CCB)[0].user_set.add(ccb)
+        self._step('Gruppi assegnati: autore->Authors, approvatore->Approvers, lettore->Readers, ccb->Change Control Board')
 
         # 2. Cartelle demo
         cartella_ing, _ = ProjectFolder.objects.get_or_create(
@@ -278,6 +281,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  AuditLog creati    : {audit_count}')
         self.stdout.write(f'  ApprovalRequest    : {req_count}')
         self.stdout.write(f'  ApprovalDecision   : {dec_count}')
+        self.stdout.write(f'  Utente CCB demo    : ccb_demo ({ccb.email}) - gruppo {GROUP_CCB}')
         self.stdout.write(self.style.SUCCESS('\nDemo completata con successo.'))
 
     # ------------------------------------------------------------------

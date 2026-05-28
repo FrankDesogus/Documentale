@@ -122,6 +122,52 @@
 </div>
 {% endif %}
 
+{# Componenti CCB #}
+<h2>Componenti CCB</h2>
+<div class="card">
+  <dl class="dl-grid" style="margin-bottom:.75rem">
+    <dt>Politica</dt><dd>{{ ecn.get_ccb_policy_display }}</dd>
+  </dl>
+  {% if approvers %}
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">#</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Approvatore</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Decisione</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Commento</th>
+        <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Data</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for app in approvers %}
+      {% with dec=app.decisions.first %}
+      <tr>
+        <td style="padding:.3rem .5rem;color:#6c757d">{{ app.order }}</td>
+        <td style="padding:.3rem .5rem">{{ app.user.get_full_name|default:app.user.username }}</td>
+        <td style="padding:.3rem .5rem">
+          {% if dec %}
+            <span class="badge badge-{% if dec.decision == 'approve' %}approved{% else %}rejected{% endif %}">
+              {{ dec.get_decision_display }}
+            </span>
+          {% else %}
+            <span class="badge badge-under_review">In attesa</span>
+          {% endif %}
+        </td>
+        <td style="padding:.3rem .5rem;color:#6c757d">{{ dec.comment|default:"—" }}</td>
+        <td style="padding:.3rem .5rem;color:#6c757d;white-space:nowrap">
+          {% if dec %}{{ dec.decided_at|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endwith %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Nessun approvatore assegnato.</p>
+  {% endif %}
+</div>
+
 {# Esecuzione / revisione collegata #}
 {% if ecn.status == 'approved' or ecn.status == 'closed' %}
 <h2>Esecuzione</h2>

@@ -110,18 +110,44 @@ def can_submit_ecn(user, change_notice):
 def can_review_ecn(user, change_notice):
     """
     Può approvare o rifiutare l'ECN (under_review → approved/rejected):
-      - superuser/staff
-      - Membri CCB
-      - Document Managers globali
+      - superuser/staff (bypass)
+      - Approvatori assegnati all'ECN (ChangeNoticeApprover)
+      - Per policy SEQUENTIAL: solo il prossimo nella catena
+
+    Non è più sufficiente appartenere al gruppo CCB o essere Document Manager:
+    l'utente deve essere esplicitamente assegnato come approvatore.
     """
     if not user.is_authenticated:
         return False
     if _is_superuser_or_staff(user):
         return True
-    from documents.permissions import GROUP_MANAGERS
-    if _in_group(user, GROUP_MANAGERS, GROUP_CCB):
-        return True
-    return False
+
+    from ecn.models import ChangeNoticeApprover, ChangeNoticeDecision
+
+    # L'utente deve essere un approvatore assegnato
+    approver_qs = ChangeNoticeApprover.objects.filter(
+        change_notice=change_notice,
+        user=user,
+    )
+    if not approver_qs.exists():
+        return False
+
+    # Per SEQUENTIAL: solo il prossimo approvatore che non ha ancora deciso
+    if change_notice.ccb_policy == 'sequential':
+        decided_ids = set(
+            ChangeNoticeDecision.objects.filter(change_notice=change_notice)
+            .values_list('approver_id', flat=True)
+        )
+        next_app = (
+            ChangeNoticeApprover.objects.filter(change_notice=change_notice)
+            .exclude(pk__in=decided_ids)
+            .order_by('order', 'id')
+            .first()
+        )
+        if next_app is None or next_app.user_id != user.pk:
+            return False
+
+    return True
 
 
 def can_close_ecn(user, change_notice):

@@ -90,6 +90,12 @@
     <fieldset>
       <legend>Note CCB</legend>
       <div style="margin-bottom:1rem">
+        <label for="id_comment">{{ form.comment.label }}</label>
+        {{ form.comment }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.comment.help_text }}</p>
+        {% if form.comment.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.comment.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
         <label for="id_ccb_notes">{{ form.ccb_notes.label }}</label>
         {{ form.ccb_notes }}
         <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_notes.help_text }}</p>

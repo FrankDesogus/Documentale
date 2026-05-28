@@ -1,6 +1,23 @@
 from django.contrib import admin
 
-from .models import ChangeNotice, ChangeNoticeAttachment
+from .models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeAttachment, ChangeNoticeDecision
+
+
+class ChangeNoticeApproverInline(admin.TabularInline):
+    model = ChangeNoticeApprover
+    extra = 0
+    fields = ('user', 'order', 'is_required', 'created_at')
+    readonly_fields = ('created_at',)
+
+
+class ChangeNoticeDecisionInline(admin.TabularInline):
+    model = ChangeNoticeDecision
+    extra = 0
+    fields = ('user', 'approver', 'decision', 'comment', 'decided_at')
+    readonly_fields = ('user', 'approver', 'decision', 'comment', 'decided_at')
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 class ChangeNoticeAttachmentInline(admin.TabularInline):
@@ -16,10 +33,10 @@ class ChangeNoticeAttachmentInline(admin.TabularInline):
 @admin.register(ChangeNotice)
 class ChangeNoticeAdmin(admin.ModelAdmin):
     list_display = (
-        'code', 'title', 'document', 'status', 'motivation',
+        'code', 'title', 'document', 'status', 'ccb_policy', 'motivation',
         'ccb_class', 'proposed_by', 'proposed_at', 'ccb_reviewed_at', 'closed_at',
     )
-    list_filter = ('status', 'motivation', 'ccb_class', 'proposed_at')
+    list_filter = ('status', 'ccb_policy', 'motivation', 'ccb_class', 'proposed_at')
     search_fields = (
         'code', 'title',
         'document__code', 'document__title',
@@ -42,6 +59,9 @@ class ChangeNoticeAdmin(admin.ModelAdmin):
         }),
         ('Proponente', {
             'fields': ('proposed_by', 'proposed_at', 'submitted_at', 'created_by'),
+        }),
+        ('Politica CCB', {
+            'fields': ('ccb_policy',),
         }),
         ('Valutazione CCB', {
             'fields': (
@@ -71,7 +91,7 @@ class ChangeNoticeAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
-    inlines = [ChangeNoticeAttachmentInline]
+    inlines = [ChangeNoticeApproverInline, ChangeNoticeDecisionInline, ChangeNoticeAttachmentInline]
 
 
 @admin.register(ChangeNoticeAttachment)
