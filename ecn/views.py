@@ -14,6 +14,9 @@ from ecn.permissions import (
     can_close_ecn,
     can_configure_ccb,
     can_create_ecn,
+    can_edit_ecn,
+    can_reconfigure_ccb,
+    can_reopen_ccb,
     can_review_ecn,
     can_submit_ecn,
     can_view_ecn,
@@ -103,6 +106,7 @@ def ecn_detail(request, ecn_id):
         can_create_rev_from_ecn = can_create_revision(request.user, ecn.document)
 
     has_ccb_configured = ecn.approvers.exists()
+    has_decisions = ecn.decisions.exists()
 
     return render(request, 'ecn/ecn_detail.html', {
         'ecn': ecn,
@@ -116,6 +120,11 @@ def ecn_detail(request, ecn_id):
         'can_close': can_close_ecn(request.user, ecn),
         'can_attach': can_add_ecn_attachment(request.user, ecn),
         'can_create_rev_from_ecn': can_create_rev_from_ecn,
+        # Modificabilità
+        'can_edit': can_edit_ecn(request.user, ecn),
+        'can_reconfigure': can_reconfigure_ccb(request.user, ecn),
+        'can_reopen': can_reopen_ccb(request.user, ecn),
+        'has_decisions': has_decisions,
     })
 
 
@@ -211,13 +220,15 @@ def ecn_configure_ccb(request, ecn_id):
         pk=ecn_id,
     )
 
-    if not can_configure_ccb(request.user, ecn):
+    if not can_reconfigure_ccb(request.user, ecn):
         raise PermissionDenied
 
-    if ecn.status != ChangeNotice.Status.DRAFT:
+    allowed_statuses = (ChangeNotice.Status.DRAFT, ChangeNotice.Status.UNDER_REVIEW)
+    if ecn.status not in allowed_statuses:
         messages.error(
             request,
-            f'La configurazione CCB è possibile solo su ECN in bozza (stato: {ecn.get_status_display()}).',
+            f'La configurazione CCB è possibile solo su ECN in bozza o in revisione senza decisioni '
+            f'(stato: {ecn.get_status_display()}).',
         )
         return redirect('ecn:ecn_detail', ecn_id=ecn_id)
 
@@ -233,6 +244,7 @@ def ecn_configure_ccb(request, ecn_id):
                     ecn,
                     list(d['approvers']),
                     policy=d['ccb_policy'],
+                    actor=request.user,
                 )
                 messages.success(
                     request,
@@ -248,6 +260,7 @@ def ecn_configure_ccb(request, ecn_id):
     return render(request, 'ecn/ecn_configure_ccb.html', {
         'form': form,
         'ecn': ecn,
+        'is_under_review': ecn.status == ChangeNotice.Status.UNDER_REVIEW,
     })
 
 
@@ -476,6 +489,116 @@ def ecn_attachment_download(request, attachment_id):
         as_attachment=True,
         filename=attachment.original_filename or attachment.file.name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Modifica ECN (dati base — solo DRAFT)
+# ---------------------------------------------------------------------------
+
+@login_required
+def ecn_edit(request, ecn_id):
+    """
+    Modifica i dati base di un ECN in bozza:
+    titolo, motivazione, descrizione, commessa, progetto.
+
+    Accessibile a: proponente / created_by / Manager / staff, solo se DRAFT.
+    """
+    from ecn.forms import ChangeNoticeEditForm
+    from ecn.services import update_change_notice
+
+    ecn = get_object_or_404(
+        ChangeNotice.objects.select_related('document', 'proposed_by', 'project'),
+        pk=ecn_id,
+    )
+
+    if not can_edit_ecn(request.user, ecn):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        form = ChangeNoticeEditForm(request.POST)
+        if form.is_valid():
+            d = form.cleaned_data
+            try:
+                update_change_notice(
+                    ecn,
+                    actor=request.user,
+                    title=d['title'],
+                    motivation=d['motivation'],
+                    description=d.get('description', ''),
+                    motivation_detail=d.get('motivation_detail', ''),
+                    commessa=d.get('commessa', ''),
+                    project=d.get('project'),
+                )
+                messages.success(request, f'{ecn.code} aggiornato.')
+                return redirect('ecn:ecn_detail', ecn_id=ecn_id)
+            except ValidationError as exc:
+                for msg in exc.messages:
+                    messages.error(request, msg)
+    else:
+        form = ChangeNoticeEditForm(initial={
+            'title': ecn.title,
+            'motivation': ecn.motivation,
+            'motivation_detail': ecn.motivation_detail,
+            'description': ecn.description,
+            'commessa': ecn.commessa,
+            'project': ecn.project,
+        })
+
+    return render(request, 'ecn/ecn_edit_form.html', {
+        'form': form,
+        'ecn': ecn,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Riapri configurazione CCB (under_review con decisioni → DRAFT)
+# ---------------------------------------------------------------------------
+
+@login_required
+def ecn_reopen_ccb(request, ecn_id):
+    """
+    Riapre la configurazione CCB di un ECN in revisione.
+
+    Cancella tutte le decisioni esistenti e riporta l'ECN a DRAFT.
+    Accessibile solo a Manager / staff quando lo stato è UNDER_REVIEW e
+    ci sono decisioni già espresse.
+    """
+    from ecn.forms import ChangeNoticeReopenCCBForm
+    from ecn.services import reopen_ccb_configuration
+
+    ecn = get_object_or_404(
+        ChangeNotice.objects.select_related('document', 'proposed_by'),
+        pk=ecn_id,
+    )
+
+    if not can_reopen_ccb(request.user, ecn):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        form = ChangeNoticeReopenCCBForm(request.POST)
+        if form.is_valid():
+            reason = form.cleaned_data.get('reason', '')
+            try:
+                reopen_ccb_configuration(ecn, actor=request.user, reason=reason)
+                messages.success(
+                    request,
+                    f'{ecn.code} riportato in bozza. Le decisioni CCB sono state annullate. '
+                    f'Riconfigura gli approvatori e reinvia alla CCB.',
+                )
+                return redirect('ecn:ecn_detail', ecn_id=ecn_id)
+            except (PermissionDenied, ValidationError) as exc:
+                if isinstance(exc, PermissionDenied):
+                    messages.error(request, str(exc))
+                else:
+                    for msg in exc.messages:
+                        messages.error(request, msg)
+    else:
+        form = ChangeNoticeReopenCCBForm()
+
+    return render(request, 'ecn/ecn_reopen_ccb_form.html', {
+        'form': form,
+        'ecn': ecn,
+    })
 
 
 # ---------------------------------------------------------------------------

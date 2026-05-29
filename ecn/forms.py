@@ -187,6 +187,69 @@ class ChangeNoticeCloseForm(forms.Form):
     )
 
 
+class ChangeNoticeEditForm(forms.Form):
+    """Form per la modifica dei dati base di un ECN in bozza.
+
+    Identici campi di ChangeNoticeForm, usato per la view /ecn/<pk>/edit/.
+    """
+
+    title = forms.CharField(
+        max_length=255,
+        label='Titolo',
+        help_text='Titolo breve e descrittivo della variante proposta.',
+    )
+    motivation = forms.ChoiceField(
+        choices=ChangeNotice.Motivation.choices,
+        label='Categoria motivazione',
+    )
+    motivation_detail = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False,
+        label='Motivazione (dettaglio)',
+        help_text='Descrizione estesa della motivazione della variante.',
+    )
+    description = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 4}),
+        required=False,
+        label='Descrizione modifica proposta',
+        help_text='Descrizione della modifica tecnica proposta.',
+    )
+    commessa = forms.CharField(
+        max_length=100,
+        required=False,
+        label='Commessa / ordine',
+    )
+    project = forms.ModelChoiceField(
+        queryset=None,
+        required=False,
+        label='Progetto',
+        empty_label='— nessun progetto —',
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from projects.models import Project
+        self.fields['project'].queryset = Project.objects.order_by('code')
+
+
+class ChangeNoticeReopenCCBForm(forms.Form):
+    """Form per la riapertura della configurazione CCB di un ECN in revisione.
+
+    La riapertura cancella tutte le decisioni esistenti e riporta l'ECN a DRAFT,
+    consentendo di riconfigurare gli approvatori e la policy prima di reinviare.
+    """
+
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False,
+        label='Motivo della riapertura',
+        help_text=(
+            'Opzionale: spiega perché si riapre la configurazione CCB '
+            '(es. approvatore errato, policy da cambiare).'
+        ),
+    )
+
+
 class ChangeNoticeAttachmentForm(forms.Form):
     """Form per allegare un file a un ECN."""
 

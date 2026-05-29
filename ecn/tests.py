@@ -911,9 +911,32 @@ class ECNServiceApproverTests(TestCase):
             set_change_notice_approvers(ecn, [])
 
     def test_set_approvers_fails_if_not_draft(self):
+        """UNDER_REVIEW senza decisioni è ora consentito; UNDER_REVIEW con decisioni no."""
+        from ecn.models import ChangeNoticeApprover, ChangeNoticeDecision
         ecn = self._draft('ECN-APR-6')
         set_change_notice_approvers(ecn, [self.ccb1])
         ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        ecn.save(update_fields=['status'])
+
+        # UNDER_REVIEW senza decisioni → consentito
+        set_change_notice_approvers(ecn, [self.ccb2])
+
+        # Aggiungi una decisione e riprova → ValidationError
+        approver = ChangeNoticeApprover.objects.get(change_notice=ecn, user=self.ccb2)
+        ChangeNoticeDecision.objects.create(
+            change_notice=ecn,
+            approver=approver,
+            user=self.ccb2,
+            decision=ChangeNoticeDecision.Decision.APPROVE,
+        )
+        with self.assertRaises(ValidationError):
+            set_change_notice_approvers(ecn, [self.ccb1])
+
+    def test_set_approvers_fails_if_approved(self):
+        """APPROVED → ValidationError."""
+        ecn = self._draft('ECN-APR-7')
+        set_change_notice_approvers(ecn, [self.ccb1])
+        ecn.status = ChangeNotice.Status.APPROVED
         ecn.save(update_fields=['status'])
         with self.assertRaises(ValidationError):
             set_change_notice_approvers(ecn, [self.ccb2])
@@ -1991,3 +2014,298 @@ class ECNDashboardAndMyViewTests(TestCase):
         r = self.client.get('/ecn/my-ecn/')
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, 'ECN-DASH-001')
+
+
+# ---------------------------------------------------------------------------
+# Test ECN Edit & CCB Reopen  (permessi, service, view)
+# ---------------------------------------------------------------------------
+
+class ECNEditPermissionTests(TestCase):
+    """Test per can_edit_ecn, can_reconfigure_ccb, can_reopen_ccb e i service."""
+
+    def setUp(self):
+        from ecn.permissions import can_edit_ecn, can_reconfigure_ccb, can_reopen_ccb
+        from ecn.services import update_change_notice, reopen_ccb_configuration
+
+        self.can_edit_ecn = can_edit_ecn
+        self.can_reconfigure_ccb = can_reconfigure_ccb
+        self.can_reopen_ccb = can_reopen_ccb
+        self.update_change_notice = update_change_notice
+        self.reopen_ccb_configuration = reopen_ccb_configuration
+
+        self.manager  = _make_user('edit_mgr')
+        self.proposer = _make_user('edit_proposer')
+        self.stranger = _make_user('edit_stranger')
+        self.ccb_user = _make_user('edit_ccb')
+
+        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
+        self.manager.groups.add(grp_mgr)
+        self.ccb_user.groups.add(grp_ccb)
+
+        self.folder   = _make_folder(self.manager, code='FOLD-EDIT')
+        self.document = _make_document(self.manager, self.folder, code='DOC-EDIT-001')
+        self.version  = _make_version(self.document, self.manager)
+        self.document.current_version = self.version
+        self.document.save(update_fields=['current_version'])
+
+        self.ecn = _make_ecn(
+            self.document, self.version, self.proposer,
+            code='ECN-EDIT-001',
+        )
+
+    # --- can_edit_ecn ---------------------------------------------------------
+
+    def test_can_edit_ecn_draft_proposer(self):
+        self.assertTrue(self.can_edit_ecn(self.proposer, self.ecn))
+
+    def test_can_edit_ecn_draft_manager(self):
+        self.assertTrue(self.can_edit_ecn(self.manager, self.ecn))
+
+    def test_can_edit_ecn_draft_stranger_denied(self):
+        self.assertFalse(self.can_edit_ecn(self.stranger, self.ecn))
+
+    def test_can_edit_ecn_under_review_denied(self):
+        """Modifica dati base vietata se non DRAFT."""
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        self.assertFalse(self.can_edit_ecn(self.proposer, self.ecn))
+        self.assertFalse(self.can_edit_ecn(self.manager, self.ecn))
+
+    # --- can_reconfigure_ccb --------------------------------------------------
+
+    def test_can_reconfigure_ccb_draft_manager(self):
+        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))
+
+    def test_can_reconfigure_ccb_draft_stranger_denied(self):
+        self.assertFalse(self.can_reconfigure_ccb(self.stranger, self.ecn))
+
+    def test_can_reconfigure_ccb_under_review_no_decisions(self):
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))
+
+    def test_can_reconfigure_ccb_under_review_with_decisions_denied(self):
+        """Con decisioni esistenti, la modifica diretta è bloccata."""
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        approver = ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_user, order=1,
+        )
+        ChangeNoticeDecision.objects.create(
+            change_notice=self.ecn,
+            approver=approver,
+            user=self.ccb_user,
+            decision=ChangeNoticeDecision.Decision.APPROVE,
+        )
+        self.assertFalse(self.can_reconfigure_ccb(self.manager, self.ecn))
+
+    # --- can_reopen_ccb -------------------------------------------------------
+
+    def test_can_reopen_ccb_requires_under_review_with_decisions(self):
+        """can_reopen_ccb è False su DRAFT (nessuna decisione)."""
+        self.assertFalse(self.can_reopen_ccb(self.manager, self.ecn))
+
+    def test_can_reopen_ccb_under_review_with_decisions(self):
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        approver = ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_user, order=1,
+        )
+        ChangeNoticeDecision.objects.create(
+            change_notice=self.ecn,
+            approver=approver,
+            user=self.ccb_user,
+            decision=ChangeNoticeDecision.Decision.APPROVE,
+        )
+        self.assertTrue(self.can_reopen_ccb(self.manager, self.ecn))
+        self.assertFalse(self.can_reopen_ccb(self.stranger, self.ecn))
+
+    # --- update_change_notice (service) ---------------------------------------
+
+    def test_update_change_notice_updates_fields(self):
+        updated = self.update_change_notice(
+            self.ecn, actor=self.manager,
+            title='Nuovo titolo',
+            motivation=ChangeNotice.Motivation.CUSTOMER,
+            description='Nuova descrizione',
+            motivation_detail='Dettaglio motivazione',
+            commessa='C-2025-99',
+        )
+        self.assertEqual(updated.title, 'Nuovo titolo')
+        self.assertEqual(updated.motivation, ChangeNotice.Motivation.CUSTOMER)
+        self.assertEqual(updated.description, 'Nuova descrizione')
+        self.assertEqual(updated.commessa, 'C-2025-99')
+
+    def test_update_change_notice_fails_if_not_draft(self):
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        with self.assertRaises(ValidationError):
+            self.update_change_notice(
+                self.ecn, actor=self.manager,
+                title='X', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            )
+
+    def test_update_change_notice_writes_audit(self):
+        self.update_change_notice(
+            self.ecn, actor=self.manager,
+            title='Audit test',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+        )
+        self.assertTrue(AuditLog.objects.filter(action='ECN_UPDATED').exists())
+
+    # --- reopen_ccb_configuration (service) -----------------------------------
+
+    def test_reopen_ccb_resets_to_draft_and_deletes_decisions(self):
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        approver = ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_user, order=1,
+        )
+        ChangeNoticeDecision.objects.create(
+            change_notice=self.ecn,
+            approver=approver,
+            user=self.ccb_user,
+            decision=ChangeNoticeDecision.Decision.APPROVE,
+        )
+        self.reopen_ccb_configuration(self.ecn, actor=self.manager, reason='Test')
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.DRAFT)
+        self.assertIsNone(self.ecn.submitted_at)
+        self.assertFalse(self.ecn.decisions.exists())
+
+    def test_reopen_ccb_writes_audit(self):
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        approver = ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_user, order=1,
+        )
+        ChangeNoticeDecision.objects.create(
+            change_notice=self.ecn,
+            approver=approver,
+            user=self.ccb_user,
+            decision=ChangeNoticeDecision.Decision.APPROVE,
+        )
+        self.reopen_ccb_configuration(self.ecn, actor=self.manager)
+        self.assertTrue(AuditLog.objects.filter(action='ECN_CCB_REOPENED').exists())
+
+    def test_reopen_ccb_requires_decisions(self):
+        """Se non ci sono decisioni, il service deve rifiutare."""
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        with self.assertRaises(ValidationError):
+            self.reopen_ccb_configuration(self.ecn, actor=self.manager)
+
+    def test_reopen_ccb_stranger_permission_denied(self):
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        approver = ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_user, order=1,
+        )
+        ChangeNoticeDecision.objects.create(
+            change_notice=self.ecn,
+            approver=approver,
+            user=self.ccb_user,
+            decision=ChangeNoticeDecision.Decision.APPROVE,
+        )
+        with self.assertRaises(PermissionDenied):
+            self.reopen_ccb_configuration(self.ecn, actor=self.stranger)
+
+
+class ECNEditViewTests(TestCase):
+    """Test per le view ecn_edit e ecn_reopen_ccb."""
+
+    def setUp(self):
+        self.manager  = _make_user('vtest_mgr')
+        self.proposer = _make_user('vtest_proposer')
+        self.stranger = _make_user('vtest_stranger')
+        self.ccb_user = _make_user('vtest_ccb')
+
+        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
+        self.manager.groups.add(grp_mgr)
+        self.ccb_user.groups.add(grp_ccb)
+
+        self.folder   = _make_folder(self.manager, code='FOLD-VT')
+        self.document = _make_document(self.manager, self.folder, code='DOC-VT-001')
+        self.version  = _make_version(self.document, self.manager)
+        self.document.current_version = self.version
+        self.document.save(update_fields=['current_version'])
+
+        self.ecn = _make_ecn(
+            self.document, self.version, self.proposer,
+            code='ECN-VT-001',
+        )
+
+    # --- ecn_edit view --------------------------------------------------------
+
+    def test_ecn_edit_requires_login(self):
+        r = self.client.get(f'/ecn/{self.ecn.pk}/edit/')
+        self.assertEqual(r.status_code, 302)
+        self.assertIn('/accounts/login/', r['Location'])
+
+    def test_ecn_edit_proposer_can_get(self):
+        self.client.force_login(self.proposer)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/edit/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'ECN-VT-001')
+
+    def test_ecn_edit_stranger_forbidden(self):
+        self.client.force_login(self.stranger)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/edit/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_ecn_edit_post_updates_ecn(self):
+        self.client.force_login(self.proposer)
+        r = self.client.post(f'/ecn/{self.ecn.pk}/edit/', {
+            'title': 'Titolo aggiornato',
+            'motivation': ChangeNotice.Motivation.IMPROVEMENT,
+            'motivation_detail': '',
+            'description': 'Nuova desc',
+            'commessa': '',
+        })
+        self.assertEqual(r.status_code, 302)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.title, 'Titolo aggiornato')
+
+    def test_ecn_edit_under_review_forbidden(self):
+        """La modifica dei dati base è vietata se l'ECN non è DRAFT."""
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        self.client.force_login(self.proposer)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/edit/')
+        self.assertEqual(r.status_code, 403)
+
+    # --- ecn_reopen_ccb view --------------------------------------------------
+
+    def test_ecn_reopen_ccb_requires_login(self):
+        r = self.client.get(f'/ecn/{self.ecn.pk}/reopen-ccb/')
+        self.assertEqual(r.status_code, 302)
+        self.assertIn('/accounts/login/', r['Location'])
+
+    def test_ecn_reopen_ccb_stranger_forbidden(self):
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        self.client.force_login(self.stranger)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/reopen-ccb/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_ecn_reopen_ccb_post_resets_ecn(self):
+        """POST con decisioni esistenti riporta l'ECN a DRAFT."""
+        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+        self.ecn.save(update_fields=['status'])
+        approver = ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_user, order=1,
+        )
+        ChangeNoticeDecision.objects.create(
+            change_notice=self.ecn,
+            approver=approver,
+            user=self.ccb_user,
+            decision=ChangeNoticeDecision.Decision.APPROVE,
+        )
+        self.client.force_login(self.manager)
+        r = self.client.post(f'/ecn/{self.ecn.pk}/reopen-ccb/', {'reason': 'Test reopen'})
+        self.assertEqual(r.status_code, 302)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.DRAFT)
+        self.assertFalse(self.ecn.decisions.exists())

@@ -83,12 +83,45 @@
   </div>
 {% endif %}
 
+{# Avviso decisioni esistenti in under_review #}
+{% if ecn.status == 'under_review' and has_decisions and can_reopen %}
+<div class="card" style="background:#fff3cd;border-left:4px solid #ffc107;margin-bottom:1rem;padding:.75rem 1rem">
+  <strong style="color:#856404">Nota:</strong>
+  <span style="color:#856404">
+    Esistono già decisioni CCB espresse. Per modificare gli approvatori o la policy
+    è necessario riaprire la configurazione (le decisioni verranno annullate).
+  </span>
+</div>
+{% endif %}
+
+{# Messaggio read-only per stati terminali #}
+{% if ecn.status == 'approved' or ecn.status == 'rejected' or ecn.status == 'closed' %}
+<div class="card" style="background:#e2e3e5;border-left:4px solid #adb5bd;margin-bottom:1rem;padding:.75rem 1rem">
+  <strong style="color:#495057">Sola lettura:</strong>
+  <span style="color:#495057">
+    Questo ECN è nello stato <em>{{ ecn.get_status_display }}</em> e non è più modificabile.
+  </span>
+</div>
+{% endif %}
+
 {# Azioni principali #}
 <div style="margin-bottom:1.25rem;display:flex;gap:.5rem;flex-wrap:wrap">
+  {% if can_edit %}
+  <a href="{% url 'ecn:ecn_edit' ecn.pk %}" class="btn btn-secondary">Modifica richiesta</a>
+  {% endif %}
+
   {% if ecn.status == 'draft' and can_configure_ccb %}
   <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-secondary">
     {% if has_ccb_configured %}Modifica CCB{% else %}Configura CCB{% endif %}
   </a>
+  {% endif %}
+
+  {% if ecn.status == 'under_review' and can_reconfigure and not has_decisions %}
+  <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-secondary">Modifica CCB</a>
+  {% endif %}
+
+  {% if ecn.status == 'under_review' and can_reopen %}
+  <a href="{% url 'ecn:ecn_reopen_ccb' ecn.pk %}" class="btn btn-danger">Riapri configurazione CCB</a>
   {% endif %}
 
   {% if ecn.status == 'draft' and can_submit and has_ccb_configured %}

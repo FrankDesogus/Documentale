@@ -182,6 +182,65 @@ def can_close_ecn(user, change_notice):
     return _in_group(user, GROUP_MANAGERS)
 
 
+def can_edit_ecn(user, change_notice):
+    """
+    Può modificare i dati base (titolo, motivazione, descrizione, commessa, progetto):
+      - Solo se l'ECN è in stato DRAFT
+      - superuser/staff
+      - Document Managers globali
+      - Proponente o created_by dell'ECN
+    """
+    if not user.is_authenticated:
+        return False
+    from ecn.models import ChangeNotice
+    if change_notice.status != ChangeNotice.Status.DRAFT:
+        return False
+    if _is_superuser_or_staff(user):
+        return True
+    if _is_global_manager(user):
+        return True
+    if change_notice.proposed_by_id == user.pk or change_notice.created_by_id == user.pk:
+        return True
+    return False
+
+
+def can_reconfigure_ccb(user, change_notice):
+    """
+    Può modificare gli approvatori CCB e la policy:
+      - DRAFT → sempre (equivale a can_configure_ccb)
+      - UNDER_REVIEW senza decisioni → sì, modifica diretta
+      - UNDER_REVIEW con decisioni → no (serve can_reopen_ccb prima)
+      - Solo Manager / staff
+    """
+    if not user.is_authenticated:
+        return False
+    if not (_is_superuser_or_staff(user) or _is_global_manager(user)):
+        return False
+    from ecn.models import ChangeNotice
+    if change_notice.status == ChangeNotice.Status.DRAFT:
+        return True
+    if change_notice.status == ChangeNotice.Status.UNDER_REVIEW:
+        return not change_notice.decisions.exists()
+    return False
+
+
+def can_reopen_ccb(user, change_notice):
+    """
+    Può riaprire la configurazione CCB di un ECN under_review con decisioni già espresse.
+    L'operazione cancella le decisioni e riporta lo stato a DRAFT.
+      - Solo Manager / staff
+      - Solo se UNDER_REVIEW e ci sono almeno una decisione
+    """
+    if not user.is_authenticated:
+        return False
+    if not (_is_superuser_or_staff(user) or _is_global_manager(user)):
+        return False
+    from ecn.models import ChangeNotice
+    if change_notice.status != ChangeNotice.Status.UNDER_REVIEW:
+        return False
+    return change_notice.decisions.exists()
+
+
 def can_add_ecn_attachment(user, change_notice):
     """
     Può aggiungere allegati a un ECN:

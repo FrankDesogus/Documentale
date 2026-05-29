@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Riapri CCB {{ ecn.code }} — ECN — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
+</p>
+
+<h1>Riapri configurazione CCB — {{ ecn.code }}</h1>
+
+<div class="card" style="background:#f8d7da;border-left:4px solid #dc3545;margin-bottom:1rem;padding:.75rem 1rem">
+  <strong style="color:#721c24">Attenzione: operazione irreversibile</strong>
+  <p style="color:#721c24;margin:.4rem 0 0">
+    Questa operazione annullerà <strong>tutte le decisioni CCB già espresse</strong>
+    per questo ECN e riporterà lo stato a <em>Bozza</em>.
+    Le decisioni annullate vengono registrate nell'audit trail.
+    <br><br>
+    Dovrai riconfigurare gli approvatori e reinviare l'ECN alla CCB.
+  </p>
+</div>
+
+<div class="card">
+  <dl class="dl-grid" style="margin-bottom:1rem">
+    <dt>ECN</dt>       <dd>{{ ecn.code }} — {{ ecn.title }}</dd>
+    <dt>Documento</dt> <dd>{{ ecn.document.code }} — {{ ecn.document.title }}</dd>
+    <dt>Stato attuale</dt><dd><span class="badge badge-under_review">{{ ecn.get_status_display }}</span></dd>
+    <dt>Decisioni da annullare</dt>
+    <dd>
+      {% with dec_count=ecn.decisions.count %}
+        {{ dec_count }} decisione{% if dec_count != 1 %}i{% endif %}
+      {% endwith %}
+    </dd>
+  </dl>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div style="margin-bottom:.75rem">
+      <label for="id_reason">{{ form.reason.label }}</label>
+      <p class="meta" style="margin-bottom:.3rem">{{ form.reason.help_text }}</p>
+      {{ form.reason }}
+      {% if form.reason.errors %}
+        <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.reason.errors|join:", " }}</p>
+      {% endif %}
+    </div>
+
+    <div style="display:flex;gap:.5rem;margin-top:1rem">
+      <button type="submit" class="btn btn-danger"
+              onclick="return confirm('Confermi la riapertura? Tutte le decisioni CCB saranno annullate.')">
+        Riapri configurazione CCB
+      </button>
+      <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

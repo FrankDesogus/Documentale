@@ -90,22 +90,164 @@ def create_change_notice(
     return ecn
 
 
-def set_change_notice_approvers(change_notice, users, policy=None):
+def update_change_notice(change_notice, actor, title, motivation,
+                         description='', motivation_detail='', commessa='', project=None):
     """
-    Assegna (o rimpiazza) gli approvatori CCB di un ECN in stato DRAFT.
+    Aggiorna i dati base di un ECN in stato DRAFT.
 
-    - users: lista/queryset di User ordinati (il primo ha order=1, ecc.).
-    - policy: se non None, aggiorna anche change_notice.ccb_policy.
+    Modificabili: title, motivation, motivation_detail, description, commessa, project.
+    Lo stato deve essere DRAFT (il service non verifica il permesso: lo fa la view).
 
     Raises:
       ValidationError: se l'ECN non è in stato DRAFT.
+    """
+    from ecn.models import ChangeNotice
+
+    if change_notice.status != ChangeNotice.Status.DRAFT:
+        raise ValidationError(
+            "I dati base possono essere modificati solo su ECN in bozza."
+        )
+
+    old_values = {
+        'title': change_notice.title,
+        'motivation': change_notice.motivation,
+        'description': change_notice.description,
+        'motivation_detail': change_notice.motivation_detail,
+        'commessa': change_notice.commessa,
+        'project_id': change_notice.project_id,
+    }
+
+    change_notice.title = title
+    change_notice.motivation = motivation
+    change_notice.description = description
+    change_notice.motivation_detail = motivation_detail
+    change_notice.commessa = commessa
+    change_notice.project = project
+    change_notice.save(update_fields=[
+        'title', 'motivation', 'description', 'motivation_detail', 'commessa', 'project',
+    ])
+
+    new_values = {
+        'title': change_notice.title,
+        'motivation': change_notice.motivation,
+        'description': change_notice.description,
+        'motivation_detail': change_notice.motivation_detail,
+        'commessa': change_notice.commessa,
+        'project_id': change_notice.project_id,
+    }
+
+    try:
+        from auditlog.services import create_audit_log
+        create_audit_log(
+            user=actor,
+            action='ECN_UPDATED',
+            instance=change_notice,
+            old_values=old_values,
+            new_values=new_values,
+            document=change_notice.document,
+            document_version=change_notice.document_version,
+            metadata={'ecn_id': change_notice.pk, 'code': change_notice.code},
+        )
+    except Exception:
+        pass
+
+    return change_notice
+
+
+def reopen_ccb_configuration(change_notice, actor, reason=''):
+    """
+    Riapre la configurazione CCB di un ECN under_review con decisioni già espresse.
+
+    Operazioni:
+      1. Cancella tutte le ChangeNoticeDecision dell'ECN.
+      2. Riporta lo stato a DRAFT e azzera submitted_at.
+      3. Scrive audit ECN_CCB_REOPENED.
+
+    Dopo questa operazione l'ECN è tornato in bozza: il Manager può modificare
+    gli approvatori e la policy, quindi reinviare.
+
+    Raises:
+      PermissionDenied: se l'utente non ha can_reopen_ccb.
+      ValidationError: se lo stato non è UNDER_REVIEW o non ci sono decisioni.
+    """
+    from ecn.models import ChangeNotice, ChangeNoticeDecision
+    from ecn.permissions import can_reopen_ccb
+
+    # Verifica stato e condizioni prima del permesso, per dare errori più chiari
+    if change_notice.status != ChangeNotice.Status.UNDER_REVIEW:
+        raise ValidationError(
+            "La riapertura CCB è possibile solo su ECN in revisione."
+        )
+
+    if not change_notice.decisions.exists():
+        raise ValidationError(
+            "Nessuna decisione da annullare. Usa 'Modifica CCB' direttamente."
+        )
+
+    if not can_reopen_ccb(actor, change_notice):
+        raise PermissionDenied("Non hai il permesso di riaprire la configurazione CCB.")
+
+    old_status = change_notice.status
+
+    with transaction.atomic():
+        deleted_count = ChangeNoticeDecision.objects.filter(change_notice=change_notice).delete()[0]
+
+        change_notice.status = ChangeNotice.Status.DRAFT
+        change_notice.submitted_at = None
+        change_notice.save(update_fields=['status', 'submitted_at'])
+
+    try:
+        from auditlog.services import create_audit_log
+        meta = {
+            'ecn_id': change_notice.pk,
+            'code': change_notice.code,
+            'old_status': old_status,
+            'new_status': change_notice.status,
+            'decisions_deleted': deleted_count,
+        }
+        if reason:
+            meta['reason'] = reason
+        create_audit_log(
+            user=actor,
+            action='ECN_CCB_REOPENED',
+            instance=change_notice,
+            old_values={'status': old_status},
+            new_values={'status': change_notice.status},
+            document=change_notice.document,
+            document_version=change_notice.document_version,
+            metadata=meta,
+        )
+    except Exception:
+        pass
+
+    return change_notice
+
+
+def set_change_notice_approvers(change_notice, users, policy=None, actor=None):
+    """
+    Assegna (o rimpiazza) gli approvatori CCB di un ECN in stato DRAFT
+    oppure UNDER_REVIEW senza decisioni ancora espresse.
+
+    - users: lista/queryset di User ordinati (il primo ha order=1, ecc.).
+    - policy: se non None, aggiorna anche change_notice.ccb_policy.
+    - actor: se fornito e lo stato è UNDER_REVIEW, scrive un audit ECN_CCB_UPDATED.
+
+    Raises:
+      ValidationError: se lo stato non è DRAFT o UNDER_REVIEW-senza-decisioni.
       ValidationError: se users è vuoto.
     """
     from ecn.models import ChangeNotice, ChangeNoticeApprover
 
-    if change_notice.status != ChangeNotice.Status.DRAFT:
+    allowed = (ChangeNotice.Status.DRAFT, ChangeNotice.Status.UNDER_REVIEW)
+    if change_notice.status not in allowed:
         raise ValidationError(
-            "Gli approvatori possono essere assegnati solo a ECN in bozza."
+            "Gli approvatori possono essere assegnati solo a ECN in bozza o in revisione."
+        )
+
+    if change_notice.status == ChangeNotice.Status.UNDER_REVIEW and change_notice.decisions.exists():
+        raise ValidationError(
+            "Impossibile modificare gli approvatori: esistono già decisioni espresse. "
+            "Usa 'Riapri configurazione CCB' per annullare le decisioni prima di modificare."
         )
 
     users = list(users)
@@ -113,6 +255,8 @@ def set_change_notice_approvers(change_notice, users, policy=None):
         raise ValidationError(
             "È necessario assegnare almeno un approvatore CCB prima di procedere."
         )
+
+    was_under_review = change_notice.status == ChangeNotice.Status.UNDER_REVIEW
 
     with transaction.atomic():
         ChangeNoticeApprover.objects.filter(change_notice=change_notice).delete()
@@ -125,6 +269,25 @@ def set_change_notice_approvers(change_notice, users, policy=None):
         if policy is not None:
             change_notice.ccb_policy = policy
             change_notice.save(update_fields=['ccb_policy'])
+
+    if was_under_review and actor is not None:
+        try:
+            from auditlog.services import create_audit_log
+            create_audit_log(
+                user=actor,
+                action='ECN_CCB_UPDATED',
+                instance=change_notice,
+                old_values=None,
+                new_values={
+                    'ccb_policy': change_notice.ccb_policy,
+                    'approver_count': len(users),
+                },
+                document=change_notice.document,
+                document_version=change_notice.document_version,
+                metadata={'ecn_id': change_notice.pk, 'code': change_notice.code},
+            )
+        except Exception:
+            pass
 
 
 def submit_change_notice(change_notice, user):
