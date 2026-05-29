@@ -1,12 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Nuovo progetto — Documentale{% endblock %}
+{% block title %}Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'project_list' %}">← Progetti</a></p>
-<h1>Nuovo progetto</h1>
+
+{# Breadcrumb #}
+<p class="meta">
+  {% if prefill_folder %}
+  <a href="{% url 'folder_list' %}">Cartelle</a>
+  &nbsp;/&nbsp;<a href="{% url 'folder_detail' prefill_folder.pk %}">{{ prefill_folder.name }}</a>
+  &nbsp;/&nbsp;<strong>Nuovo progetto</strong>
+  {% else %}
+  <a href="{% url 'project_list' %}">← Progetti</a>
+  {% endif %}
+</p>
+
+<h1>Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %}</h1>
+
+{% if prefill_folder %}
+<div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
+  <strong style="color:#004085">Cartella documentale:</strong>
+  <span style="color:#004085">
+    Stai creando un progetto associato alla cartella
+    <a href="{% url 'folder_detail' prefill_folder.pk %}" style="color:#004085;font-weight:600">{{ prefill_folder.code }} — {{ prefill_folder.name }}</a>.
+    Il campo "Cartella" è già precompilato.
+  </span>
+</div>
+{% endif %}
 
 <form method="post">
   {% csrf_token %}
+  {% if prefill_folder %}
+  <input type="hidden" name="_folder_prefill" value="{{ prefill_folder.pk }}">
+  {% endif %}
+
   <div class="card">
 
     {% for field in form %}
@@ -28,6 +54,10 @@
   </div>
 
   <button type="submit" class="btn btn-primary">Crea progetto</button>
+  {% if prefill_folder %}
+  <a href="{% url 'folder_detail' prefill_folder.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  {% else %}
   <a href="{% url 'project_list' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  {% endif %}
 </form>
 {% endblock %}

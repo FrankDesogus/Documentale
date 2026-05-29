@@ -1240,3 +1240,113 @@ class AuditUIProjectDetailTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['show_audit'])
         self.assertContains(response, 'Storico eventi progetto')
+
+
+# ---------------------------------------------------------------------------
+# Test: crea sottocartella con ?parent precompilato (Parte B)
+# ---------------------------------------------------------------------------
+
+class FolderCreateWithParentTests(TestCase):
+    """
+    Verifica che folder_create accetti ?parent=<id> e precompili la cartella padre.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user('fc_staff', password='pw', is_staff=True)
+        self.owner = User.objects.create_user('fc_owner', password='pw')
+        self.parent = make_folder(code='FC-ROOT', name='Cartella Radice', owner=self.owner)
+
+    def test_folder_detail_link_includes_parent_param(self):
+        """Il link '+ Sottocartella' in folder_detail punta a folder_create?parent=<pk>."""
+        self.client.login(username='fc_staff', password='pw')
+        response = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        self.assertContains(response, f'?parent={self.parent.pk}')
+
+    def test_folder_create_get_with_parent_precompiles_form(self):
+        """GET folder_create?parent=<pk> passa parent_folder al contesto."""
+        self.client.login(username='fc_staff', password='pw')
+        response = self.client.get(
+            reverse('folder_create') + f'?parent={self.parent.pk}'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['parent_folder'], self.parent)
+        self.assertContains(response, 'FC-ROOT')
+
+    def test_folder_create_get_with_parent_shows_banner(self):
+        """Il form mostra il banner 'Nuova sottocartella dentro: <nome>'."""
+        self.client.login(username='fc_staff', password='pw')
+        response = self.client.get(
+            reverse('folder_create') + f'?parent={self.parent.pk}'
+        )
+        self.assertContains(response, 'Cartella padre')
+        self.assertContains(response, 'Cartella Radice')
+
+    def test_folder_create_post_creates_subfolder_with_parent(self):
+        """POST crea una sottocartella con parent correttamente impostato."""
+        self.client.login(username='fc_staff', password='pw')
+        response = self.client.post(
+            reverse('folder_create') + f'?parent={self.parent.pk}',
+            {
+                'code': 'FC-SUB-01',
+                'name': 'Sottocartella Test',
+                'folder_kind': 'generic',
+                'parent': self.parent.pk,
+                'status': 'active',
+                '_parent_prefill': self.parent.pk,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        sub = ProjectFolder.objects.filter(code='FC-SUB-01').first()
+        self.assertIsNotNone(sub)
+        self.assertEqual(sub.parent_id, self.parent.pk)
+        # Dopo la creazione, redirect al padre
+        self.assertRedirects(response, reverse('folder_detail', args=[self.parent.pk]))
+
+    def test_folder_detail_shows_subfolder_after_creation(self):
+        """Dopo aver creato una sottocartella, appare nel folder_detail della padre."""
+        sub = make_folder(code='FC-SHOW', name='Visibile', owner=self.owner, parent=self.parent)
+        self.client.login(username='fc_staff', password='pw')
+        response = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        self.assertContains(response, 'FC-SHOW')
+        self.assertContains(response, 'Visibile')
+
+
+# ---------------------------------------------------------------------------
+# Test: crea progetto da cartella con ?folder precompilato (Parte C)
+# ---------------------------------------------------------------------------
+
+class ProjectCreateWithFolderTests(TestCase):
+    """
+    Verifica che project_create accetti ?folder=<id> e precompili la cartella documentale.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user('pc_staff', password='pw', is_staff=True)
+        self.owner = User.objects.create_user('pc_owner', password='pw')
+        self.folder = make_folder(code='PC-FOLD', name='Cartella Progetto', owner=self.owner)
+
+    def test_folder_detail_create_project_link_includes_folder_param(self):
+        """Il link '+ Crea progetto' in folder_detail punta a project_create?folder=<pk>."""
+        self.client.login(username='pc_staff', password='pw')
+        response = self.client.get(reverse('folder_detail', args=[self.folder.pk]))
+        # Il bottone appare solo se can_create_project e non ci sono già progetti
+        self.assertContains(response, f'?folder={self.folder.pk}')
+
+    def test_project_create_get_with_folder_precompiles_form(self):
+        """GET project_create?folder=<pk> passa prefill_folder al contesto."""
+        self.client.login(username='pc_staff', password='pw')
+        response = self.client.get(
+            reverse('project_create') + f'?folder={self.folder.pk}'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['prefill_folder'], self.folder)
+        self.assertContains(response, 'PC-FOLD')
+
+    def test_project_create_get_with_folder_shows_banner(self):
+        """Il form mostra il banner con la cartella pre-selezionata."""
+        self.client.login(username='pc_staff', password='pw')
+        response = self.client.get(
+            reverse('project_create') + f'?folder={self.folder.pk}'
+        )
+        self.assertContains(response, 'Cartella documentale')
+        self.assertContains(response, 'Cartella Progetto')

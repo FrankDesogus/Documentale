@@ -7,12 +7,15 @@
   <a href="{% url 'ecn:ecn_list' %}" class="btn btn-secondary">Lista completa</a>
 </div>
 
-{# ---- 1: Da analizzare (DRAFT senza CCB) ---- #}
+{# ---- 1: Da valutare da Qualità (DRAFT senza CCB) ---- #}
 <h2 style="margin-bottom:.4rem">
-  Da analizzare
+  Da valutare da Qualità
   {% if draft_no_ccb %}<span class="badge badge-draft" style="margin-left:.4rem">{{ draft_no_ccb|length }}</span>{% endif %}
 </h2>
-<p class="meta" style="margin-bottom:.75rem">ECN in bozza senza CCB configurata — richiedono assegnazione degli approvatori.</p>
+<p class="meta" style="margin-bottom:.75rem">
+  ECN proposti, in attesa di valutazione preliminare da parte del Responsabile Qualità.<br>
+  <em>Flusso: Analizza la richiesta → verifica descrizione e allegati → configura CCB → invia.</em>
+</p>
 {% if draft_no_ccb %}
 <table>
   <thead>
@@ -28,15 +31,16 @@
       <td><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a></td>
       <td class="meta">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
       <td class="meta" style="white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
-      <td>
-        <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-primary" style="padding:.2rem .6rem;font-size:.85rem">Configura CCB</a>
+      <td style="white-space:nowrap">
+        <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-primary" style="padding:.2rem .6rem;font-size:.85rem">Analizza ECN</a>
+        <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-secondary" style="padding:.2rem .6rem;font-size:.8rem;margin-left:.25rem" title="Salta alla configurazione CCB">Configura CCB</a>
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 {% else %}
-<div class="card"><p class="meta">Nessun ECN in attesa di analisi.</p></div>
+<div class="card"><p class="meta">Nessun ECN in attesa di valutazione Qualità.</p></div>
 {% endif %}
 
 {# ---- 2: Pronte da inviare (DRAFT con CCB) ---- #}

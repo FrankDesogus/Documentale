@@ -13,16 +13,33 @@
 {# Prossima azione #}
 {% if ecn.status == 'draft' %}
   {% if not has_ccb_configured %}
+  {# --- Box valutazione preliminare Qualità --- #}
+  {% if can_configure_ccb %}
+  <div class="card" style="background:#fff8e1;border-left:4px solid #ffc107;margin-bottom:1rem;padding:.85rem 1.1rem">
+    <div style="font-weight:600;color:#856404;margin-bottom:.35rem">📋 Valutazione preliminare Qualità</div>
+    <p style="color:#856404;margin:0 0 .4rem;font-size:.95rem">
+      La richiesta è stata inviata da
+      <strong>{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</strong>.
+      Prima di configurare la CCB, verifica:
+    </p>
+    <ul style="color:#856404;margin:.2rem 0 .5rem 1.2rem;font-size:.9rem;line-height:1.6">
+      <li>Descrizione della modifica e motivazione</li>
+      <li>Allegati tecnici presenti (vedi sezione Allegati)</li>
+      <li>Impatti stimati su documenti correlati</li>
+      <li>Eventuale commessa o progetto associato</li>
+    </ul>
+    <p style="color:#856404;margin:0;font-size:.9rem">
+      Quando sei pronto, configura gli approvatori CCB e la policy, poi invia.
+    </p>
+  </div>
+  {% else %}
   <div class="card" style="background:#fff3cd;border-left:4px solid #ffc107;margin-bottom:1rem;padding:.75rem 1rem">
-    <strong style="color:#856404">Prossima azione:</strong>
+    <strong style="color:#856404">In attesa di valutazione Qualità:</strong>
     <span style="color:#856404">
-      {% if can_configure_ccb %}
-        Configura gli approvatori CCB e la politica di approvazione, poi invia l'ECN.
-      {% else %}
-        In attesa che il Responsabile Qualità configuri la CCB prima dell'invio.
-      {% endif %}
+      La richiesta è stata ricevuta. Il Responsabile Qualità la analizzerà e configurerà la CCB prima dell'invio.
     </span>
   </div>
+  {% endif %}
   {% else %}
   <div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
     <strong style="color:#004085">Prossima azione:</strong>

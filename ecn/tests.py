@@ -2309,3 +2309,81 @@ class ECNEditViewTests(TestCase):
         self.ecn.refresh_from_db()
         self.assertEqual(self.ecn.status, ChangeNotice.Status.DRAFT)
         self.assertFalse(self.ecn.decisions.exists())
+
+
+# ---------------------------------------------------------------------------
+# Test UI/UX: Cruscotto ECN e dettaglio — Parte A (valutazione Qualità)
+# ---------------------------------------------------------------------------
+
+class ECNDashboardQualityUXTests(TestCase):
+    """
+    Verifica i miglioramenti UI per la valutazione preliminare Qualità:
+    - Sezione cruscotto rinominata "Da valutare da Qualità"
+    - Azione primaria = "Analizza ECN" (link al dettaglio)
+    - Dettaglio ECN mostra box "Valutazione preliminare Qualità" per manager
+    - Proponente vede "In attesa di valutazione Qualità"
+    - Manager vede "Configura CCB" come azione successiva
+    """
+
+    def setUp(self):
+        self.manager  = _make_user('ux_manager')
+        self.proposer = _make_user('ux_proposer')
+        self.stranger = _make_user('ux_stranger')
+
+        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        self.manager.groups.add(grp_mgr)
+
+        self.folder   = _make_folder(self.manager, code='FOLD-UX')
+        self.document = _make_document(self.manager, self.folder, code='DOC-UX-001')
+        self.version  = _make_version(self.document, self.manager)
+        self.document.current_version = self.version
+        self.document.save(update_fields=['current_version'])
+
+        # ECN in bozza senza CCB
+        self.ecn = _make_ecn(
+            self.document, self.version, self.proposer,
+            code='ECN-UX-001',
+            title='Variante UX test',
+        )
+
+    # --- Cruscotto ECN (sezione 1) -------------------------------------------
+
+    def test_dashboard_sezione1_titolo_da_valutare(self):
+        """Sezione 1 del cruscotto mostra 'Da valutare da Qualità'."""
+        self.client.force_login(self.manager)
+        r = self.client.get('/ecn/dashboard/')
+        self.assertContains(r, 'Da valutare da Qualità')
+
+    def test_dashboard_sezione1_azione_analizza_ecn(self):
+        """L'azione primaria nella sezione 1 è 'Analizza ECN', non 'Configura CCB'."""
+        self.client.force_login(self.manager)
+        r = self.client.get('/ecn/dashboard/')
+        self.assertContains(r, 'Analizza ECN')
+        # Il link primario punta al dettaglio, non a configure-ccb
+        self.assertContains(r, f'/ecn/{self.ecn.pk}/"')
+
+    def test_dashboard_sezione1_ha_link_configura_ccb_secondario(self):
+        """'Configura CCB' è ancora presente come azione secondaria."""
+        self.client.force_login(self.manager)
+        r = self.client.get('/ecn/dashboard/')
+        self.assertContains(r, 'Configura CCB')
+
+    # --- Dettaglio ECN (box valutazione Qualità) --------------------------------
+
+    def test_detail_manager_vede_valutazione_preliminare(self):
+        """Il manager vede il box 'Valutazione preliminare Qualità' su ECN draft senza CCB."""
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertContains(r, 'Valutazione preliminare Qualità')
+
+    def test_detail_proposer_vede_in_attesa_valutazione(self):
+        """Il proponente vede 'In attesa di valutazione Qualità'."""
+        self.client.force_login(self.proposer)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertContains(r, 'In attesa di valutazione Qualità')
+
+    def test_detail_manager_ha_bottone_configura_ccb(self):
+        """Il manager ha ancora il bottone 'Configura CCB' nel dettaglio."""
+        self.client.force_login(self.manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertContains(r, 'Configura CCB')

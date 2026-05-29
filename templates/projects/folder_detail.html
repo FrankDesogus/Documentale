@@ -14,10 +14,10 @@
   </p>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap">
     {% if can_create %}
-    <a href="{% url 'folder_create' %}" class="btn btn-secondary" style="font-size:.85rem;padding:.3rem .75rem">+ Sottocartella</a>
+    <a href="{% url 'folder_create' %}?parent={{ folder.pk }}" class="btn btn-secondary" style="font-size:.85rem;padding:.3rem .75rem">+ Sottocartella</a>
     {% endif %}
     {% if can_create_project and not folder_projects %}
-    <a href="{% url 'project_create' %}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Crea progetto</a>
+    <a href="{% url 'project_create' %}?folder={{ folder.pk }}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Crea progetto</a>
     {% endif %}
   </div>
 </div>

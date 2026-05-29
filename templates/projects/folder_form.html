@@ -1,12 +1,43 @@
 {% extends "base.html" %}
-{% block title %}Nuova cartella — Documentale{% endblock %}
+{% block title %}{% if parent_folder %}Nuova sottocartella — {{ parent_folder.name }}{% else %}Nuova cartella{% endif %} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'folder_list' %}">← Cartelle</a></p>
-<h1>Nuova cartella</h1>
+
+{# Breadcrumb #}
+<p class="meta">
+  <a href="{% url 'folder_list' %}">Cartelle</a>
+  {% if parent_folder %}
+  &nbsp;/&nbsp;<a href="{% url 'folder_detail' parent_folder.pk %}">{{ parent_folder.name }}</a>
+  &nbsp;/&nbsp;<strong>Nuova sottocartella</strong>
+  {% else %}
+  &nbsp;/&nbsp;<strong>Nuova cartella</strong>
+  {% endif %}
+</p>
+
+<h1>
+  {% if parent_folder %}
+    Nuova sottocartella
+  {% else %}
+    Nuova cartella
+  {% endif %}
+</h1>
+
+{% if parent_folder %}
+<div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
+  <strong style="color:#004085">Cartella padre:</strong>
+  <span style="color:#004085">
+    Stai creando una sottocartella dentro
+    <a href="{% url 'folder_detail' parent_folder.pk %}" style="color:#004085;font-weight:600">{{ parent_folder.code }} — {{ parent_folder.name }}</a>.
+  </span>
+</div>
+{% endif %}
 
 <form method="post">
   {% csrf_token %}
+  {% if parent_folder %}
+  <input type="hidden" name="_parent_prefill" value="{{ parent_folder.pk }}">
+  {% endif %}
+
   <div class="card">
 
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;margin-bottom:1.25rem">
@@ -40,7 +71,10 @@
         {% endfor %}
       </div>
       <div>
-        <label for="{{ form.parent.id_for_label }}">{{ form.parent.label }}</label>
+        <label for="{{ form.parent.id_for_label }}">
+          {{ form.parent.label }}
+          {% if parent_folder %}<span class="meta" style="font-weight:400"> (precompilato)</span>{% endif %}
+        </label>
         {{ form.parent }}
         {% for error in form.parent.errors %}
         <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
@@ -58,6 +92,10 @@
   </div>
 
   <button type="submit" class="btn btn-primary">Crea cartella</button>
+  {% if parent_folder %}
+  <a href="{% url 'folder_detail' parent_folder.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  {% else %}
   <a href="{% url 'folder_list' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  {% endif %}
 </form>
 {% endblock %}

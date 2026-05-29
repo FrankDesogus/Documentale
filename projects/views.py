@@ -69,6 +69,15 @@ def folder_create(request):
     if not _can_create_folder(request.user):
         raise PermissionDenied
 
+    # Supporto ?parent=<folder_id> per precompilare la cartella padre
+    parent_folder = None
+    parent_id = request.GET.get('parent') or request.POST.get('_parent_prefill')
+    if parent_id:
+        try:
+            parent_folder = ProjectFolder.objects.get(pk=int(parent_id))
+        except (ProjectFolder.DoesNotExist, ValueError, TypeError):
+            parent_folder = None
+
     if request.method == 'POST':
         form = ProjectFolderForm(request.POST)
         if form.is_valid():
@@ -77,11 +86,20 @@ def folder_create(request):
             folder.created_by = request.user
             folder.save()
             messages.success(request, f'Cartella "{folder.name}" creata.')
+            # Torna alla cartella padre se disponibile, altrimenti alla cartella creata
+            if folder.parent_id:
+                return redirect('folder_detail', folder_id=folder.parent_id)
             return redirect('folder_detail', folder_id=folder.pk)
     else:
-        form = ProjectFolderForm()
+        initial = {}
+        if parent_folder:
+            initial['parent'] = parent_folder.pk
+        form = ProjectFolderForm(initial=initial)
 
-    return render(request, 'projects/folder_form.html', {'form': form})
+    return render(request, 'projects/folder_form.html', {
+        'form': form,
+        'parent_folder': parent_folder,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +214,15 @@ def project_create(request):
     if not _can_manage_project(request.user):
         raise PermissionDenied
 
+    # Supporto ?folder=<folder_id> per precompilare la cartella documentale
+    prefill_folder = None
+    folder_id = request.GET.get('folder') or request.POST.get('_folder_prefill')
+    if folder_id:
+        try:
+            prefill_folder = ProjectFolder.objects.get(pk=int(folder_id))
+        except (ProjectFolder.DoesNotExist, ValueError, TypeError):
+            prefill_folder = None
+
     if request.method == 'POST':
         form = ProjectForm(request.POST)
         if form.is_valid():
@@ -205,9 +232,15 @@ def project_create(request):
             messages.success(request, f'Progetto "{project.name}" creato.')
             return redirect('project_detail', project_id=project.pk)
     else:
-        form = ProjectForm()
+        initial = {}
+        if prefill_folder:
+            initial['folder'] = prefill_folder.pk
+        form = ProjectForm(initial=initial)
 
-    return render(request, 'projects/project_form.html', {'form': form})
+    return render(request, 'projects/project_form.html', {
+        'form': form,
+        'prefill_folder': prefill_folder,
+    })
 
 
 # ---------------------------------------------------------------------------
