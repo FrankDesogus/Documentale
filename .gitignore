@@ -1,9 +1,48 @@
-﻿.venv/
-__pycache__/
-*.pyc
-db.sqlite3
-media/
-.env
-.idea/
+# ── Ambiente virtuale Python ──────────────────────────────────────────────────
+.venv/
+venv/
+env/
 
+# ── Bytecode Python ───────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── Django ────────────────────────────────────────────────────────────────────
+db.sqlite3
+*.sqlite3
+media/
+staticfiles/
+local_settings.py
+
+# ── File di log ───────────────────────────────────────────────────────────────
+*.log
+
+# ── Variabili d'ambiente / segreti ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Test e coverage ───────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ── Build / distribuzione Python ──────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
 .claude/

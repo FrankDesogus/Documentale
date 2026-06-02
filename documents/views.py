@@ -66,6 +66,109 @@ def dashboard(request):
 
 
 @login_required
+def workspace_my_work(request):
+    """Workspace personale: bozze, approvazioni pendenti, decisioni CCB, ECN aperti."""
+    from approvals.models import ApprovalRequest
+    from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeDecision
+
+    user = request.user
+
+    # Bozze e rifiutate create dall'utente
+    my_drafts_qs = DocumentVersion.objects.filter(
+        created_by=user,
+        status__in=[DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED],
+    ).select_related('document').order_by('-created_at')
+
+    # Approvazioni pendenti
+    pending_approvals_qs = ApprovalRequest.objects.filter(
+        status=ApprovalRequest.Status.PENDING,
+        approvers__approver=user,
+    ).select_related('document_version__document').distinct().order_by('-requested_at')
+
+    # Decisioni CCB pendenti
+    decided_ids = set(
+        ChangeNoticeDecision.objects.filter(user=user).values_list('approver_id', flat=True)
+    )
+    pending_ccb_qs = (
+        ChangeNoticeApprover.objects
+        .filter(user=user, change_notice__status=ChangeNotice.Status.UNDER_REVIEW)
+        .exclude(pk__in=decided_ids)
+        .select_related('change_notice')
+        .order_by('change_notice__code')
+    )
+
+    # ECN aperti proposti dall'utente
+    my_ecn_qs = ChangeNotice.objects.filter(
+        Q(proposed_by=user) | Q(created_by=user),
+        status__in=[
+            ChangeNotice.Status.DRAFT,
+            ChangeNotice.Status.UNDER_REVIEW,
+            ChangeNotice.Status.APPROVED,
+        ],
+    ).distinct().order_by('-proposed_at')
+
+    return render(request, 'workspace/my_work.html', {
+        'my_drafts': my_drafts_qs,
+        'pending_approvals': pending_approvals_qs,
+        'pending_ccb': pending_ccb_qs,
+        'my_ecn': my_ecn_qs,
+    })
+
+
+@login_required
+def workspace_quality(request):
+    """Workspace Qualità: visibile solo a manager, auditor e staff."""
+    from approvals.models import ApprovalRequest
+    from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeDecision
+
+    user = request.user
+    if not (user.is_superuser or user.is_staff
+            or is_document_manager(user) or is_document_auditor(user)):
+        raise PermissionDenied
+
+    # ECN DRAFT senza CCB configurata
+    draft_ids = ChangeNotice.objects.filter(
+        status=ChangeNotice.Status.DRAFT
+    ).values_list('pk', flat=True)
+    configured_ids = ChangeNoticeApprover.objects.filter(
+        change_notice_id__in=draft_ids
+    ).values_list('change_notice_id', flat=True).distinct()
+    ecn_to_review_qs = ChangeNotice.objects.filter(
+        status=ChangeNotice.Status.DRAFT,
+    ).exclude(pk__in=configured_ids).order_by('proposed_at')
+
+    # ECN UNDER_REVIEW: decisioni CCB assegnate all'utente e non ancora espresse
+    decided_ids = set(
+        ChangeNoticeDecision.objects.filter(user=user).values_list('approver_id', flat=True)
+    )
+    pending_ccb_qs = (
+        ChangeNoticeApprover.objects
+        .filter(user=user, change_notice__status=ChangeNotice.Status.UNDER_REVIEW)
+        .exclude(pk__in=decided_ids)
+        .select_related('change_notice')
+        .order_by('change_notice__code')
+    )
+
+    # ECN APPROVED con revisione eseguita (da chiudere)
+    ecn_to_close_qs = ChangeNotice.objects.filter(
+        status=ChangeNotice.Status.APPROVED,
+        executed_version__isnull=False,
+    ).select_related('executed_version__document').order_by('code')
+
+    # Approvazioni documento pendenti (per tutto il sistema - vista manager)
+    all_pending_approvals_qs = ApprovalRequest.objects.filter(
+        status=ApprovalRequest.Status.PENDING,
+    ).select_related('document_version__document').order_by('-requested_at')
+
+    return render(request, 'workspace/quality.html', {
+        'ecn_to_review': ecn_to_review_qs,
+        'pending_ccb': pending_ccb_qs,
+        'ecn_to_close': ecn_to_close_qs,
+        'all_pending_approvals': all_pending_approvals_qs,
+    })
+
+
+@login_required
 def document_list(request):
     user = request.user
     qs = Document.objects.filter(

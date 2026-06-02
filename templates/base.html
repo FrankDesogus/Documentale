@@ -1,4 +1,4 @@
-{% load ecn_tags %}
+{% load ecn_tags %}{% load nav_tags %}
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -8,12 +8,31 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; margin: 0; background: #f5f7fa; color: #1a1a1a; }
-  nav { background: #1a3a5c; color: #fff; padding: 0 1.5rem; display: flex; align-items: center; gap: 1.5rem; height: 52px; }
-  nav strong { font-size: 1.05rem; }
-  nav a { color: #cde; text-decoration: none; font-size: 0.95rem; }
-  nav a:hover { color: #fff; text-decoration: underline; }
-  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
-  .container { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
+
+  /* ── Layout principale ── */
+  .app-layout { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar { width: 220px; min-width: 220px; background: #0f2840; color: #cde; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+  .sidebar-brand { padding: .9rem 1.2rem; font-size: 1rem; font-weight: 700; color: #fff; border-bottom: 1px solid rgba(255,255,255,.1); text-decoration: none; display: block; }
+  .sidebar-section { font-size: .68rem; text-transform: uppercase; letter-spacing: .09em; color: #5e8aad; padding: .85rem 1.2rem .2rem; }
+  .sidebar-link { display: flex; align-items: center; gap: .55rem; padding: .42rem 1.2rem; color: #a8c4d8; font-size: .855rem; text-decoration: none; }
+  .sidebar-link:hover { background: rgba(255,255,255,.09); color: #fff; }
+  .sidebar-link.active { background: rgba(255,255,255,.13); color: #fff; font-weight: 600; }
+  .sidebar-badge { margin-left: auto; background: #c0392b; color: #fff; border-radius: 9px; font-size: .68rem; font-weight: 700; padding: .1rem .42rem; min-width: 1.3em; text-align: center; }
+  .sidebar-badge.blue { background: #2471a3; }
+  .sidebar-badge.amber { background: #b7770d; }
+  .sidebar-spacer { flex: 1; }
+  .sidebar-footer { padding: .7rem 1.2rem; border-top: 1px solid rgba(255,255,255,.1); font-size: .8rem; color: #7aadcc; }
+
+  /* ── Area principale ── */
+  .main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar { background: #1a3a5c; color: #e0eaf4; padding: 0 1.5rem; height: 42px; display: flex; align-items: center; justify-content: flex-end; gap: 1rem; font-size: .88rem; }
+  .topbar a { color: #a8c4d8; text-decoration: none; }
+  .topbar a:hover { color: #fff; }
+  .content-area { flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; padding: 1.75rem 1.5rem 3rem; }
+
+  /* ── Componenti ── */
   h1 { font-size: 1.4rem; margin-bottom: 1.25rem; color: #1a3a5c; }
   h2 { font-size: 1.1rem; color: #1a3a5c; }
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 4px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
@@ -49,40 +68,127 @@
   .meta { color: #666; font-size: 0.88rem; }
   .dl-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1.2rem; font-size: 0.95rem; }
   .dl-grid dt { font-weight: 600; color: #555; }
+
+  /* ── Responsive ── */
+  @media (max-width: 820px) {
+    .app-layout { flex-direction: column; }
+    .sidebar { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; overflow-y: visible; }
+    .sidebar-brand { width: 100%; }
+    .sidebar-section { display: none; }
+    .sidebar-spacer, .sidebar-footer { display: none; }
+    .sidebar-link { padding: .4rem .8rem; font-size: .8rem; }
+    .content-area { padding: 1rem .9rem 2rem; }
+  }
 </style>
 </head>
 <body>
-<nav>
-  <strong><a href="/" style="color:#fff;text-decoration:none">Documentale</a></strong>
-  {% if user.is_authenticated %}
-    <a href="{% url 'document_list' %}">Documenti</a>
-    <a href="{% url 'folder_list' %}">Cartelle</a>
-    <a href="{% url 'project_list' %}">Progetti</a>
-    <a href="{% url 'ecn:ecn_list' %}">ECN</a>
-    <a href="{% url 'ecn:ecn_my' %}">Le mie ECN</a>
-    {% user_can_view_ecn_dashboard as can_ecn_dash %}
-    {% if can_ecn_dash %}<a href="{% url 'ecn:ecn_dashboard' %}">Cruscotto ECN</a>{% endif %}
-    <a href="{% url 'my_drafts' %}">Mie bozze</a>
-    <a href="{% url 'approval_queue' %}">Da approvare</a>
-    {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}
-    <span class="nav-right">
-      <span>{{ user.get_full_name|default:user.username }}</span>
-      <form method="post" action="{% url 'logout' %}" style="display:inline">
-        {% csrf_token %}
-        <button class="btn btn-secondary" style="padding:.25rem .7rem;font-size:.85rem">Esci</button>
-      </form>
-    </span>
-  {% endif %}
-</nav>
-<div class="container">
-  {% if messages %}
-  <ul class="messages">
-    {% for message in messages %}
-    <li class="{{ message.tags }}">{{ message }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% block content %}{% endblock %}
+<div class="app-layout">
+
+  <!-- ══ SIDEBAR ══ -->
+  <aside class="sidebar">
+    <a href="{% url 'dashboard' %}" class="sidebar-brand">📋 Documentale</a>
+
+    {% if user.is_authenticated %}
+      {% nav_pending_approvals user as sb_n_appr %}
+      {% nav_pending_ccb user as sb_n_ccb %}
+      {% nav_my_drafts user as sb_n_drafts %}
+      {% nav_my_ecn_open user as sb_n_ecn %}
+      {% nav_ecn_to_review user as sb_n_ecn_review %}
+      {% nav_ecn_to_close user as sb_n_ecn_close %}
+      {% user_can_quality_workspace user as sb_can_quality %}
+      {% user_can_create_doc user as sb_can_create_doc %}
+      {% user_can_create_folder user as sb_can_create_folder %}
+      {% user_can_create_project user as sb_can_create_proj %}
+
+      <div class="sidebar-section">Area personale</div>
+      <a href="{% url 'dashboard' %}" class="sidebar-link">🏠 Dashboard</a>
+      <a href="{% url 'workspace_my_work' %}" class="sidebar-link">
+        ✏️ Il mio lavoro
+        {% with sb_n_tot=sb_n_appr|add:sb_n_ccb|add:sb_n_drafts %}
+          {% if sb_n_tot %}<span class="sidebar-badge">{{ sb_n_tot }}</span>{% endif %}
+        {% endwith %}
+      </a>
+      <a href="{% url 'ecn:ecn_my' %}" class="sidebar-link">
+        🔄 Le mie ECN
+        {% if sb_n_ecn %}<span class="sidebar-badge blue">{{ sb_n_ecn }}</span>{% endif %}
+      </a>
+      <a href="{% url 'approval_queue' %}" class="sidebar-link">
+        ✅ Da approvare
+        {% if sb_n_appr %}<span class="sidebar-badge">{{ sb_n_appr }}</span>{% endif %}
+      </a>
+
+      <div class="sidebar-section">Documenti</div>
+      <a href="{% url 'document_list' %}" class="sidebar-link">📄 Tutti i documenti</a>
+      <a href="{% url 'my_drafts' %}" class="sidebar-link">
+        📝 Mie bozze
+        {% if sb_n_drafts %}<span class="sidebar-badge amber">{{ sb_n_drafts }}</span>{% endif %}
+      </a>
+      {% if sb_can_create_doc %}
+        <a href="{% url 'document_new' %}" class="sidebar-link">➕ Nuovo documento</a>
+      {% endif %}
+
+      <div class="sidebar-section">Cartelle &amp; Progetti</div>
+      <a href="{% url 'folder_list' %}" class="sidebar-link">📁 Cartelle</a>
+      <a href="{% url 'project_list' %}" class="sidebar-link">🗂️ Progetti</a>
+      {% if sb_can_create_folder %}
+        <a href="{% url 'folder_create' %}" class="sidebar-link">➕ Nuova cartella</a>
+      {% endif %}
+      {% if sb_can_create_proj %}
+        <a href="{% url 'project_create' %}" class="sidebar-link">➕ Nuovo progetto</a>
+      {% endif %}
+
+      <div class="sidebar-section">ECN / Varianti</div>
+      <a href="{% url 'ecn:ecn_list' %}" class="sidebar-link">📋 Lista ECN</a>
+      <a href="{% url 'ecn:ecn_create' %}" class="sidebar-link">➕ Nuova ECN</a>
+
+      {% if sb_can_quality %}
+        <div class="sidebar-section">Qualità</div>
+        <a href="{% url 'workspace_quality' %}" class="sidebar-link">
+          ⚙️ Workspace Qualità
+          {% with sb_n_q=sb_n_ecn_review|add:sb_n_ecn_close|add:sb_n_ccb %}
+            {% if sb_n_q %}<span class="sidebar-badge amber">{{ sb_n_q }}</span>{% endif %}
+          {% endwith %}
+        </a>
+        <a href="{% url 'ecn:ecn_dashboard' %}" class="sidebar-link">📊 Cruscotto ECN</a>
+      {% endif %}
+
+      {% if user.is_staff %}
+        <div class="sidebar-section">Admin</div>
+        <a href="/admin/" class="sidebar-link">🔧 Django Admin</a>
+      {% endif %}
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-footer">{{ user.get_full_name|default:user.username }}</div>
+
+    {% endif %}
+  </aside>
+
+  <!-- ══ AREA PRINCIPALE ══ -->
+  <div class="main-area">
+    <div class="topbar">
+      {% if user.is_authenticated %}
+        <span>{{ user.get_full_name|default:user.username }}</span>
+        <form method="post" action="{% url 'logout' %}" style="display:inline;margin:0">
+          {% csrf_token %}
+          <button class="btn btn-secondary" style="padding:.2rem .6rem;font-size:.82rem">Esci</button>
+        </form>
+      {% else %}
+        <a href="{% url 'login' %}">Accedi</a>
+      {% endif %}
+    </div>
+
+    <div class="content-area">
+      {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+        <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
 </div>
 </body>
 </html>

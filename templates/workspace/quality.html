@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Workspace Qualità — Documentale{% endblock %}
+{% block content %}
+<h1>⚙️ Workspace Qualità</h1>
+
+<!-- ── ECN da valutare (DRAFT senza CCB) ── -->
+<div class="card">
+  <h2>🔍 Da valutare da Qualità
+    {% if ecn_to_review %}<span class="badge badge-bozza" style="margin-left:.5rem">{{ ecn_to_review|length }}</span>{% endif %}
+  </h2>
+  <p class="meta" style="margin-bottom:.75rem">ECN in bozza senza CCB configurata — analizzare e configurare gli approvatori.</p>
+  {% if ecn_to_review %}
+  <table>
+    <thead>
+      <tr>
+        <th>Codice</th>
+        <th>Titolo</th>
+        <th>Proposta da</th>
+        <th>Data</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ecn in ecn_to_review %}
+      <tr>
+        <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a></td>
+        <td>{{ ecn.title }}</td>
+        <td class="meta">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
+        <td class="meta">{{ ecn.created_at|date:"d/m/Y" }}</td>
+        <td style="white-space:nowrap">
+          <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-primary" style="padding:.25rem .7rem;font-size:.82rem">Analizza ECN</a>
+          <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-secondary" style="padding:.25rem .7rem;font-size:.82rem;margin-left:.4rem">Configura CCB</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">✓ Nessuna ECN in attesa di valutazione.</p>
+  {% endif %}
+</div>
+
+<!-- ── Decisioni CCB pendenti (assegnate a me) ── -->
+<div class="card">
+  <h2>🏛️ Mie decisioni CCB pendenti
+    {% if pending_ccb %}<span class="badge badge-in_approvazione" style="margin-left:.5rem">{{ pending_ccb|length }}</span>{% endif %}
+  </h2>
+  {% if pending_ccb %}
+  <table>
+    <thead>
+      <tr>
+        <th>ECN</th>
+        <th>Titolo</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ca in pending_ccb %}
+      <tr>
+        <td><a href="{% url 'ecn:ecn_detail' ca.change_notice.pk %}">{{ ca.change_notice.code }}</a></td>
+        <td>{{ ca.change_notice.title }}</td>
+        <td>
+          <a href="{% url 'ecn:ecn_detail' ca.change_notice.pk %}" class="btn btn-primary" style="padding:.25rem .7rem;font-size:.82rem">Decidi</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">✓ Nessuna decisione CCB pendente assegnata.</p>
+  {% endif %}
+</div>
+
+<!-- ── ECN da chiudere ── -->
+<div class="card">
+  <h2>🔒 ECN da chiudere
+    {% if ecn_to_close %}<span class="badge badge-approved" style="margin-left:.5rem">{{ ecn_to_close|length }}</span>{% endif %}
+  </h2>
+  <p class="meta" style="margin-bottom:.75rem">ECN approvate con revisione documento già eseguita — pronte per la chiusura.</p>
+  {% if ecn_to_close %}
+  <table>
+    <thead>
+      <tr>
+        <th>Codice</th>
+        <th>Titolo</th>
+        <th>Revisione eseguita</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ecn in ecn_to_close %}
+      <tr>
+        <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a></td>
+        <td>{{ ecn.title }}</td>
+        <td class="meta">
+          {% if ecn.executed_version %}
+            {{ ecn.executed_version.document.code }} Rev.{{ ecn.executed_version.revision_number }}
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-success" style="padding:.25rem .7rem;font-size:.82rem">Chiudi ECN</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">✓ Nessuna ECN in attesa di chiusura.</p>
+  {% endif %}
+</div>
+
+<!-- ── Approvazioni documento pendenti (sistema) ── -->
+<div class="card">
+  <h2>📋 Approvazioni documento in attesa
+    {% if all_pending_approvals %}<span class="badge badge-in_approvazione" style="margin-left:.5rem">{{ all_pending_approvals|length }}</span>{% endif %}
+  </h2>
+  {% if all_pending_approvals %}
+  <table>
+    <thead>
+      <tr>
+        <th>Documento</th>
+        <th>Revisione</th>
+        <th>Richiesta del</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ar in all_pending_approvals %}
+      <tr>
+        <td>
+          <a href="{% url 'document_detail' ar.document_version.document.pk %}">
+            {{ ar.document_version.document.code }} — {{ ar.document_version.document.title }}
+          </a>
+        </td>
+        <td>Rev. {{ ar.document_version.revision_number }}</td>
+        <td class="meta">{{ ar.requested_at|date:"d/m/Y" }}</td>
+        <td>
+          <a href="{% url 'document_detail' ar.document_version.document.pk %}" class="btn btn-secondary" style="padding:.25rem .7rem;font-size:.82rem">Dettaglio</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">✓ Nessuna approvazione documento in attesa.</p>
+  {% endif %}
+</div>
+
+<!-- ── Link rapidi ── -->
+<div class="card">
+  <h2>🔗 Accesso rapido</h2>
+  <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.5rem">
+    <a href="{% url 'ecn:ecn_dashboard' %}" class="btn btn-primary">📊 Cruscotto ECN completo</a>
+    <a href="{% url 'ecn:ecn_list' %}" class="btn btn-secondary">📋 Lista ECN</a>
+    <a href="{% url 'document_list' %}" class="btn btn-secondary">📄 Documenti</a>
+    <a href="{% url 'approval_queue' %}" class="btn btn-secondary">✅ Coda approvazioni</a>
+  </div>
+</div>
+
+{% endblock %}

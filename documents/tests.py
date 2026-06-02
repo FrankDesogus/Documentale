@@ -1445,3 +1445,132 @@ class ECNGateViewTests(TestCase):
         # stranger non ha accesso al documento → 404
         r = self.client.get(reverse('document_detail', args=[self.document.pk]))
         self.assertEqual(r.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# Workspace views — test di accesso e contenuto
+# ---------------------------------------------------------------------------
+
+class WorkspaceMyWorkTests(TestCase):
+    """Test per /workspace/my-work/"""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.user = User.objects.create_user('worker', password='pw')
+        self.other = User.objects.create_user('other', password='pw')
+
+    def test_redirects_anonymous(self):
+        r = self.client.get(reverse('workspace_my_work'))
+        self.assertRedirects(r, '/accounts/login/?next=/workspace/my-work/', fetch_redirect_response=False)
+
+    def test_ok_for_authenticated(self):
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('workspace_my_work'))
+        self.assertEqual(r.status_code, 200)
+
+    def test_shows_my_drafts(self):
+        doc = Document.objects.create(
+            code='WS-001', title='WS doc', category=Document.Category.QUALITY,
+            owner=self.user, created_by=self.user,
+        )
+        v = create_new_revision(doc, self.user, 'A', 1)
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('workspace_my_work'))
+        self.assertContains(r, 'WS-001')
+
+    def test_does_not_show_other_drafts(self):
+        doc = Document.objects.create(
+            code='WS-002', title='Other doc', category=Document.Category.QUALITY,
+            owner=self.other, created_by=self.other,
+        )
+        create_new_revision(doc, self.other, 'A', 1)
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('workspace_my_work'))
+        self.assertNotContains(r, 'WS-002')
+
+
+class WorkspaceQualityTests(TestCase):
+    """Test per /workspace/quality/"""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.manager = User.objects.create_user('qmanager', password='pw')
+        self.reader = User.objects.create_user('qreader', password='pw')
+        mg = Group.objects.get_or_create(name='Document Managers')[0]
+        self.manager.groups.add(mg)
+
+    def test_redirects_anonymous(self):
+        r = self.client.get(reverse('workspace_quality'))
+        self.assertRedirects(r, '/accounts/login/?next=/workspace/quality/', fetch_redirect_response=False)
+
+    def test_forbidden_for_plain_user(self):
+        self.client.force_login(self.reader)
+        r = self.client.get(reverse('workspace_quality'))
+        self.assertEqual(r.status_code, 403)
+
+    def test_ok_for_manager(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('workspace_quality'))
+        self.assertEqual(r.status_code, 200)
+
+    def test_ok_for_staff(self):
+        staff = User.objects.create_user('staff_q', password='pw', is_staff=True)
+        self.client.force_login(staff)
+        r = self.client.get(reverse('workspace_quality'))
+        self.assertEqual(r.status_code, 200)
+
+    def test_shows_ecn_to_review_section(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('workspace_quality'))
+        self.assertContains(r, 'Da valutare da Qualità')
+
+
+class NavTagsTests(TestCase):
+    """Test per i templatetag in nav_tags.py"""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.anon_like = User.objects.create_user('navuser_anon', password='pw')
+        self.manager = User.objects.create_user('navuser_mgr', password='pw')
+        self.auditor = User.objects.create_user('navuser_aud', password='pw')
+        self.author = User.objects.create_user('navuser_auth', password='pw')
+        mg = Group.objects.get_or_create(name='Document Managers')[0]
+        ag = Group.objects.get_or_create(name='Document Auditors')[0]
+        auth_g = Group.objects.get_or_create(name='Document Authors')[0]
+        self.manager.groups.add(mg)
+        self.auditor.groups.add(ag)
+        self.author.groups.add(auth_g)
+
+    def test_user_is_manager_true(self):
+        from documents.templatetags.nav_tags import user_is_manager
+        self.assertTrue(user_is_manager(self.manager))
+
+    def test_user_is_manager_false_for_plain(self):
+        from documents.templatetags.nav_tags import user_is_manager
+        self.assertFalse(user_is_manager(self.anon_like))
+
+    def test_user_can_quality_workspace_manager(self):
+        from documents.templatetags.nav_tags import user_can_quality_workspace
+        self.assertTrue(user_can_quality_workspace(self.manager))
+
+    def test_user_can_quality_workspace_auditor(self):
+        from documents.templatetags.nav_tags import user_can_quality_workspace
+        self.assertTrue(user_can_quality_workspace(self.auditor))
+
+    def test_user_can_quality_workspace_false_for_plain(self):
+        from documents.templatetags.nav_tags import user_can_quality_workspace
+        self.assertFalse(user_can_quality_workspace(self.anon_like))
+
+    def test_nav_my_drafts_counts_correctly(self):
+        from documents.templatetags.nav_tags import nav_my_drafts
+        doc = Document.objects.create(
+            code='NT-001', title='NT', category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+        )
+        create_new_revision(doc, self.author, 'A', 1)
+        self.assertEqual(nav_my_drafts(self.author), 1)
+        self.assertEqual(nav_my_drafts(self.manager), 0)
+
+    def test_nav_pending_approvals_zero_when_no_pending(self):
+        from documents.templatetags.nav_tags import nav_pending_approvals
+        self.assertEqual(nav_pending_approvals(self.author), 0)
