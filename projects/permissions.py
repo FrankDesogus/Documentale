@@ -52,29 +52,50 @@ def has_folder_role(user, folder, roles):
 def can_view_folder(user, folder):
     if not user.is_authenticated:
         return False
+    if user.is_superuser:
+        return True
+    # I privilegiati globali (Document Manager / Auditor) vedono tutte le cartelle
     if _is_privileged(user):
         return True
-    return get_folder_role(user, folder) in READ_ROLES
+    # Resolver modulare con fallback legacy per gli utenti normali
+    from projects.resolver import has_folder_permission
+    return has_folder_permission(
+        user, folder, 'read_published',
+        include_legacy_fallback=True,
+    )
 
 
 def can_manage_folder(user, folder):
     if not user.is_authenticated:
         return False
+    if user.is_superuser:
+        return True
+    # I gestori globali (Document Manager) gestiscono tutte le cartelle
     if _is_global_manager(user):
         return True
-    return get_folder_role(user, folder) == ROLE_MANAGER
+    from projects.resolver import has_folder_permission
+    return has_folder_permission(
+        user, folder, 'manage_folder',
+        include_legacy_fallback=True,
+    )
 
 
 def can_create_document_in_folder(user, folder):
     """folder=None → nessuna cartella, usa solo i gruppi globali."""
     if not user.is_authenticated:
         return False
+    if user.is_superuser:
+        return True
     if _is_global_manager(user):
         return True
     if folder is None:
         from documents.permissions import is_document_author
         return is_document_author(user)
-    return get_folder_role(user, folder) in WRITE_ROLES
+    from projects.resolver import has_folder_permission
+    return has_folder_permission(
+        user, folder, 'create_draft',
+        include_legacy_fallback=True,
+    )
 
 
 def user_has_any_folder_write_access(user):

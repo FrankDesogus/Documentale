@@ -2466,3 +2466,198 @@ class CompareFolderPermissionsTests(TestCase):
         out, exit_code = self._call_compare()
         self.assertNotEqual(exit_code, 0)
         self.assertIn('Divergenze', out)
+
+
+# ===========================================================================
+# Step E — Integrazione resolver nelle funzioni base dei permessi cartella
+# ===========================================================================
+
+class StepEFolderPermissionsIntegrationTests(TestCase):
+    """
+    Verifica che can_view_folder, can_create_document_in_folder e
+    can_manage_folder usino il resolver modulare con fallback legacy.
+
+    - Grant modulare presente → decide il resolver
+    - Nessun grant modulare → fallback ProjectFolderMembership
+    - Deny modulare → blocca anche se la membership legacy permetterebbe
+    - Superuser → allow totale
+    - Staff non-superuser senza grant → deny
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group as DjangoGroup
+        from projects.services import set_folder_path
+
+        self.owner = User.objects.create_user('se_owner', password='pw')
+        self.user = User.objects.create_user('se_user', password='pw')
+        self.superuser = User.objects.create_user(
+            'se_super', password='pw', is_superuser=True,
+        )
+        self.staff = User.objects.create_user(
+            'se_staff', password='pw', is_staff=True,
+        )
+        self.group = DjangoGroup.objects.create(name='SE Test Group')
+
+        self.root = ProjectFolder.objects.create(
+            code='SE-ROOT', name='Root',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(self.root)
+
+        self.child = ProjectFolder.objects.create(
+            code='SE-CHILD', name='Child',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            parent=self.root,
+        )
+        set_folder_path(self.child)
+
+    def _membership(self, role, folder=None):
+        return ProjectFolderMembership.objects.create(
+            folder=folder or self.root,
+            user=self.user,
+            role=role,
+        )
+
+    def _grant_user(self, folder, perm, effect='allow', inherit=True, expires_at=None):
+        return FolderPermissionGrant.objects.create(
+            folder=folder, user=self.user,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit, expires_at=expires_at,
+        )
+
+    def _grant_group(self, folder, perm, effect='allow', inherit=True):
+        return FolderPermissionGrant.objects.create(
+            folder=folder, group=self.group,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit,
+        )
+
+    # ------------------------------------------------------------------
+    # can_view_folder — lettura
+    # ------------------------------------------------------------------
+
+    def test_reader_legacy_no_grant_can_view_via_fallback(self):
+        """reader legacy senza grant → legge tramite fallback membership."""
+        self._membership('reader')
+        from projects.permissions import can_view_folder
+        self.assertTrue(can_view_folder(self.user, self.root))
+
+    def test_no_membership_no_grant_cannot_view(self):
+        """nessuna membership e nessun grant → deny."""
+        from projects.permissions import can_view_folder
+        self.assertFalse(can_view_folder(self.user, self.root))
+
+    def test_user_allow_grant_can_view(self):
+        """grant modulare allow → legge senza membership."""
+        self._grant_user(self.root, 'read_published', effect='allow')
+        from projects.permissions import can_view_folder
+        self.assertTrue(can_view_folder(self.user, self.root))
+
+    def test_user_deny_grant_blocks_legacy_membership(self):
+        """deny modulare → blocca anche se membership legacy permette."""
+        self._membership('reader')
+        self._grant_user(self.root, 'read_published', effect='deny')
+        from projects.permissions import can_view_folder
+        self.assertFalse(can_view_folder(self.user, self.root))
+
+    def test_group_allow_grant_can_view(self):
+        """grant di gruppo allow → legge."""
+        self.user.groups.add(self.group)
+        self._grant_group(self.root, 'read_published', effect='allow')
+        from projects.permissions import can_view_folder
+        self.assertTrue(can_view_folder(self.user, self.root))
+
+    def test_parent_allow_inherited_enables_child_view(self):
+        """grant allow ereditato dal parent → legge la sottocartella."""
+        self._grant_user(self.root, 'read_published', effect='allow', inherit=True)
+        from projects.permissions import can_view_folder
+        self.assertTrue(can_view_folder(self.user, self.child))
+
+    def test_child_deny_blocks_parent_inherited_allow(self):
+        """deny sul child → blocca allow ereditato dal parent."""
+        self._grant_user(self.root, 'read_published', effect='allow', inherit=True)
+        self._grant_user(self.child, 'read_published', effect='deny')
+        from projects.permissions import can_view_folder
+        self.assertFalse(can_view_folder(self.user, self.child))
+
+    def test_expired_grant_ignored_falls_back_to_deny(self):
+        """grant scaduto ignorato → senza fallback membership → deny."""
+        past = timezone.now() - timezone.timedelta(seconds=1)
+        self._grant_user(self.root, 'read_published', effect='allow', expires_at=past)
+        from projects.permissions import can_view_folder
+        self.assertFalse(can_view_folder(self.user, self.root))
+
+    def test_superuser_can_view(self):
+        """superuser → allow totale."""
+        from projects.permissions import can_view_folder
+        self.assertTrue(can_view_folder(self.superuser, self.root))
+
+    def test_staff_without_grant_cannot_view(self):
+        """staff non-superuser senza grant → deny."""
+        from projects.permissions import can_view_folder
+        self.assertFalse(can_view_folder(self.staff, self.root))
+
+    # ------------------------------------------------------------------
+    # can_create_document_in_folder — creazione bozza
+    # ------------------------------------------------------------------
+
+    def test_author_legacy_no_grant_can_create_via_fallback(self):
+        """author legacy senza grant → può creare tramite fallback membership."""
+        self._membership('author')
+        from projects.permissions import can_create_document_in_folder
+        self.assertTrue(can_create_document_in_folder(self.user, self.root))
+
+    def test_create_draft_grant_can_create(self):
+        """grant modulare create_draft → può creare senza membership."""
+        self._grant_user(self.root, 'create_draft', effect='allow')
+        from projects.permissions import can_create_document_in_folder
+        self.assertTrue(can_create_document_in_folder(self.user, self.root))
+
+    def test_deny_create_draft_blocks_author_legacy(self):
+        """deny create_draft → blocca anche author legacy."""
+        self._membership('author')
+        self._grant_user(self.root, 'create_draft', effect='deny')
+        from projects.permissions import can_create_document_in_folder
+        self.assertFalse(can_create_document_in_folder(self.user, self.root))
+
+    def test_reader_without_create_draft_grant_cannot_create(self):
+        """reader legacy senza grant create_draft → deny (fallback non ha create_draft)."""
+        self._membership('reader')
+        from projects.permissions import can_create_document_in_folder
+        self.assertFalse(can_create_document_in_folder(self.user, self.root))
+
+    def test_parent_create_draft_inherited_enables_child_create(self):
+        """grant create_draft ereditato dal parent → abilita sottocartella."""
+        self._grant_user(self.root, 'create_draft', effect='allow', inherit=True)
+        from projects.permissions import can_create_document_in_folder
+        self.assertTrue(can_create_document_in_folder(self.user, self.child))
+
+    # ------------------------------------------------------------------
+    # can_manage_folder — gestione cartella
+    # ------------------------------------------------------------------
+
+    def test_manager_legacy_no_grant_can_manage_via_fallback(self):
+        """manager legacy senza grant → può gestire tramite fallback membership."""
+        self._membership('manager')
+        from projects.permissions import can_manage_folder
+        self.assertTrue(can_manage_folder(self.user, self.root))
+
+    def test_manage_folder_grant_can_manage(self):
+        """grant modulare manage_folder → abilita senza membership."""
+        self._grant_user(self.root, 'manage_folder', effect='allow')
+        from projects.permissions import can_manage_folder
+        self.assertTrue(can_manage_folder(self.user, self.root))
+
+    def test_deny_manage_folder_blocks_manager_legacy(self):
+        """deny manage_folder → blocca anche manager legacy."""
+        self._membership('manager')
+        self._grant_user(self.root, 'manage_folder', effect='deny')
+        from projects.permissions import can_manage_folder
+        self.assertFalse(can_manage_folder(self.user, self.root))
+
+    def test_staff_without_manage_grant_cannot_manage(self):
+        """staff non-superuser senza grant → deny."""
+        from projects.permissions import can_manage_folder
+        self.assertFalse(can_manage_folder(self.staff, self.root))
