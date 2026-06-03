@@ -2109,3 +2109,360 @@ class FolderPermissionResolverTests(TestCase):
         from projects.resolver import _LEGACY_MANAGER_PERMISSIONS
         for perm in _LEGACY_MANAGER_PERMISSIONS:
             self._check_legacy('manager', perm, True)
+
+
+# ===========================================================================
+# Step D1 — BackfillFolderPermissionGrantsTests
+# ===========================================================================
+
+class BackfillFolderPermissionGrantsTests(TestCase):
+    """
+    Test del management command backfill_folder_permission_grants.
+    """
+
+    def setUp(self):
+        from projects.services import set_folder_path
+        self.owner = User.objects.create_user('bf_owner', password='pw')
+        self.user = User.objects.create_user('bf_user', password='pw')
+        self.folder = ProjectFolder.objects.create(
+            code='BF-FOLD', name='BF Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.owner,
+        )
+        set_folder_path(self.folder)
+
+    def _call(self, *args, **kwargs):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command(*args, stdout=out, **kwargs)
+        return out.getvalue()
+
+    def _membership(self, role, user=None):
+        return ProjectFolderMembership.objects.create(
+            folder=self.folder,
+            user=user or self.user,
+            role=role,
+        )
+
+    # 1. Dry-run non scrive nulla
+    def test_dry_run_creates_no_grants(self):
+        self._membership('reader')
+        self._call('backfill_folder_permission_grants')
+        self.assertEqual(FolderPermissionGrant.objects.count(), 0)
+
+    # 2. Apply crea grant
+    def test_apply_creates_grants(self):
+        self._membership('reader')
+        self._call('backfill_folder_permission_grants', apply=True)
+        self.assertTrue(
+            FolderPermissionGrant.objects.filter(
+                folder=self.folder, user=self.user,
+                permission_code='read_published',
+            ).exists()
+        )
+
+    # 3. Seconda apply non crea duplicati
+    def test_apply_idempotent(self):
+        self._membership('reader')
+        self._call('backfill_folder_permission_grants', apply=True)
+        count_after_first = FolderPermissionGrant.objects.count()
+        self._call('backfill_folder_permission_grants', apply=True)
+        self.assertEqual(FolderPermissionGrant.objects.count(), count_after_first)
+
+    # 4. Membership legacy resta invariata
+    def test_legacy_membership_untouched(self):
+        m = self._membership('author')
+        self._call('backfill_folder_permission_grants', apply=True)
+        m.refresh_from_db()
+        self.assertEqual(m.role, 'author')
+        self.assertEqual(m.folder, self.folder)
+        self.assertEqual(m.user, self.user)
+
+    # 5. Grant manuale esistente non viene sovrascritto (stesso effetto → skip)
+    def test_existing_allow_grant_not_overwritten(self):
+        self._membership('reader')
+        existing = FolderPermissionGrant.objects.create(
+            folder=self.folder, user=self.user,
+            permission_code='read_published',
+            effect='allow', inherit_to_children=True,
+            notes='manuale',
+        )
+        self._call('backfill_folder_permission_grants', apply=True)
+        existing.refresh_from_db()
+        self.assertEqual(existing.notes, 'manuale')  # notes invariate
+        self.assertTrue(existing.inherit_to_children)  # non modificato a False
+
+    # 6. Grant opposto (deny) genera conflitto nel report
+    def test_deny_grant_produces_conflict_in_output(self):
+        self._membership('reader')
+        FolderPermissionGrant.objects.create(
+            folder=self.folder, user=self.user,
+            permission_code='read_published',
+            effect='deny',
+        )
+        out = self._call('backfill_folder_permission_grants')
+        self.assertIn('CONFLITTI', out)
+
+    # 7. Conflitto non viene modificato
+    def test_deny_grant_not_modified_on_apply(self):
+        self._membership('reader')
+        deny_grant = FolderPermissionGrant.objects.create(
+            folder=self.folder, user=self.user,
+            permission_code='read_published',
+            effect='deny',
+        )
+        self._call('backfill_folder_permission_grants', apply=True)
+        deny_grant.refresh_from_db()
+        self.assertEqual(deny_grant.effect, 'deny')  # invariato
+
+    # 8. Notes backfill leggibili e contengono ID membership
+    def test_notes_contain_membership_id(self):
+        m = self._membership('reader')
+        self._call('backfill_folder_permission_grants', apply=True)
+        grant = FolderPermissionGrant.objects.get(
+            folder=self.folder, user=self.user, permission_code='read_published'
+        )
+        self.assertIn(str(m.pk), grant.notes)
+        self.assertIn('Legacy backfill', grant.notes)
+
+    # 9. inherit_to_children=False
+    def test_backfill_grants_have_inherit_false(self):
+        self._membership('reader')
+        self._call('backfill_folder_permission_grants', apply=True)
+        grant = FolderPermissionGrant.objects.get(
+            folder=self.folder, user=self.user, permission_code='read_published'
+        )
+        self.assertFalse(grant.inherit_to_children)
+
+    # 10. Transazione atomica: errore inatteso non lascia scritture parziali
+    def test_atomic_rollback_on_error(self):
+        """
+        Verifica atomicità: se un errore avviene a metà apply, nessun grant
+        viene persistito. Simuliamo l'errore via mock.
+        """
+        from unittest.mock import patch
+        self._membership('author')  # author ha 3 permessi → testa rollback in mezzo
+        original_count = FolderPermissionGrant.objects.count()
+
+        call_count = [0]
+        original_create = FolderPermissionGrant.objects.create
+
+        def fail_on_second(**kwargs):
+            call_count[0] += 1
+            if call_count[0] >= 2:
+                raise RuntimeError('Errore simulato in test atomicità')
+            return original_create(**kwargs)
+
+        with patch.object(
+            FolderPermissionGrant.objects.__class__,
+            'create',
+            side_effect=fail_on_second
+        ):
+            with self.assertRaises(RuntimeError):
+                self._call('backfill_folder_permission_grants', apply=True)
+
+        # Nessun grant deve essere rimasto
+        self.assertEqual(FolderPermissionGrant.objects.count(), original_count)
+
+    # 11. Mapping reader
+    def test_mapping_reader(self):
+        from projects.management.commands.backfill_folder_permission_grants import (
+            BACKFILL_ROLE_PERMISSIONS,
+        )
+        self._membership('reader')
+        self._call('backfill_folder_permission_grants', apply=True)
+        created_perms = set(
+            FolderPermissionGrant.objects.filter(
+                folder=self.folder, user=self.user
+            ).values_list('permission_code', flat=True)
+        )
+        self.assertEqual(created_perms, BACKFILL_ROLE_PERMISSIONS['reader'])
+
+    # 12. Mapping author
+    def test_mapping_author(self):
+        from projects.management.commands.backfill_folder_permission_grants import (
+            BACKFILL_ROLE_PERMISSIONS,
+        )
+        self._membership('author')
+        self._call('backfill_folder_permission_grants', apply=True)
+        created_perms = set(
+            FolderPermissionGrant.objects.filter(
+                folder=self.folder, user=self.user
+            ).values_list('permission_code', flat=True)
+        )
+        self.assertEqual(created_perms, BACKFILL_ROLE_PERMISSIONS['author'])
+
+    # 13. Mapping approver
+    def test_mapping_approver(self):
+        from projects.management.commands.backfill_folder_permission_grants import (
+            BACKFILL_ROLE_PERMISSIONS,
+        )
+        self._membership('approver')
+        self._call('backfill_folder_permission_grants', apply=True)
+        created_perms = set(
+            FolderPermissionGrant.objects.filter(
+                folder=self.folder, user=self.user
+            ).values_list('permission_code', flat=True)
+        )
+        self.assertEqual(created_perms, BACKFILL_ROLE_PERMISSIONS['approver'])
+
+    # 14. Mapping auditor
+    def test_mapping_auditor(self):
+        from projects.management.commands.backfill_folder_permission_grants import (
+            BACKFILL_ROLE_PERMISSIONS,
+        )
+        self._membership('auditor')
+        self._call('backfill_folder_permission_grants', apply=True)
+        created_perms = set(
+            FolderPermissionGrant.objects.filter(
+                folder=self.folder, user=self.user
+            ).values_list('permission_code', flat=True)
+        )
+        self.assertEqual(created_perms, BACKFILL_ROLE_PERMISSIONS['auditor'])
+
+    # 15. Mapping manager (conservativo: non include permessi esclusi)
+    def test_mapping_manager_conservative(self):
+        from projects.management.commands.backfill_folder_permission_grants import (
+            BACKFILL_ROLE_PERMISSIONS,
+        )
+        self._membership('manager')
+        self._call('backfill_folder_permission_grants', apply=True)
+        created_perms = set(
+            FolderPermissionGrant.objects.filter(
+                folder=self.folder, user=self.user
+            ).values_list('permission_code', flat=True)
+        )
+        self.assertEqual(created_perms, BACKFILL_ROLE_PERMISSIONS['manager'])
+        # Verifica che i permessi esclusi NON siano stati assegnati
+        excluded = {
+            'view_folder_ecns', 'manage_project_documents', 'request_ecn',
+            'view_obsolete_documents', 'manage_rejected_drafts',
+        }
+        self.assertTrue(created_perms.isdisjoint(excluded))
+
+
+# ===========================================================================
+# Step D2 — CompareFolderPermissionsTests
+# ===========================================================================
+
+class CompareFolderPermissionsTests(TestCase):
+    """
+    Test del management command compare_folder_permissions.
+    """
+
+    def setUp(self):
+        from projects.services import set_folder_path
+        self.owner = User.objects.create_user('cmp_owner', password='pw')
+        self.user = User.objects.create_user('cmp_user', password='pw')
+        self.folder = ProjectFolder.objects.create(
+            code='CMP-FOLD', name='Compare Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.owner,
+        )
+        set_folder_path(self.folder)
+
+    def _call_compare(self, **kwargs):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        exit_code = 0
+        try:
+            call_command('compare_folder_permissions', stdout=out, **kwargs)
+        except SystemExit as e:
+            exit_code = e.code
+        return out.getvalue(), exit_code
+
+    def _backfill(self):
+        """Helper: esegue il backfill apply per la cartella corrente."""
+        from io import StringIO
+        from django.core.management import call_command
+        call_command(
+            'backfill_folder_permission_grants',
+            apply=True,
+            folder_id=self.folder.pk,
+            stdout=StringIO(),
+        )
+
+    # 1. Confronto senza divergenze → exit code 0
+    def test_no_divergences_exit_code_0(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        self._backfill()
+        _, exit_code = self._call_compare()
+        self.assertEqual(exit_code, 0)
+
+    # 2. Divergenza rilevata → exit code diverso da 0
+    def test_divergence_exit_code_nonzero(self):
+        # Membership presente ma nessun grant backfillato
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        # Nessun backfill → divergenza: legacy=True, resolver=False
+        _, exit_code = self._call_compare()
+        self.assertNotEqual(exit_code, 0)
+
+    # 3. --user-id filtra correttamente
+    def test_user_id_filter(self):
+        other = User.objects.create_user('cmp_other', password='pw')
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=other, role='reader'
+        )
+        self._backfill()
+        # Backfill ha creato grants per entrambi: filtro per user → 0 divergenze
+        _, exit_code = self._call_compare(user_id=self.user.pk)
+        self.assertEqual(exit_code, 0)
+
+    # 4. --folder-id filtra correttamente
+    def test_folder_id_filter(self):
+        from projects.services import set_folder_path
+        other_folder = ProjectFolder.objects.create(
+            code='CMP-OTHER', name='Other',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(other_folder)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        ProjectFolderMembership.objects.create(
+            folder=other_folder, user=self.user, role='reader'
+        )
+        # Backfill solo su self.folder
+        self._backfill()
+        # Compare limitato a self.folder: dovrebbe essere ok
+        _, exit_code = self._call_compare(folder_id=self.folder.pk)
+        self.assertEqual(exit_code, 0)
+
+    # 5. Nessuna modifica al database dopo compare
+    def test_compare_does_not_modify_database(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='author'
+        )
+        self._backfill()
+        grant_count_before = FolderPermissionGrant.objects.count()
+        membership_count_before = ProjectFolderMembership.objects.count()
+        self._call_compare()
+        self.assertEqual(FolderPermissionGrant.objects.count(), grant_count_before)
+        self.assertEqual(ProjectFolderMembership.objects.count(), membership_count_before)
+
+    # 6. Compare usa il resolver senza fallback legacy
+    def test_compare_uses_resolver_without_legacy_fallback(self):
+        """
+        Con membership ma senza grant modulari, il compare deve rilevare
+        una divergenza (legacy=True, resolver=False) — il che dimostra
+        che usa il resolver senza fallback, non il legacy direttamente.
+        """
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        # Nessun grant → resolver senza fallback dice False; legacy dice True
+        out, exit_code = self._call_compare()
+        self.assertNotEqual(exit_code, 0)
+        self.assertIn('Divergenze', out)
