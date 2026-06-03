@@ -93,6 +93,25 @@ def _has_folder_write(user, folder_id):
     ).exists()
 
 
+def _user_is_draft_author(user, document):
+    """
+    True se l'utente è l'autore di almeno una revisione non ancora archiviata
+    (DRAFT, REJECTED, IN_APPROVAL).
+
+    Usata in can_view_document per il Caso A (documento mai pubblicato):
+    solo chi ha creato la bozza può vedere la pagina di dettaglio.
+    """
+    return DocumentVersion.objects.filter(
+        document=document,
+        created_by=user,
+        status__in=[
+            DocumentVersion.Status.DRAFT,
+            DocumentVersion.Status.REJECTED,
+            DocumentVersion.Status.IN_APPROVAL,
+        ],
+    ).exists()
+
+
 # ---------------------------------------------------------------------------
 # Funzioni pubbliche
 # ---------------------------------------------------------------------------
@@ -101,26 +120,40 @@ def can_view_document(user, document):
     """
     Determina se l'utente può accedere alla pagina di dettaglio di un documento.
 
-    - superuser: sempre
-    - Auditor / Manager / Quality Manager: documenti attivi con versione corrente approvata
-      (nessuna restrizione di cartella, ma NON vedono documenti con solo bozze)
-    - Altri utenti: documento attivo, versione corrente approvata, membership nella cartella
+    Caso A — documento mai pubblicato (sola bozza):
+      visibile SOLO all'autore della bozza e al superuser.
+      Manager, Auditor, Quality Manager, staff → Http404.
+
+    Caso B — documento pubblicato (versione corrente approvata):
+      - superuser: sempre
+      - Auditor / Manager / Quality Manager: tutti i documenti pubblicati
+        (nessuna restrizione cartella)
+      - utenti normali: documento pubblicato + membership nella cartella
+      In entrambi i casi l'autore di una nuova bozza può vedere la pagina
+      (Caso B, vede anche la propria revisione privata).
     """
     if not user.is_authenticated:
         return False
     if user.is_superuser:
         return True
-    # Auditor, Manager, Quality Manager: vedono tutti i documenti ATTIVI
-    # (la pagina di dettaglio è accessibile; le bozze altrui sono comunque
-    # invisibili tramite can_view_version che filtra le versioni nel dettaglio)
-    if _in_group(user, GROUP_AUDITORS, GROUP_MANAGERS, GROUP_QUALITY_MANAGER):
-        return document.status == Document.Status.ACTIVE
-    # Utenti normali: documento attivo, versione corrente approvata, accesso alla cartella
-    if not (
+
+    document_is_published = (
         document.status == Document.Status.ACTIVE
         and document.current_version is not None
         and document.current_version.status == DocumentVersion.Status.APPROVED
-    ):
+    )
+
+    # L'autore di una bozza può sempre vedere la pagina dettaglio
+    # (Caso A: è l'unico autorizzato; Caso B: vede la propria revisione oltre a quella corrente)
+    if _user_is_draft_author(user, document):
+        return True
+
+    # Auditor / Manager / Quality Manager: solo documenti già pubblicati (Caso B)
+    if _in_group(user, GROUP_AUDITORS, GROUP_MANAGERS, GROUP_QUALITY_MANAGER):
+        return document_is_published
+
+    # Utenti normali: documento pubblicato + membership nella cartella
+    if not document_is_published:
         return False
     if document.project_folder_id:
         return _has_folder_membership(user, document.project_folder_id)

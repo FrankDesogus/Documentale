@@ -1704,6 +1704,153 @@ class DraftPrivacyTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
+# MB1 — Test documento con sola bozza privata (Caso A) e pubblicato (Caso B)
+# ---------------------------------------------------------------------------
+
+class DraftOnlyDocumentPrivacyTests(TestCase):
+    """
+    Caso A: documento mai pubblicato (sola bozza) → visibile solo all'autore e al superuser.
+    Caso B: documento pubblicato con nuova revisione privata → lettori vedono versione corrente.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.author = User.objects.create_user('dod_author', password='pw')
+        self.other_author = User.objects.create_user('dod_other', password='pw')
+        self.manager = User.objects.create_user('dod_mgr', password='pw')
+        self.auditor = User.objects.create_user('dod_aud', password='pw')
+        self.quality_mgr = User.objects.create_user('dod_qmgr', password='pw')
+        self.staff_user = User.objects.create_user('dod_staff', password='pw', is_staff=True)
+        self.reader = User.objects.create_user('dod_reader', password='pw')
+        self.superuser = User.objects.create_superuser('dod_su', password='pw', email='')
+
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+        Group.objects.get_or_create(name='Document Auditors')[0].user_set.add(self.auditor)
+        Group.objects.get_or_create(name='Quality Manager')[0].user_set.add(self.quality_mgr)
+
+        # Documento Caso A — sola bozza privata
+        self.draft_only_doc = Document.objects.create(
+            code='DOD-A-001', title='Solo bozza',
+            category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+        )
+        self.draft_v = create_new_revision(self.draft_only_doc, self.author, 'A', 1)
+
+        # Documento Caso B — versione approvata + nuova bozza in lavorazione
+        self.published_doc = Document.objects.create(
+            code='DOD-B-001', title='Pubblicato con nuova bozza',
+            category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+        )
+        v_approved = create_new_revision(self.published_doc, self.author, '00', 0)
+        v_approved.status = DocumentVersion.Status.APPROVED
+        v_approved.is_current = True
+        v_approved.save(update_fields=['status', 'is_current'])
+        self.published_doc.current_version = v_approved
+        self.published_doc.save(update_fields=['current_version'])
+        self.approved_v = v_approved
+        # Nuova bozza privata — creata da author
+        self.new_draft_v = create_new_revision(
+            self.published_doc, self.author, '01', 1, _bypass_ecn_check=True,
+        )
+
+    # ── Caso A: documento mai pubblicato ──────────────────────────────────────
+
+    def test_caso_a_author_can_view_document(self):
+        from documents.permissions import can_view_document
+        self.assertTrue(can_view_document(self.author, self.draft_only_doc))
+
+    def test_caso_a_superuser_can_view_document(self):
+        from documents.permissions import can_view_document
+        self.assertTrue(can_view_document(self.superuser, self.draft_only_doc))
+
+    def test_caso_a_manager_cannot_view_document(self):
+        from documents.permissions import can_view_document
+        self.assertFalse(can_view_document(self.manager, self.draft_only_doc))
+
+    def test_caso_a_auditor_cannot_view_document(self):
+        from documents.permissions import can_view_document
+        self.assertFalse(can_view_document(self.auditor, self.draft_only_doc))
+
+    def test_caso_a_quality_manager_cannot_view_document(self):
+        from documents.permissions import can_view_document
+        self.assertFalse(can_view_document(self.quality_mgr, self.draft_only_doc))
+
+    def test_caso_a_staff_cannot_view_document(self):
+        from documents.permissions import can_view_document
+        self.assertFalse(can_view_document(self.staff_user, self.draft_only_doc))
+
+    def test_caso_a_other_author_cannot_view_document(self):
+        from documents.permissions import can_view_document
+        self.assertFalse(can_view_document(self.other_author, self.draft_only_doc))
+
+    # ── Caso A: URL diretti ───────────────────────────────────────────────────
+
+    def test_caso_a_author_url_ok(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_detail', args=[self.draft_only_doc.pk]))
+        self.assertEqual(r.status_code, 200)
+
+    def test_caso_a_superuser_url_ok(self):
+        self.client.force_login(self.superuser)
+        r = self.client.get(reverse('document_detail', args=[self.draft_only_doc.pk]))
+        self.assertEqual(r.status_code, 200)
+
+    def test_caso_a_manager_url_404(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('document_detail', args=[self.draft_only_doc.pk]))
+        self.assertEqual(r.status_code, 404)
+
+    def test_caso_a_auditor_url_404(self):
+        self.client.force_login(self.auditor)
+        r = self.client.get(reverse('document_detail', args=[self.draft_only_doc.pk]))
+        self.assertEqual(r.status_code, 404)
+
+    def test_caso_a_staff_url_404(self):
+        self.client.force_login(self.staff_user)
+        r = self.client.get(reverse('document_detail', args=[self.draft_only_doc.pk]))
+        self.assertEqual(r.status_code, 404)
+
+    def test_caso_a_other_author_url_404(self):
+        self.client.force_login(self.other_author)
+        r = self.client.get(reverse('document_detail', args=[self.draft_only_doc.pk]))
+        self.assertEqual(r.status_code, 404)
+
+    # ── Caso B: documento pubblicato con nuova bozza ──────────────────────────
+
+    def test_caso_b_reader_sees_approved_version(self):
+        """Lettore vede la versione corrente approvata, NON la bozza."""
+        from documents.permissions import can_view_document, can_view_version
+        self.assertTrue(can_view_document(self.reader, self.published_doc))
+        self.assertTrue(can_view_version(self.reader, self.approved_v))
+        self.assertFalse(can_view_version(self.reader, self.new_draft_v))
+
+    def test_caso_b_reader_url_ok(self):
+        """Lettore accede alla pagina del documento pubblicato."""
+        self.client.force_login(self.reader)
+        r = self.client.get(reverse('document_detail', args=[self.published_doc.pk]))
+        self.assertEqual(r.status_code, 200)
+
+    def test_caso_b_author_sees_own_draft(self):
+        """Autore vede sia la versione corrente che la propria bozza."""
+        from documents.permissions import can_view_version
+        self.assertTrue(can_view_version(self.author, self.approved_v))
+        self.assertTrue(can_view_version(self.author, self.new_draft_v))
+
+    def test_caso_b_superuser_sees_draft(self):
+        """Superuser vede tutto."""
+        from documents.permissions import can_view_version
+        self.assertTrue(can_view_version(self.superuser, self.new_draft_v))
+
+    def test_caso_b_manager_does_not_see_draft(self):
+        """Manager vede il documento pubblicato ma NON la nuova bozza."""
+        from documents.permissions import can_view_document, can_view_version
+        self.assertTrue(can_view_document(self.manager, self.published_doc))
+        self.assertTrue(can_view_version(self.manager, self.approved_v))
+        self.assertFalse(can_view_version(self.manager, self.new_draft_v))
+
+
+# ---------------------------------------------------------------------------
 # MB1 — Test permessi approvazione allegati
 # ---------------------------------------------------------------------------
 
