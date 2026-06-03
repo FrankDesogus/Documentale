@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from projects.models import Project, ProjectFolder, ProjectFolderMembership, ProjectRevision, ProjectRevisionItem
+from projects.models import FolderPermissionGrant, Project, ProjectFolder, ProjectFolderMembership, ProjectRevision, ProjectRevisionItem
 
 EMAIL_LOCMEM = 'django.core.mail.backends.locmem.EmailBackend'
 
@@ -1562,3 +1562,132 @@ class FolderPathTests(TestCase):
         self.assertIn(a.pk, desc_pks)
         self.assertIn(b.pk, desc_pks)
         self.assertNotIn(r.pk, desc_pks)
+
+
+# ===========================================================================
+# Step B — FolderPermissionGrant tests
+# ===========================================================================
+
+class FolderPermissionGrantModelTests(TestCase):
+    """Test per il modello FolderPermissionGrant."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group as DjangoGroup
+        self.owner = User.objects.create_user('fpg_owner', password='pw')
+        self.user = User.objects.create_user('fpg_user', password='pw')
+        self.group = DjangoGroup.objects.create(name='FPG Test Group')
+        self.folder = ProjectFolder.objects.create(
+            code='FPG-FOLD', name='FPG Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.owner,
+        )
+        self.PC = FolderPermissionGrant.PermissionCode
+
+    def _make_user_grant(self, **kwargs):
+        defaults = dict(
+            folder=self.folder,
+            user=self.user,
+            permission_code=self.PC.READ_PUBLISHED,
+            effect=FolderPermissionGrant.Effect.ALLOW,
+        )
+        defaults.update(kwargs)
+        return FolderPermissionGrant.objects.create(**defaults)
+
+    def _make_group_grant(self, **kwargs):
+        defaults = dict(
+            folder=self.folder,
+            group=self.group,
+            permission_code=self.PC.READ_PUBLISHED,
+            effect=FolderPermissionGrant.Effect.ALLOW,
+        )
+        defaults.update(kwargs)
+        return FolderPermissionGrant.objects.create(**defaults)
+
+    # 1. Grant utente valido
+    def test_user_grant_valid(self):
+        g = self._make_user_grant()
+        self.assertEqual(g.user, self.user)
+        self.assertIsNone(g.group)
+
+    # 2. Grant gruppo valido
+    def test_group_grant_valid(self):
+        g = self._make_group_grant()
+        self.assertEqual(g.group, self.group)
+        self.assertIsNone(g.user)
+
+    # 3. user e group entrambi null → errore
+    def test_both_null_raises(self):
+        from django.db import IntegrityError
+        with self.assertRaises(Exception):  # IntegrityError o ValidationError
+            FolderPermissionGrant.objects.create(
+                folder=self.folder,
+                user=None, group=None,
+                permission_code=self.PC.READ_PUBLISHED,
+            )
+
+    # 4. user e group entrambi valorizzati → errore
+    def test_both_set_raises(self):
+        from django.db import IntegrityError
+        with self.assertRaises(Exception):
+            FolderPermissionGrant.objects.create(
+                folder=self.folder,
+                user=self.user, group=self.group,
+                permission_code=self.PC.READ_PUBLISHED,
+            )
+
+    # 5. Duplicato user grant → errore
+    def test_duplicate_user_grant_raises(self):
+        from django.db import IntegrityError
+        self._make_user_grant()
+        with self.assertRaises(IntegrityError):
+            self._make_user_grant()
+
+    # 6. Duplicato group grant → errore
+    def test_duplicate_group_grant_raises(self):
+        from django.db import IntegrityError
+        self._make_group_grant()
+        with self.assertRaises(IntegrityError):
+            self._make_group_grant()
+
+    # 7. Default effect = allow
+    def test_default_effect_allow(self):
+        g = FolderPermissionGrant.objects.create(
+            folder=self.folder, user=self.user,
+            permission_code=self.PC.CREATE_DRAFT,
+        )
+        self.assertEqual(g.effect, FolderPermissionGrant.Effect.ALLOW)
+
+    # 8. Default inherit_to_children = True
+    def test_default_inherit_true(self):
+        g = self._make_user_grant()
+        self.assertTrue(g.inherit_to_children)
+
+    # 9. expires_at opzionale (None di default)
+    def test_expires_at_optional(self):
+        g = self._make_user_grant()
+        self.assertIsNone(g.expires_at)
+
+    # 10. expires_at valorizzabile
+    def test_expires_at_can_be_set(self):
+        from django.utils import timezone
+        future = timezone.now() + timezone.timedelta(days=30)
+        g = self._make_user_grant(expires_at=future)
+        self.assertIsNotNone(g.expires_at)
+
+    # 11. __str__
+    def test_str_user_grant(self):
+        g = self._make_user_grant()
+        s = str(g)
+        self.assertIn(self.folder.code, s)
+        self.assertIn(self.PC.READ_PUBLISHED, s)
+
+    def test_str_group_grant(self):
+        g = self._make_group_grant()
+        s = str(g)
+        self.assertIn(self.folder.code, s)
+
+    # 12. Registrazione admin
+    def test_admin_registered(self):
+        from django.contrib import admin as django_admin
+        self.assertIn(FolderPermissionGrant, django_admin.site._registry)

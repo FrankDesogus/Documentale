@@ -74,6 +74,132 @@ class ProjectFolder(models.Model):
         return f"{self.code} – {self.name}"
 
 
+class FolderPermissionGrant(models.Model):
+    """
+    Grant modulare di permesso per cartella.
+
+    Supporta:
+      - grant a utente singolo oppure a gruppo (esattamente uno dei due)
+      - effetto allow/deny
+      - ereditarietà alle sottocartelle (inherit_to_children)
+      - scadenza opzionale (expires_at)
+      - permission code granulare
+
+    NON sostituisce ProjectFolderMembership: coesiste con il sistema legacy.
+    Il resolver (projects/resolver.py) lavorerà su questo modello.
+    """
+
+    class PermissionCode(models.TextChoices):
+        READ_PUBLISHED         = 'read_published',           'Leggi documenti pubblicati'
+        VIEW_HISTORY           = 'view_history',             'Vedi storico versioni'
+        VIEW_OBSOLETE_DOCUMENTS= 'view_obsolete_documents',  'Vedi documenti obsoleti'
+        VIEW_PROJECTS          = 'view_projects',            'Vedi progetti nella cartella'
+        VIEW_FOLDER_ECNS       = 'view_folder_ecns',         'Vedi ECN della cartella'
+        CREATE_DRAFT           = 'create_draft',             'Crea bozze'
+        SUBMIT_FOR_APPROVAL    = 'submit_for_approval',      'Invia in approvazione'
+        ELIGIBLE_APPROVER      = 'eligible_document_approver','Eleggibile come approvatore'
+        MANAGE_REJECTED_DRAFTS = 'manage_rejected_drafts',   'Gestisci bozze rifiutate'
+        MANAGE_PROJECT_DOCUMENTS='manage_project_documents', 'Gestisci documenti progetto'
+        REQUEST_ECN            = 'request_ecn',              'Richiedi variante ECN'
+        MANAGE_FOLDER          = 'manage_folder',            'Gestisci cartella'
+
+    class Effect(models.TextChoices):
+        ALLOW = 'allow', 'Consenti'
+        DENY  = 'deny',  'Nega'
+
+    folder = models.ForeignKey(
+        'ProjectFolder',
+        on_delete=models.CASCADE,
+        related_name='permission_grants',
+        verbose_name='Cartella',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='folder_permission_grants',
+        verbose_name='Utente',
+    )
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='folder_permission_grants',
+        verbose_name='Gruppo',
+    )
+    permission_code = models.CharField(
+        max_length=60,
+        choices=PermissionCode.choices,
+        verbose_name='Permesso',
+    )
+    effect = models.CharField(
+        max_length=10,
+        choices=Effect.choices,
+        default=Effect.ALLOW,
+        verbose_name='Effetto',
+    )
+    inherit_to_children = models.BooleanField(
+        default=True,
+        verbose_name='Ereditato dalle sottocartelle',
+    )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Scadenza',
+    )
+    notes = models.TextField(blank=True, verbose_name='Note')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Creato da',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Grant permesso cartella'
+        verbose_name_plural = 'Grant permessi cartella'
+        indexes = [
+            models.Index(fields=['folder', 'permission_code']),
+            models.Index(fields=['user', 'permission_code']),
+            models.Index(fields=['group', 'permission_code']),
+            models.Index(fields=['expires_at']),
+        ]
+        constraints = [
+            # Esattamente uno tra user e group deve essere valorizzato
+            models.CheckConstraint(
+                name='fpg_user_or_group_not_both',
+                check=(
+                    models.Q(user__isnull=False, group__isnull=True)
+                    | models.Q(user__isnull=True, group__isnull=False)
+                ),
+            ),
+            # Unicità per user grant
+            models.UniqueConstraint(
+                fields=['folder', 'user', 'permission_code'],
+                condition=models.Q(user__isnull=False),
+                name='fpg_unique_user_grant',
+            ),
+            # Unicità per group grant
+            models.UniqueConstraint(
+                fields=['folder', 'group', 'permission_code'],
+                condition=models.Q(group__isnull=False),
+                name='fpg_unique_group_grant',
+            ),
+        ]
+
+    def __str__(self):
+        subject = f"user:{self.user}" if self.user_id else f"group:{self.group}"
+        return (
+            f"{self.folder.code} | {subject} | "
+            f"{self.permission_code} → {self.effect}"
+        )
+
+
 class ProjectFolderMembership(models.Model):
 
     class Role(models.TextChoices):

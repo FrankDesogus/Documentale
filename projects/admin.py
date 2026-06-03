@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Project, ProjectFolder, ProjectFolderMembership, ProjectRevision, ProjectRevisionItem
+from .models import (
+    FolderPermissionGrant,
+    Project,
+    ProjectFolder,
+    ProjectFolderMembership,
+    ProjectRevision,
+    ProjectRevisionItem,
+)
 
 
 class SubfolderInline(admin.TabularInline):
@@ -75,3 +82,25 @@ class ProjectRevisionAdmin(admin.ModelAdmin):
 class ProjectRevisionItemAdmin(admin.ModelAdmin):
     list_display = ('revision', 'item_number', 'description', 'document_version')
     search_fields = ('description', 'revision__project__code')
+
+
+@admin.register(FolderPermissionGrant)
+class FolderPermissionGrantAdmin(admin.ModelAdmin):
+    list_display = (
+        'folder', 'user', 'group', 'permission_code',
+        'effect', 'inherit_to_children', 'expires_at', 'created_at',
+    )
+    list_filter = (
+        'effect',
+        'permission_code',
+        'inherit_to_children',
+        ('expires_at', admin.EmptyFieldListFilter),
+    )
+    search_fields = (
+        'folder__code', 'folder__name',
+        'user__username', 'user__email',
+        'group__name',
+    )
+    ordering = ('folder', 'permission_code', 'effect')
+    readonly_fields = ('created_at',)
+    autocomplete_fields = ('folder', 'user', 'group', 'created_by')
