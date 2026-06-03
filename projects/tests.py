@@ -1,6 +1,7 @@
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from projects.models import FolderPermissionGrant, Project, ProjectFolder, ProjectFolderMembership, ProjectRevision, ProjectRevisionItem
 
@@ -1691,3 +1692,420 @@ class FolderPermissionGrantModelTests(TestCase):
     def test_admin_registered(self):
         from django.contrib import admin as django_admin
         self.assertIn(FolderPermissionGrant, django_admin.site._registry)
+
+
+# ===========================================================================
+# Step C — PermissionResolver tests
+# ===========================================================================
+
+class FolderPermissionResolverTests(TestCase):
+    """
+    Test del shadow PermissionResolver (projects/resolver.py).
+
+    Il resolver è completamente shadow: nessuna view lo usa.
+    Verifica le regole descritte nella spec Step C.
+    """
+
+    PC = FolderPermissionGrant.PermissionCode
+    EFFECT = FolderPermissionGrant.Effect
+
+    def setUp(self):
+        from django.contrib.auth.models import Group as DjangoGroup
+        from projects.services import set_folder_path
+
+        self.owner = User.objects.create_user('res_owner', password='pw')
+        self.user = User.objects.create_user('res_user', password='pw')
+        self.superuser = User.objects.create_user(
+            'res_super', password='pw', is_superuser=True
+        )
+        self.staff = User.objects.create_user(
+            'res_staff', password='pw', is_staff=True
+        )
+
+        self.group_a = DjangoGroup.objects.create(name='Resolver Group A')
+        self.group_b = DjangoGroup.objects.create(name='Resolver Group B')
+
+        # Struttura: root → child → grandchild
+        self.root = ProjectFolder.objects.create(
+            code='RES-ROOT', name='Root',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(self.root)
+
+        self.child = ProjectFolder.objects.create(
+            code='RES-CHILD', name='Child',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            parent=self.root,
+        )
+        set_folder_path(self.child)
+
+        self.grandchild = ProjectFolder.objects.create(
+            code='RES-GRAND', name='Grandchild',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            parent=self.child,
+        )
+        set_folder_path(self.grandchild)
+
+    # ------------------------------------------------------------------
+    # Helper
+    # ------------------------------------------------------------------
+
+    def _grant_user(self, folder, perm, effect='allow', inherit=True, expires_at=None):
+        return FolderPermissionGrant.objects.create(
+            folder=folder, user=self.user,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit, expires_at=expires_at,
+        )
+
+    def _grant_group(self, folder, group, perm, effect='allow', inherit=True, expires_at=None):
+        return FolderPermissionGrant.objects.create(
+            folder=folder, group=group,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit, expires_at=expires_at,
+        )
+
+    def _resolver(self, user=None, legacy=False):
+        from projects.resolver import PermissionResolver
+        return PermissionResolver(user or self.user, include_legacy_fallback=legacy)
+
+    # ------------------------------------------------------------------
+    # Base
+    # ------------------------------------------------------------------
+
+    def test_anonymous_user_is_denied(self):
+        from django.contrib.auth.models import AnonymousUser
+        from projects.resolver import has_folder_permission
+        anon = AnonymousUser()
+        self.assertFalse(has_folder_permission(anon, self.root, self.PC.READ_PUBLISHED))
+
+    def test_none_user_is_denied(self):
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(None, self.root, self.PC.READ_PUBLISHED))
+
+    def test_folder_none_is_denied(self):
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, None, self.PC.READ_PUBLISHED))
+
+    def test_no_grant_is_denied(self):
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    def test_superuser_is_allowed(self):
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.superuser, self.root, self.PC.READ_PUBLISHED))
+
+    def test_superuser_folder_none_is_allowed(self):
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.superuser, None, self.PC.READ_PUBLISHED))
+
+    def test_staff_without_grant_is_denied(self):
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.staff, self.root, self.PC.READ_PUBLISHED))
+
+    # ------------------------------------------------------------------
+    # Grant diretti
+    # ------------------------------------------------------------------
+
+    def test_user_allow_grant_is_allowed(self):
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow')
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    def test_user_deny_grant_is_denied(self):
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='deny')
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    def test_group_allow_grant_is_allowed(self):
+        self.user.groups.add(self.group_a)
+        self._grant_group(self.root, self.group_a, self.PC.READ_PUBLISHED, effect='allow')
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    def test_group_deny_grant_is_denied(self):
+        self.user.groups.add(self.group_a)
+        self._grant_group(self.root, self.group_a, self.PC.READ_PUBLISHED, effect='deny')
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    # ------------------------------------------------------------------
+    # Precedenza allo stesso livello
+    # ------------------------------------------------------------------
+
+    def test_user_allow_prevails_over_group_deny(self):
+        """user_allow > group_deny sulla stessa cartella."""
+        self.user.groups.add(self.group_a)
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow')
+        self._grant_group(self.root, self.group_a, self.PC.READ_PUBLISHED, effect='deny')
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    def test_user_deny_prevails_over_group_allow(self):
+        """user_deny > group_allow sulla stessa cartella."""
+        self.user.groups.add(self.group_a)
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='deny')
+        self._grant_group(self.root, self.group_a, self.PC.READ_PUBLISHED, effect='allow')
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    def test_evaluate_at_level_user_deny_over_user_allow(self):
+        """
+        user_deny > user_allow allo stesso livello.
+        Il DB constraint impedisce due user-grant identici per design,
+        ma _evaluate_grants_at_level deve gestire correttamente dati anomali.
+        """
+        from projects.resolver import PermissionResolver
+        resolver = PermissionResolver.__new__(PermissionResolver)
+        grants = [
+            {'user_id': 1, 'group_id': None, 'effect': 'allow', 'inherit_to_children': True},
+            {'user_id': 1, 'group_id': None, 'effect': 'deny', 'inherit_to_children': True},
+        ]
+        self.assertFalse(resolver._evaluate_grants_at_level(grants))
+
+    def test_evaluate_at_level_group_deny_over_group_allow(self):
+        """
+        group_deny > group_allow allo stesso livello.
+        Il DB constraint impedisce due group-grant identici per design,
+        ma due gruppi diversi possono produrre effetti opposti.
+        """
+        self.user.groups.add(self.group_a)
+        self.user.groups.add(self.group_b)
+        self._grant_group(self.root, self.group_a, self.PC.READ_PUBLISHED, effect='allow')
+        self._grant_group(self.root, self.group_b, self.PC.READ_PUBLISHED, effect='deny')
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    # ------------------------------------------------------------------
+    # Ereditarietà
+    # ------------------------------------------------------------------
+
+    def test_parent_allow_inherited_to_child(self):
+        """parent allow con inherit=True → child allow."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', inherit=True)
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.user, self.child, self.PC.READ_PUBLISHED))
+
+    def test_parent_deny_inherited_to_child(self):
+        """parent deny con inherit=True → child deny."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='deny', inherit=True)
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.child, self.PC.READ_PUBLISHED))
+
+    def test_parent_grant_not_inherited_when_inherit_false(self):
+        """parent allow con inherit=False → child deny (non propagato)."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', inherit=False)
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.child, self.PC.READ_PUBLISHED))
+
+    def test_child_deny_overrides_parent_allow(self):
+        """parent allow, child deny → deny (specificità vince)."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', inherit=True)
+        self._grant_user(self.child, self.PC.READ_PUBLISHED, effect='deny', inherit=True)
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.child, self.PC.READ_PUBLISHED))
+
+    def test_child_allow_overrides_parent_deny(self):
+        """parent deny, child allow → allow (specificità vince)."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='deny', inherit=True)
+        self._grant_user(self.child, self.PC.READ_PUBLISHED, effect='allow', inherit=True)
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.user, self.child, self.PC.READ_PUBLISHED))
+
+    def test_depth_3_propagation(self):
+        """root allow ereditato fino a grandchild (profondità 3)."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', inherit=True)
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.user, self.grandchild, self.PC.READ_PUBLISHED))
+
+    def test_depth_3_grandchild_deny_overrides_root_allow(self):
+        """root allow, grandchild deny → deny (specificità al livello più vicino vince)."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', inherit=True)
+        self._grant_user(self.grandchild, self.PC.READ_PUBLISHED, effect='deny', inherit=True)
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.grandchild, self.PC.READ_PUBLISHED))
+
+    def test_inherit_false_on_grandparent_blocks_grandchild(self):
+        """root allow con inherit=False → non propagato a grandchild."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', inherit=False)
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.grandchild, self.PC.READ_PUBLISHED))
+
+    # ------------------------------------------------------------------
+    # Scadenza
+    # ------------------------------------------------------------------
+
+    def test_non_expired_grant_is_applied(self):
+        """Grant con expires_at nel futuro è applicato."""
+        future = timezone.now() + timezone.timedelta(days=30)
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', expires_at=future)
+        from projects.resolver import has_folder_permission
+        self.assertTrue(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    def test_expired_grant_is_ignored(self):
+        """Grant con expires_at nel passato è ignorato → deny."""
+        past = timezone.now() - timezone.timedelta(seconds=1)
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow', expires_at=past)
+        from projects.resolver import has_folder_permission
+        self.assertFalse(has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED))
+
+    # ------------------------------------------------------------------
+    # Cache
+    # ------------------------------------------------------------------
+
+    def test_cache_same_instance_no_extra_query(self):
+        """Seconda chiamata sulla stessa istanza non genera nuove query DB."""
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow')
+        from projects.resolver import PermissionResolver
+        resolver = PermissionResolver(self.user)
+        # Prima chiamata: risolve
+        result1 = resolver.has_permission(self.root, self.PC.READ_PUBLISHED)
+        # Seconda chiamata: deve usare cache (0 query aggiuntive per il grant lookup)
+        with self.assertNumQueries(0):
+            result2 = resolver.has_permission(self.root, self.PC.READ_PUBLISHED)
+        self.assertEqual(result1, result2)
+
+    def test_for_request_same_config_returns_same_instance(self):
+        """for_request con stessa configurazione restituisce la stessa istanza."""
+        from projects.resolver import PermissionResolver
+
+        class FakeRequest:
+            user = self.user
+
+        req = FakeRequest()
+        r1 = PermissionResolver.for_request(req, include_legacy_fallback=False)
+        r2 = PermissionResolver.for_request(req, include_legacy_fallback=False)
+        self.assertIs(r1, r2)
+
+    def test_for_request_different_fallback_returns_different_instance(self):
+        """for_request con fallback diverso restituisce istanze distinte."""
+        from projects.resolver import PermissionResolver
+
+        class FakeRequest:
+            user = self.user
+
+        req = FakeRequest()
+        r_no_fb = PermissionResolver.for_request(req, include_legacy_fallback=False)
+        r_with_fb = PermissionResolver.for_request(req, include_legacy_fallback=True)
+        self.assertIsNot(r_no_fb, r_with_fb)
+
+    # ------------------------------------------------------------------
+    # Fallback legacy — comportamento di base
+    # ------------------------------------------------------------------
+
+    def test_legacy_fallback_disabled_by_default(self):
+        """Senza include_legacy_fallback=True il fallback non scatta."""
+        ProjectFolderMembership.objects.create(
+            folder=self.root, user=self.user, role='reader'
+        )
+        from projects.resolver import has_folder_permission
+        # reader legacy avrebbe READ_PUBLISHED, ma il fallback è disabilitato
+        self.assertFalse(
+            has_folder_permission(self.user, self.root, self.PC.READ_PUBLISHED)
+        )
+
+    def test_legacy_fallback_enabled_explicitly(self):
+        """Con include_legacy_fallback=True il fallback è attivo."""
+        ProjectFolderMembership.objects.create(
+            folder=self.root, user=self.user, role='reader'
+        )
+        from projects.resolver import has_folder_permission
+        self.assertTrue(
+            has_folder_permission(
+                self.user, self.root, self.PC.READ_PUBLISHED,
+                include_legacy_fallback=True,
+            )
+        )
+
+    def test_modular_grant_prevails_over_legacy_fallback(self):
+        """Grant modulare allow prevale sul fallback legacy (che avrebbe comunque allow)."""
+        ProjectFolderMembership.objects.create(
+            folder=self.root, user=self.user, role='reader'
+        )
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='allow')
+        from projects.resolver import has_folder_permission
+        self.assertTrue(
+            has_folder_permission(
+                self.user, self.root, self.PC.READ_PUBLISHED,
+                include_legacy_fallback=True,
+            )
+        )
+
+    def test_modular_deny_not_overridden_by_legacy_fallback(self):
+        """Grant modulare deny NON viene sovrascritto dal fallback legacy."""
+        # Membership reader → avrebbe READ_PUBLISHED via fallback
+        ProjectFolderMembership.objects.create(
+            folder=self.root, user=self.user, role='reader'
+        )
+        # Grant modulare esplicito: deny
+        self._grant_user(self.root, self.PC.READ_PUBLISHED, effect='deny')
+        from projects.resolver import has_folder_permission
+        self.assertFalse(
+            has_folder_permission(
+                self.user, self.root, self.PC.READ_PUBLISHED,
+                include_legacy_fallback=True,
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Fallback legacy — mapping conservativo per ruolo
+    # ------------------------------------------------------------------
+
+    def _check_legacy(self, role, perm, expected):
+        """Helper: crea membership con role e verifica il permesso via fallback."""
+        ProjectFolderMembership.objects.filter(folder=self.root, user=self.user).delete()
+        ProjectFolderMembership.objects.create(
+            folder=self.root, user=self.user, role=role
+        )
+        from projects.resolver import has_folder_permission
+        result = has_folder_permission(
+            self.user, self.root, perm,
+            include_legacy_fallback=True,
+        )
+        self.assertEqual(
+            result, expected,
+            f"ruolo={role} perm={perm} atteso={expected} ottenuto={result}",
+        )
+
+    def test_legacy_reader_can_read_published(self):
+        self._check_legacy('reader', self.PC.READ_PUBLISHED, True)
+
+    def test_legacy_reader_cannot_create_draft(self):
+        self._check_legacy('reader', self.PC.CREATE_DRAFT, False)
+
+    def test_legacy_author_can_read_published(self):
+        self._check_legacy('author', self.PC.READ_PUBLISHED, True)
+
+    def test_legacy_author_can_create_draft(self):
+        self._check_legacy('author', self.PC.CREATE_DRAFT, True)
+
+    def test_legacy_author_cannot_manage_folder(self):
+        self._check_legacy('author', self.PC.MANAGE_FOLDER, False)
+
+    def test_legacy_approver_can_read_published(self):
+        self._check_legacy('approver', self.PC.READ_PUBLISHED, True)
+
+    def test_legacy_approver_is_eligible_approver(self):
+        self._check_legacy('approver', self.PC.ELIGIBLE_APPROVER, True)
+
+    def test_legacy_approver_cannot_create_draft(self):
+        self._check_legacy('approver', self.PC.CREATE_DRAFT, False)
+
+    def test_legacy_auditor_can_view_history(self):
+        self._check_legacy('auditor', self.PC.VIEW_HISTORY, True)
+
+    def test_legacy_auditor_can_view_obsolete(self):
+        self._check_legacy('auditor', self.PC.VIEW_OBSOLETE_DOCUMENTS, True)
+
+    def test_legacy_auditor_cannot_create_draft(self):
+        self._check_legacy('auditor', self.PC.CREATE_DRAFT, False)
+
+    def test_legacy_manager_can_manage_folder(self):
+        self._check_legacy('manager', self.PC.MANAGE_FOLDER, True)
+
+    def test_legacy_manager_can_do_everything(self):
+        from projects.resolver import _LEGACY_MANAGER_PERMISSIONS
+        for perm in _LEGACY_MANAGER_PERMISSIONS:
+            self._check_legacy('manager', perm, True)
