@@ -1015,9 +1015,11 @@ class ECNFormApproverQuerysetTests(TestCase):
 class ECNServiceWorkflowTests(TestCase):
 
     def setUp(self):
+        from documents.permissions import GROUP_QUALITY_MANAGER
         self.proposer = _make_user('wf_proposer')
         self.ccb      = _make_user_in_groups('wf_ccb', GROUP_CCB)
-        self.manager  = _make_user_in_groups('wf_mgr', GROUP_MANAGERS)
+        # MB1: il manager deve avere Quality Manager per submit/close ECN
+        self.manager  = _make_user_in_groups('wf_mgr', GROUP_MANAGERS, GROUP_QUALITY_MANAGER)
         self.stranger = _make_user('wf_stranger')
 
         self.folder   = _make_folder(self.manager, 'FOLD-WF')
@@ -1941,10 +1943,12 @@ class ECNDashboardAndMyViewTests(TestCase):
         self.ccb_user  = _make_user('dash_ccb')
         self.stranger  = _make_user('dash_stranger')
 
-        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
-        grp_aud = Group.objects.get_or_create(name='Document Auditors')[0]
-        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        grp_mgr  = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
+        grp_aud  = Group.objects.get_or_create(name='Document Auditors')[0]
+        grp_ccb  = Group.objects.get_or_create(name='Change Control Board')[0]
+        # MB1: dashboard ECN richiede Quality Manager (non Document Manager/Auditor)
+        self.manager.groups.add(grp_mgr, grp_qmgr)
         self.auditor.groups.add(grp_aud)
         self.ccb_user.groups.add(grp_ccb)
 
@@ -1972,10 +1976,11 @@ class ECNDashboardAndMyViewTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, 'Cruscotto ECN')
 
-    def test_ecn_dashboard_auditor_can_access(self):
+    def test_ecn_dashboard_auditor_forbidden(self):
+        """MB1: Document Auditor NON accede al cruscotto ECN (solo Quality roles)."""
         self.client.force_login(self.auditor)
         r = self.client.get('/ecn/dashboard/')
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 403)
 
     def test_ecn_dashboard_proposer_forbidden(self):
         """Utenti normali (non manager/auditor) non possono accedere al cruscotto."""
