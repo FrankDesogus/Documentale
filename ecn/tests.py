@@ -2238,9 +2238,11 @@ class ECNEditViewTests(TestCase):
         self.stranger = _make_user('vtest_stranger')
         self.ccb_user = _make_user('vtest_ccb')
 
-        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
-        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        grp_mgr  = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
+        grp_ccb  = Group.objects.get_or_create(name='Change Control Board')[0]
+        # MB1: ecn_edit/reopen_ccb richiedono Quality Manager per le azioni di governance
+        self.manager.groups.add(grp_mgr, grp_qmgr)
         self.ccb_user.groups.add(grp_ccb)
 
         self.folder   = _make_folder(self.manager, code='FOLD-VT')
