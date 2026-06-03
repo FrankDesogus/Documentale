@@ -1418,3 +1418,147 @@ class ProjectCreateWithFolderTests(TestCase):
         )
         self.assertContains(response, 'Cartella documentale')
         self.assertContains(response, 'Cartella Progetto')
+
+
+# ===========================================================================
+# Step A — Materialized Path tests
+# ===========================================================================
+
+class FolderPathTests(TestCase):
+    """Test per il materialized path di ProjectFolder."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('path_owner', password='pw')
+
+    def _make(self, code, parent=None):
+        return ProjectFolder.objects.create(
+            code=code, name=code, folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner, parent=parent,
+        )
+
+    # 1. Root → /pk/
+    def test_root_path(self):
+        from projects.services import set_folder_path
+        f = self._make('ROOT-A')
+        set_folder_path(f)
+        self.assertEqual(f.path, f"/{f.pk}/")
+
+    # 2. Child → /parent_pk/pk/
+    def test_child_path(self):
+        from projects.services import set_folder_path
+        root = self._make('ROOT-B')
+        set_folder_path(root)
+        child = self._make('CHILD-B', parent=root)
+        set_folder_path(child)
+        self.assertEqual(child.path, f"/{root.pk}/{child.pk}/")
+
+    # 3. Profondità 3 livelli
+    def test_depth_3(self):
+        from projects.services import set_folder_path
+        a = self._make('D3-A'); set_folder_path(a)
+        b = self._make('D3-B', parent=a); set_folder_path(b)
+        c = self._make('D3-C', parent=b); set_folder_path(c)
+        self.assertEqual(c.path, f"/{a.pk}/{b.pk}/{c.pk}/")
+
+    # 4. Move di nodo intermedio
+    def test_move_intermediate(self):
+        from projects.services import set_folder_path, move_folder
+        r = self._make('MV-R'); set_folder_path(r)
+        a = self._make('MV-A', parent=r); set_folder_path(a)
+        b = self._make('MV-B'); set_folder_path(b)
+        # Sposta a sotto b
+        move_folder(a, b)
+        a.refresh_from_db()
+        self.assertEqual(a.path, f"/{b.pk}/{a.pk}/")
+
+    # 5. Path discendenti aggiornati dopo move
+    def test_descendants_updated_after_move(self):
+        from projects.services import set_folder_path, move_folder
+        r = self._make('DU-R'); set_folder_path(r)
+        a = self._make('DU-A', parent=r); set_folder_path(a)
+        child = self._make('DU-C', parent=a); set_folder_path(child)
+        grand = self._make('DU-G', parent=child); set_folder_path(grand)
+        new_root = self._make('DU-NR'); set_folder_path(new_root)
+        # Sposta a sotto new_root
+        move_folder(a, new_root)
+        child.refresh_from_db(); grand.refresh_from_db()
+        self.assertEqual(child.path, f"/{new_root.pk}/{a.pk}/{child.pk}/")
+        self.assertEqual(grand.path, f"/{new_root.pk}/{a.pk}/{child.pk}/{grand.pk}/")
+
+    # 6. Ciclo bloccato
+    def test_cycle_blocked(self):
+        from django.core.exceptions import ValidationError
+        from projects.services import set_folder_path, move_folder
+        r = self._make('CY-R'); set_folder_path(r)
+        c = self._make('CY-C', parent=r); set_folder_path(c)
+        with self.assertRaises(ValidationError):
+            move_folder(r, c)
+
+    # 7. parent=self bloccato
+    def test_self_as_parent_blocked(self):
+        from django.core.exceptions import ValidationError
+        from projects.services import set_folder_path, move_folder
+        f = self._make('SELF-A'); set_folder_path(f)
+        with self.assertRaises(ValidationError):
+            move_folder(f, f)
+
+    # 8. Cartelle legacy valorizzate (data migration)
+    def test_legacy_folders_valorized(self):
+        """Tutte le cartelle create prima della migration hanno path valorizzato."""
+        from projects.services import build_folder_path_for_existing
+        # Crea cartelle senza path
+        r = self._make('LEG-R')
+        c = self._make('LEG-C', parent=r)
+        # Azzera i path (simula stato pre-migration)
+        ProjectFolder.objects.filter(pk__in=[r.pk, c.pk]).update(path='')
+        r.refresh_from_db(); c.refresh_from_db()
+        self.assertEqual(r.path, '')
+        self.assertEqual(c.path, '')
+        # Esegui valorizzazione
+        build_folder_path_for_existing()
+        r.refresh_from_db(); c.refresh_from_db()
+        self.assertEqual(r.path, f"/{r.pk}/")
+        self.assertEqual(c.path, f"/{r.pk}/{c.pk}/")
+
+    # 9. Path è indicizzato (db_index)
+    def test_path_field_has_db_index(self):
+        field = ProjectFolder._meta.get_field('path')
+        self.assertTrue(field.db_index)
+
+    # 10. Move atomico — get_folder_descendants dopo move
+    def test_move_atomic_descendants_consistent(self):
+        from projects.services import set_folder_path, move_folder, get_folder_descendants
+        r = self._make('AT-R'); set_folder_path(r)
+        a = self._make('AT-A', parent=r); set_folder_path(a)
+        b = self._make('AT-B', parent=a); set_folder_path(b)
+        nr = self._make('AT-NR'); set_folder_path(nr)
+        move_folder(a, nr)
+        a.refresh_from_db()
+        # Tutti i discendenti di a devono avere path corretto
+        desc_pks = set(get_folder_descendants(a).values_list('pk', flat=True))
+        self.assertIn(b.pk, desc_pks)
+        b.refresh_from_db()
+        self.assertTrue(b.path.startswith(a.path))
+
+    # 11. get_folder_ancestors
+    def test_get_ancestors(self):
+        from projects.services import set_folder_path, get_folder_ancestors
+        r = self._make('ANC-R'); set_folder_path(r)
+        a = self._make('ANC-A', parent=r); set_folder_path(a)
+        b = self._make('ANC-B', parent=a); set_folder_path(b)
+        ancestors = list(get_folder_ancestors(b))
+        ancestor_pks = [x.pk for x in ancestors]
+        self.assertIn(r.pk, ancestor_pks)
+        self.assertIn(a.pk, ancestor_pks)
+        self.assertNotIn(b.pk, ancestor_pks)
+
+    # 12. get_folder_descendants
+    def test_get_descendants(self):
+        from projects.services import set_folder_path, get_folder_descendants
+        r = self._make('DESC-R'); set_folder_path(r)
+        a = self._make('DESC-A', parent=r); set_folder_path(a)
+        b = self._make('DESC-B', parent=a); set_folder_path(b)
+        desc_pks = set(get_folder_descendants(r).values_list('pk', flat=True))
+        self.assertIn(a.pk, desc_pks)
+        self.assertIn(b.pk, desc_pks)
+        self.assertNotIn(r.pk, desc_pks)

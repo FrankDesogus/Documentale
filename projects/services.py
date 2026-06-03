@@ -3,7 +3,149 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Project, ProjectRevision, ProjectRevisionItem
+from .models import Project, ProjectFolder, ProjectRevision, ProjectRevisionItem
+
+
+# ---------------------------------------------------------------------------
+# Materialized path helpers per ProjectFolder
+# ---------------------------------------------------------------------------
+
+def build_folder_path(folder) -> str:
+    """
+    Calcola il materialized path di una cartella senza salvarlo.
+
+    Richiede che il parent abbia già un path valorizzato oppure sia None.
+    Formato: /pk/ per root, /parent_pk/child_pk/ per le sottocartelle.
+    """
+    if folder.parent_id is None:
+        return f"/{folder.pk}/"
+    parent_path = folder.parent.path if folder.parent else ""
+    if not parent_path:
+        # Fallback nel caso il parent non abbia ancora un path
+        parent_path = f"/{folder.parent_id}/"
+    return f"{parent_path}{folder.pk}/"
+
+
+def set_folder_path(folder, save: bool = True) -> str:
+    """
+    Calcola e assegna il path materializzato a una cartella.
+    Se save=True, persiste solo il campo path.
+    Ritorna il path calcolato.
+    """
+    folder.path = build_folder_path(folder)
+    if save:
+        folder.save(update_fields=['path'])
+    return folder.path
+
+
+def get_folder_ancestors(folder):
+    """
+    Restituisce QuerySet delle cartelle antenate (esclusa la cartella stessa),
+    ordinate dal root verso il parent diretto.
+    """
+    if not folder.path:
+        return ProjectFolder.objects.none()
+    parts = [p for p in folder.path.split('/') if p]
+    ancestor_pks = [int(p) for p in parts[:-1]]  # escludi l'ultimo (sé stessa)
+    if not ancestor_pks:
+        return ProjectFolder.objects.none()
+    # Preserva l'ordine root → leaf
+    from django.db.models import Case, When, IntegerField
+    ordering = Case(
+        *[When(pk=pk, then=pos) for pos, pk in enumerate(ancestor_pks)],
+        output_field=IntegerField(),
+    )
+    return ProjectFolder.objects.filter(pk__in=ancestor_pks).order_by(ordering)
+
+
+def get_folder_descendants(folder):
+    """
+    Restituisce QuerySet di tutte le cartelle discendenti (esclusa la cartella stessa).
+    Usa il prefisso del path per la query, quindi O(1) SQL.
+    """
+    if not folder.path:
+        return ProjectFolder.objects.none()
+    return ProjectFolder.objects.filter(path__startswith=folder.path).exclude(pk=folder.pk)
+
+
+@transaction.atomic
+def move_folder(folder, new_parent) -> None:
+    """
+    Sposta una cartella sotto un nuovo parent (o alla root se new_parent=None).
+
+    Operazioni:
+      1. Verifica che new_parent non sia sé stessa.
+      2. Verifica che lo spostamento non crei un ciclo.
+      3. Aggiorna parent e path della cartella.
+      4. Aggiorna il path di tutti i discendenti con bulk_update.
+
+    Tutto in transazione atomica.
+    """
+    if new_parent is not None and new_parent.pk == folder.pk:
+        raise ValidationError("Una cartella non può essere il proprio genitore.")
+
+    if new_parent is not None:
+        # Ciclo: new_parent è già un discendente di folder?
+        if folder.path and new_parent.path.startswith(folder.path):
+            raise ValidationError(
+                f"Spostamento non consentito: '{new_parent.code}' è già "
+                f"un discendente di '{folder.code}'."
+            )
+
+    old_path = folder.path
+
+    # Calcola nuovo path
+    if new_parent is None:
+        new_path = f"/{folder.pk}/"
+    else:
+        if not new_parent.path:
+            new_parent.path = f"/{new_parent.pk}/"
+            new_parent.save(update_fields=['path'])
+        new_path = f"{new_parent.path}{folder.pk}/"
+
+    # Aggiorna la cartella
+    folder.parent = new_parent
+    folder.path = new_path
+    folder.save(update_fields=['parent', 'path'])
+
+    # Aggiorna i discendenti (se old_path è valorizzato)
+    if old_path:
+        descendants = list(
+            ProjectFolder.objects.filter(path__startswith=old_path).exclude(pk=folder.pk)
+        )
+        for desc in descendants:
+            desc.path = new_path + desc.path[len(old_path):]
+        if descendants:
+            ProjectFolder.objects.bulk_update(descendants, ['path'])
+
+
+def build_folder_path_for_existing() -> int:
+    """
+    Valorizza il campo path per tutte le cartelle esistenti che lo hanno vuoto.
+    Usato dalla data migration. Lavora BFS dal root verso le foglie.
+    Ritorna il numero di cartelle aggiornate.
+    """
+    updated = 0
+    # Prima passata: root (parent=None)
+    roots = ProjectFolder.objects.filter(parent__isnull=True, path='')
+    for folder in roots:
+        folder.path = f"/{folder.pk}/"
+        folder.save(update_fields=['path'])
+        updated += 1
+
+    # Passate successive: livello per livello fino a max depth
+    max_depth = 50
+    for _ in range(max_depth):
+        unset = ProjectFolder.objects.filter(path='').exclude(parent__isnull=True)
+        if not unset.exists():
+            break
+        for folder in unset.select_related('parent'):
+            if folder.parent and folder.parent.path:
+                folder.path = f"{folder.parent.path}{folder.pk}/"
+                folder.save(update_fields=['path'])
+                updated += 1
+
+    return updated
 
 
 def get_project_document_folders(project):

@@ -1,4 +1,5 @@
-from django.contrib.auth.models import User
+from django.conf import settings
+from django.contrib.auth.models import Group, User
 from django.db import models
 
 
@@ -54,6 +55,15 @@ class ProjectFolder(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True, verbose_name='Attivo')
+
+    # Materialized path — formato /pk/ oppure /parent_pk/child_pk/
+    # Valorizzato dai service, non in .save().
+    path = models.CharField(
+        max_length=1000,
+        blank=True,
+        db_index=True,
+        verbose_name='Path materializzato',
+    )
 
     class Meta:
         verbose_name = 'Cartella'
