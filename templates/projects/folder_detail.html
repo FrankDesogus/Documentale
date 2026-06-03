@@ -39,6 +39,12 @@
   </dl>
 </div>
 
+{% if is_navigation_only %}
+<div class="card" style="background:#fef9e7;border-left:4px solid #f0b429;margin-bottom:1.25rem">
+  <p class="meta" style="margin:0">Accesso di navigazione: questa cartella è visibile come contenitore. Apri una sottocartella per accedere ai documenti.</p>
+</div>
+{% endif %}
+
 {# Progetti associati #}
 {% if folder_projects %}
 <h2 style="margin-bottom:.5rem">Progetti</h2>
@@ -76,6 +82,7 @@
 </div>
 {% endif %}
 
+{% if not is_navigation_only %}
 {# Documenti #}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
   <h2 style="margin:0">Documenti</h2>
@@ -128,4 +135,5 @@
   {% endif %}
 </div>
 {% endif %}
+{% endif %}{# /not is_navigation_only #}
 {% endblock %}

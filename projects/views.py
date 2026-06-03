@@ -30,9 +30,10 @@ def folder_list(request):
     if not user.is_superuser:
         from documents.permissions import is_document_manager, is_document_auditor
         if not (is_document_manager(user) or is_document_auditor(user)):
-            from projects.permissions import get_visible_folder_ids
-            visible_ids = get_visible_folder_ids(user)
-            qs = qs.filter(pk__in=visible_ids)
+            from projects.permissions import get_visible_folder_ids, get_navigation_folder_ids
+            visible_ids = set(get_visible_folder_ids(user))
+            nav_ids = get_navigation_folder_ids(user)
+            qs = qs.filter(pk__in=visible_ids | nav_ids)
 
     return render(request, 'projects/folder_list.html', {
         'folders': qs,
@@ -43,19 +44,45 @@ def folder_list(request):
 @login_required
 def folder_detail(request, folder_id):
     folder = get_object_or_404(ProjectFolder, pk=folder_id)
+    user = request.user
 
-    if not can_view_folder(request.user, folder):
-        raise PermissionDenied
+    is_readable = can_view_folder(user, folder)
+    is_navigation_only = False
+
+    if not is_readable:
+        if user.is_superuser:
+            is_readable = True
+        else:
+            from projects.permissions import get_navigation_folder_ids
+            if folder.pk in get_navigation_folder_ids(user):
+                is_navigation_only = True
+            else:
+                raise PermissionDenied
+
+    # Cartella navigation-only: solo contenitore, nessun contenuto operativo
+    if is_navigation_only:
+        from projects.permissions import get_visible_folder_ids, get_navigation_folder_ids
+        accessible_ids = set(get_visible_folder_ids(user)) | get_navigation_folder_ids(user)
+        subfolders = folder.subfolders.filter(pk__in=accessible_ids).order_by('code')
+        return render(request, 'projects/folder_detail.html', {
+            'folder': folder,
+            'subfolders': subfolders,
+            'documents': [],
+            'folder_projects': [],
+            'can_create': False,
+            'can_manage': False,
+            'can_create_project': False,
+            'is_navigation_only': True,
+        })
 
     subfolders = folder.subfolders.order_by('code')
 
     # Documenti visibili nella cartella:
-    # - documenti con versione corrente approvata (visibili a tutti con membership)
-    # - documenti per cui l'utente è autore di almeno una bozza (privata sua)
+    # - documenti con versione corrente approvata
+    # - documenti per cui l'utente è autore di almeno una bozza privata
     # Le bozze altrui non vengono esposte nella navigazione (MB1)
     from django.db.models import Exists, OuterRef
     from documents.models import DocumentVersion as _DocVer
-    user = request.user
     base_docs = folder.documents.select_related('current_version', 'owner').order_by('code')
     if user.is_superuser:
         documents = base_docs
@@ -70,16 +97,25 @@ def folder_detail(request, folder_id):
               current_version__status=_DocVer.Status.APPROVED)
             | Q(Exists(own_draft_qs))
         )
-    # Progetti associati a questa cartella (per mostrare link e bottone "Crea progetto")
-    folder_projects = Project.objects.filter(folder=folder).select_related('manager').order_by('code')
+
+    # Progetti: visibili solo se l'utente ha view_projects sulla cartella
+    from projects.resolver import has_folder_permission as _has_fperm
+    can_view_projs = _has_fperm(user, folder, 'view_projects', include_legacy_fallback=True)
+    folder_projects = (
+        Project.objects.filter(folder=folder).select_related('manager').order_by('code')
+        if can_view_projs else
+        Project.objects.none()
+    )
+
     return render(request, 'projects/folder_detail.html', {
         'folder': folder,
         'subfolders': subfolders,
         'documents': documents,
         'folder_projects': folder_projects,
-        'can_create': _can_create_folder(request.user),
-        'can_manage': can_manage_folder(request.user, folder),
-        'can_create_project': _can_manage_project(request.user),
+        'can_create': _can_create_folder(user),
+        'can_manage': can_manage_folder(user, folder),
+        'can_create_project': _can_manage_project(user),
+        'is_navigation_only': False,
     })
 
 
@@ -142,8 +178,8 @@ def project_list(request):
     qs = Project.objects.select_related('folder', 'manager').order_by('code')
 
     if not _can_manage_project(request.user):
-        from projects.permissions import get_visible_folder_ids
-        visible_ids = get_visible_folder_ids(request.user)
+        from projects.permissions import get_project_visible_folder_ids
+        visible_ids = get_project_visible_folder_ids(request.user)
         qs = qs.filter(
             Q(folder__isnull=False) & Q(folder_id__in=visible_ids)
         )
@@ -159,8 +195,16 @@ def project_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
 
     if not _can_manage_project(request.user):
-        if project.folder and can_view_folder(request.user, project.folder):
-            pass
+        if project.folder:
+            # Document Auditor globale può vedere il dettaglio progetto (per audit)
+            from projects.permissions import _is_privileged
+            if not _is_privileged(request.user):
+                from projects.resolver import has_folder_permission as _has_fperm
+                if not _has_fperm(
+                    request.user, project.folder, 'view_projects',
+                    include_legacy_fallback=True,
+                ):
+                    raise PermissionDenied
         else:
             raise PermissionDenied
 
@@ -331,8 +375,15 @@ def project_revision_detail(request, revision_id):
     project = revision.project
 
     if not _can_manage_project(request.user):
-        if project and project.folder and can_view_folder(request.user, project.folder):
-            pass
+        if project and project.folder:
+            from projects.permissions import _is_privileged
+            if not _is_privileged(request.user):
+                from projects.resolver import has_folder_permission as _has_fperm
+                if not _has_fperm(
+                    request.user, project.folder, 'view_projects',
+                    include_legacy_fallback=True,
+                ):
+                    raise PermissionDenied
         else:
             raise PermissionDenied
 

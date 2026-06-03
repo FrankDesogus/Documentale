@@ -284,7 +284,7 @@ class PermissionResolver:
 
     def _legacy_fallback(self, folder, permission_code: str) -> bool:
         """
-        Fallback conservativo basato su ProjectFolderMembership.
+        Fallback conservativo basato su ProjectFolderMembership (singola cartella).
         Invocato solo se include_legacy_fallback=True e nessun grant modulare
         ha prodotto una decisione. Non sovrascrive un deny modulare.
         """
@@ -298,6 +298,160 @@ class PermissionResolver:
         role = membership.role
         allowed = _LEGACY_ROLE_PERMISSIONS.get(role, frozenset())
         return permission_code in allowed
+
+    def _legacy_fallback_bulk(
+        self,
+        folders: list,
+        permission_code: str,
+    ) -> dict[int, bool]:
+        """
+        Fallback legacy per più cartelle in una singola query.
+        Usato da resolve_bulk per minimizzare le query DB.
+        """
+        from projects.models import ProjectFolderMembership
+        folder_ids = [f.pk for f in folders]
+        memberships = {
+            m['folder_id']: m['role']
+            for m in ProjectFolderMembership.objects.filter(
+                folder_id__in=folder_ids,
+                user=self._user,
+            ).values('folder_id', 'role')
+        }
+        return {
+            f.pk: permission_code in _LEGACY_ROLE_PERMISSIONS.get(
+                memberships.get(f.pk, ''), frozenset()
+            )
+            for f in folders
+        }
+
+    # ------------------------------------------------------------------
+    # Bulk API
+    # ------------------------------------------------------------------
+
+    def resolve_bulk(
+        self,
+        folders: list,
+        permission_code: str,
+    ) -> dict[int, bool]:
+        """
+        Risolve il permesso per una lista di cartelle in modo efficiente.
+
+        Usa al massimo 3 query DB totali:
+          1. group_ids (cached dopo la prima chiamata)
+          2. FolderPermissionGrant (tutti i folder + antenati in una sola query)
+          3. ProjectFolderMembership (solo per cartelle senza decisione modulare,
+             e solo se include_legacy_fallback=True)
+
+        Rispetta le stesse regole del resolver singolo:
+          - specificità child > parent
+          - user_deny > user_allow > group_deny > group_allow
+          - ereditarietà (inherit_to_children)
+          - grant scaduti ignorati
+          - default deny
+          - superuser bypass
+          - staff senza bypass
+
+        Returns: dict {folder_pk: bool}
+        """
+        from django.db.models import Q
+
+        if not folders:
+            return {}
+
+        # Fast path: anonimo
+        if _is_anonymous(self._user):
+            return {f.pk: False for f in folders}
+
+        # Fast path: superuser
+        if self._user.is_superuser:
+            return {f.pk: True for f in folders}
+
+        result: dict[int, bool] = {}
+        needs_resolution: list = []
+
+        # Recupera risultati già in cache
+        for f in folders:
+            cache_key = (f.pk, permission_code)
+            if cache_key in self._cache:
+                result[f.pk] = self._cache[cache_key]
+            else:
+                needs_resolution.append(f)
+
+        if not needs_resolution:
+            return result
+
+        # Per ogni folder che richiede risoluzione, costruisce la catena
+        # folder_pk → [folder_pk, parent_pk, grandparent_pk, ...]
+        folder_chain_map: dict[int, list[int]] = {}
+        all_pks_needed: set[int] = set()
+
+        for f in needs_resolution:
+            ancestor_pks = self._get_ancestor_pks_near_to_far(f)
+            chain = [f.pk] + ancestor_pks
+            folder_chain_map[f.pk] = chain
+            all_pks_needed.update(chain)
+
+        # UNA query per tutti i grant rilevanti (folder correnti + antenati)
+        now = timezone.now()
+        group_ids = self._get_group_ids()
+        user_q = Q(user=self._user)
+        group_q = Q(group_id__in=group_ids) if group_ids else Q(pk__in=[])
+
+        from projects.models import FolderPermissionGrant
+        grants_raw = list(
+            FolderPermissionGrant.objects.filter(
+                (user_q | group_q),
+                folder_id__in=all_pks_needed,
+                permission_code=permission_code,
+            ).filter(
+                Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+            ).values(
+                'folder_id', 'user_id', 'group_id', 'effect', 'inherit_to_children'
+            )
+        )
+
+        # Raggruppa per folder_pk
+        grants_by_folder: dict[int, list[dict]] = {}
+        for g in grants_raw:
+            grants_by_folder.setdefault(g['folder_id'], []).append(g)
+
+        # Risolve ogni folder usando i grant caricati
+        needs_legacy: list = []
+
+        for f in needs_resolution:
+            chain = folder_chain_map[f.pk]
+            decision: Optional[bool] = None
+
+            for i, folder_pk in enumerate(chain):
+                level_grants = grants_by_folder.get(folder_pk, [])
+                if not level_grants:
+                    continue
+                if i > 0:  # antenato: solo grant ereditabili
+                    level_grants = [g for g in level_grants if g['inherit_to_children']]
+                    if not level_grants:
+                        continue
+                level_decision = self._evaluate_grants_at_level(level_grants)
+                if level_decision is not None:
+                    decision = level_decision
+                    break
+
+            if decision is not None:
+                result[f.pk] = decision
+                self._cache[(f.pk, permission_code)] = decision
+            elif self._include_legacy_fallback:
+                needs_legacy.append(f)
+            else:
+                result[f.pk] = False
+                self._cache[(f.pk, permission_code)] = False
+
+        # UNA query per il fallback legacy (solo per folder senza decisione modulare)
+        if needs_legacy:
+            legacy_results = self._legacy_fallback_bulk(needs_legacy, permission_code)
+            for pk, decision in legacy_results.items():
+                result[pk] = decision
+                self._cache[(pk, permission_code)] = decision
+
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -317,3 +471,15 @@ def has_folder_permission(
         include_legacy_fallback=include_legacy_fallback,
     )
     return resolver.has_permission(folder, permission_code)
+
+
+def resolve_folder_permissions(
+    user,
+    folders: list,
+    permission_code: str,
+    *,
+    include_legacy_fallback: bool = False,
+) -> dict[int, bool]:
+    """Risolve il permesso per una lista di cartelle in un'unica chiamata efficiente."""
+    resolver = PermissionResolver(user, include_legacy_fallback=include_legacy_fallback)
+    return resolver.resolve_bulk(folders, permission_code)

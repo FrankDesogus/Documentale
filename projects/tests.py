@@ -2661,3 +2661,529 @@ class StepEFolderPermissionsIntegrationTests(TestCase):
         """staff non-superuser senza grant → deny."""
         from projects.permissions import can_manage_folder
         self.assertFalse(can_manage_folder(self.staff, self.root))
+
+
+# ===========================================================================
+# Step F — Bulk resolver tests
+# ===========================================================================
+
+class BulkResolverTests(TestCase):
+    """Test della API bulk PermissionResolver.resolve_bulk."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group as DjangoGroup
+        from projects.services import set_folder_path
+
+        self.owner = User.objects.create_user('blk_owner', password='pw')
+        self.user = User.objects.create_user('blk_user', password='pw')
+        self.superuser = User.objects.create_user('blk_super', password='pw', is_superuser=True)
+        self.staff = User.objects.create_user('blk_staff', password='pw', is_staff=True)
+        self.group = DjangoGroup.objects.create(name='Bulk Test Group')
+
+        self.root = ProjectFolder.objects.create(
+            code='BLK-R', name='Root',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(self.root)
+        self.child = ProjectFolder.objects.create(
+            code='BLK-C', name='Child',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            parent=self.root,
+        )
+        set_folder_path(self.child)
+        self.other = ProjectFolder.objects.create(
+            code='BLK-O', name='Other',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(self.other)
+
+    def _grant_user(self, folder, perm, effect='allow', inherit=True, expires_at=None):
+        return FolderPermissionGrant.objects.create(
+            folder=folder, user=self.user,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit, expires_at=expires_at,
+        )
+
+    def _grant_group(self, folder, perm, effect='allow', inherit=True):
+        return FolderPermissionGrant.objects.create(
+            folder=folder, group=self.group,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit,
+        )
+
+    def _bulk(self, user=None, legacy=False):
+        from projects.resolver import PermissionResolver
+        return PermissionResolver(user or self.user, include_legacy_fallback=legacy)
+
+    # 1. Bulk allow utente
+    def test_bulk_user_allow(self):
+        self._grant_user(self.root, 'read_published', effect='allow')
+        results = self._bulk().resolve_bulk([self.root, self.other], 'read_published')
+        self.assertTrue(results[self.root.pk])
+        self.assertFalse(results[self.other.pk])
+
+    # 2. Bulk deny utente
+    def test_bulk_user_deny(self):
+        self._grant_user(self.root, 'read_published', effect='deny')
+        results = self._bulk().resolve_bulk([self.root], 'read_published')
+        self.assertFalse(results[self.root.pk])
+
+    # 3. Bulk allow gruppo
+    def test_bulk_group_allow(self):
+        self.user.groups.add(self.group)
+        self._grant_group(self.root, 'read_published', effect='allow')
+        results = self._bulk().resolve_bulk([self.root], 'read_published')
+        self.assertTrue(results[self.root.pk])
+
+    # 4. Bulk deny gruppo
+    def test_bulk_group_deny(self):
+        self.user.groups.add(self.group)
+        self._grant_group(self.root, 'read_published', effect='deny')
+        results = self._bulk().resolve_bulk([self.root], 'read_published')
+        self.assertFalse(results[self.root.pk])
+
+    # 5. Child deny prevale su parent allow
+    def test_bulk_child_deny_overrides_parent_allow(self):
+        self._grant_user(self.root, 'read_published', effect='allow', inherit=True)
+        self._grant_user(self.child, 'read_published', effect='deny')
+        results = self._bulk().resolve_bulk([self.root, self.child], 'read_published')
+        self.assertTrue(results[self.root.pk])
+        self.assertFalse(results[self.child.pk])
+
+    # 6. Child allow prevale su parent deny
+    def test_bulk_child_allow_overrides_parent_deny(self):
+        self._grant_user(self.root, 'read_published', effect='deny', inherit=True)
+        self._grant_user(self.child, 'read_published', effect='allow')
+        results = self._bulk().resolve_bulk([self.child], 'read_published')
+        self.assertTrue(results[self.child.pk])
+
+    # 7. User override prevale su gruppo (user_allow > group_deny)
+    def test_bulk_user_allow_overrides_group_deny(self):
+        self.user.groups.add(self.group)
+        self._grant_user(self.root, 'read_published', effect='allow')
+        self._grant_group(self.root, 'read_published', effect='deny')
+        results = self._bulk().resolve_bulk([self.root], 'read_published')
+        self.assertTrue(results[self.root.pk])
+
+    # 8. Grant scaduto ignorato
+    def test_bulk_expired_grant_ignored(self):
+        past = timezone.now() - timezone.timedelta(seconds=1)
+        self._grant_user(self.root, 'read_published', effect='allow', expires_at=past)
+        results = self._bulk().resolve_bulk([self.root], 'read_published')
+        self.assertFalse(results[self.root.pk])
+
+    # 9. Bulk fallback legacy
+    def test_bulk_legacy_fallback(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.root, user=self.user, role='reader'
+        )
+        results = self._bulk(legacy=True).resolve_bulk([self.root, self.other], 'read_published')
+        self.assertTrue(results[self.root.pk])
+        self.assertFalse(results[self.other.pk])
+
+    # 10. Deny modulare blocca legacy allow
+    def test_bulk_modular_deny_blocks_legacy_allow(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.root, user=self.user, role='reader'
+        )
+        self._grant_user(self.root, 'read_published', effect='deny')
+        results = self._bulk(legacy=True).resolve_bulk([self.root], 'read_published')
+        self.assertFalse(results[self.root.pk])
+
+    # 11. Senza grant e senza membership → deny
+    def test_bulk_no_grant_no_membership_deny(self):
+        results = self._bulk(legacy=True).resolve_bulk([self.root, self.child, self.other], 'read_published')
+        self.assertFalse(results[self.root.pk])
+        self.assertFalse(results[self.child.pk])
+        self.assertFalse(results[self.other.pk])
+
+    # 12. Superuser → tutto allow
+    def test_bulk_superuser_all_allow(self):
+        from projects.resolver import PermissionResolver
+        resolver = PermissionResolver(self.superuser)
+        results = resolver.resolve_bulk([self.root, self.child, self.other], 'read_published')
+        self.assertTrue(all(results.values()))
+
+    # 13. Staff senza grant → deny
+    def test_bulk_staff_no_grant_deny(self):
+        from projects.resolver import PermissionResolver
+        resolver = PermissionResolver(self.staff)
+        results = resolver.resolve_bulk([self.root], 'read_published')
+        self.assertFalse(results[self.root.pk])
+
+    # 14. Query count ragionevole su albero multi-cartella
+    def test_bulk_query_count_reasonable(self):
+        """resolve_bulk deve usare un numero fisso di query indipendentemente dal numero di cartelle."""
+        from projects.resolver import PermissionResolver
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+
+        # Crea 5 cartelle extra per verificare che non ci sia N+1
+        from projects.services import set_folder_path
+        extra_folders = []
+        for i in range(5):
+            f = ProjectFolder.objects.create(
+                code=f'BLK-EX{i}', name=f'Extra {i}',
+                folder_kind=ProjectFolder.FolderKind.GENERIC,
+                status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            )
+            set_folder_path(f)
+            extra_folders.append(f)
+            FolderPermissionGrant.objects.create(
+                folder=f, user=self.user,
+                permission_code='read_published', effect='allow',
+            )
+
+        resolver = PermissionResolver(self.user, include_legacy_fallback=True)
+        all_folders = [self.root, self.child, self.other] + extra_folders
+
+        # Pre-carica group_ids per non contarla nel bulk
+        resolver._get_group_ids()
+
+        with CaptureQueriesContext(connection) as ctx:
+            results = resolver.resolve_bulk(all_folders, 'read_published')
+
+        # Massimo 2 query: 1 per grants, 1 per legacy membership
+        self.assertLessEqual(len(ctx), 2,
+            f"resolve_bulk ha eseguito {len(ctx)} query su {len(all_folders)} cartelle")
+
+
+# ===========================================================================
+# Step F — Cartelle: visibilità e navigazione
+# ===========================================================================
+
+class StepFFolderListIntegrationTests(TestCase):
+    """
+    Verifica l'integrazione del resolver nelle liste cartelle,
+    incluso il concetto di cartella navigation-only.
+    """
+
+    def setUp(self):
+        from projects.services import set_folder_path
+        self.owner = User.objects.create_user('sff_owner', password='pw')
+        self.user = User.objects.create_user('sff_user', password='pw')
+        self.superuser = User.objects.create_user('sff_super', password='pw', is_superuser=True)
+
+        self.root = ProjectFolder.objects.create(
+            code='SFF-ROOT', name='Root',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(self.root)
+        self.child = ProjectFolder.objects.create(
+            code='SFF-CHILD', name='Child',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            parent=self.root,
+        )
+        set_folder_path(self.child)
+
+    def _grant_user(self, folder, perm, effect='allow', inherit=True):
+        return FolderPermissionGrant.objects.create(
+            folder=folder, user=self.user,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit,
+        )
+
+    def _membership(self, role, folder=None):
+        return ProjectFolderMembership.objects.create(
+            folder=folder or self.root, user=self.user, role=role,
+        )
+
+    # 1. Solo grant modulare: cartella visibile nella lista
+    def test_grant_only_user_sees_folder_in_list(self):
+        self._grant_user(self.root, 'read_published')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_list'))
+        codes = [f.code for f in resp.context['folders']]
+        self.assertIn('SFF-ROOT', codes)
+
+    # 2. Solo membership legacy: cartella ancora visibile
+    def test_legacy_membership_user_sees_folder_in_list(self):
+        self._membership('reader')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_list'))
+        codes = [f.code for f in resp.context['folders']]
+        self.assertIn('SFF-ROOT', codes)
+
+    # 3. Deny modulare nasconde la cartella nonostante membership
+    def test_deny_grant_hides_folder_despite_membership(self):
+        self._membership('reader')
+        self._grant_user(self.root, 'read_published', effect='deny')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_list'))
+        codes = [f.code for f in resp.context['folders']]
+        self.assertNotIn('SFF-ROOT', codes)
+
+    # 4. Allow ereditato: sottocartella raggiungibile mostra root come nav-only
+    def test_inherited_allow_shows_root_as_navigation_only(self):
+        # Grant su child (non su root) → root è navigation-only
+        self._grant_user(self.child, 'read_published')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_list'))
+        codes = [f.code for f in resp.context['folders']]
+        self.assertIn('SFF-ROOT', codes)  # root appare (navigation-only)
+
+    # 5. Deny child: solo quel ramo è nascosto, non la root
+    def test_deny_child_does_not_hide_parent(self):
+        self._grant_user(self.root, 'read_published', effect='allow', inherit=True)
+        self._grant_user(self.child, 'read_published', effect='deny')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_list'))
+        codes = [f.code for f in resp.context['folders']]
+        self.assertIn('SFF-ROOT', codes)  # root ancora visibile (leggibile)
+
+    # 6. Folder navigation-only: accesso consentito, context flag corretto
+    def test_navigation_only_folder_accessible_with_flag(self):
+        # Solo child ha read_published → root è navigation-only
+        self._grant_user(self.child, 'read_published')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['is_navigation_only'])
+
+    # 7. Navigation-only non mostra documenti
+    def test_navigation_only_no_documents_shown(self):
+        from documents.models import Document, DocumentVersion
+        self._grant_user(self.child, 'read_published')
+        # Crea un documento approvato nella root
+        doc = Document.objects.create(
+            code='SFF-NAV-DOC', title='Nav doc',
+            category=Document.Category.QUALITY,
+            project_folder=self.root,
+            owner=self.owner, created_by=self.owner,
+        )
+        ver = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.owner,
+        )
+        doc.current_version = ver
+        doc.save(update_fields=['current_version'])
+
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['is_navigation_only'])
+        # documents è lista vuota per navigation-only
+        self.assertEqual(list(resp.context['documents']), [])
+
+    # 8. Navigation-only non mostra progetti
+    def test_navigation_only_no_projects_shown(self):
+        self._grant_user(self.child, 'read_published')
+        Project.objects.create(
+            code='SFF-NAV-PRJ', name='Nav Project',
+            status=Project.Status.ACTIVE,
+            project_type=Project.ProjectType.INTERNAL,
+            folder=self.root, manager=self.owner, created_by=self.owner,
+        )
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['is_navigation_only'])
+        self.assertEqual(list(resp.context['folder_projects']), [])
+
+    # 9. Navigation-only non mostra pulsante creazione
+    def test_navigation_only_no_create_action(self):
+        self._grant_user(self.child, 'read_published')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        self.assertFalse(resp.context['can_create'])
+        self.assertFalse(resp.context['can_manage'])
+
+    # 10. Cartella non autorizzata → 403
+    def test_unauthorized_folder_returns_403(self):
+        # Nessun grant, nessuna membership, nessun discendente leggibile
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    # 11. Cartella leggibile → comportamento normale (is_navigation_only=False)
+    def test_readable_folder_normal_behavior(self):
+        self._membership('reader')
+        self.client.login(username='sff_user', password='pw')
+        resp = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context['is_navigation_only'])
+
+
+# ===========================================================================
+# Step F — Scrittura: cartelle scrivibili
+# ===========================================================================
+
+class StepFWriteIntegrationTests(TestCase):
+    """Verifica che get_writable_folder_ids e user_has_any_folder_write_access usino il resolver."""
+
+    def setUp(self):
+        from projects.services import set_folder_path
+        self.owner = User.objects.create_user('sfw_owner', password='pw')
+        self.user = User.objects.create_user('sfw_user', password='pw')
+        self.folder = ProjectFolder.objects.create(
+            code='SFW-FOLD', name='Write Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(self.folder)
+
+    def _grant_user(self, perm, effect='allow', inherit=False):
+        return FolderPermissionGrant.objects.create(
+            folder=self.folder, user=self.user,
+            permission_code=perm, effect=effect,
+            inherit_to_children=inherit,
+        )
+
+    # 1. Grant create_draft → cartella scrivibile
+    def test_create_draft_grant_makes_folder_writable(self):
+        self._grant_user('create_draft')
+        from projects.permissions import get_writable_folder_ids
+        self.assertIn(self.folder.pk, get_writable_folder_ids(self.user))
+
+    # 2. Membership author legacy → cartella ancora scrivibile
+    def test_author_legacy_membership_keeps_write_access(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='author'
+        )
+        from projects.permissions import get_writable_folder_ids
+        self.assertIn(self.folder.pk, get_writable_folder_ids(self.user))
+
+    # 3. Deny create_draft blocca membership author
+    def test_deny_create_draft_blocks_author_legacy(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='author'
+        )
+        self._grant_user('create_draft', effect='deny')
+        from projects.permissions import get_writable_folder_ids
+        self.assertNotIn(self.folder.pk, get_writable_folder_ids(self.user))
+
+    # 4. Navigation-only non è scrivibile
+    def test_navigation_only_not_writable(self):
+        # Nessun grant su folder → non è scrivibile
+        from projects.permissions import get_writable_folder_ids
+        self.assertNotIn(self.folder.pk, get_writable_folder_ids(self.user))
+
+    # 5. user_has_any_folder_write_access rileva grant modulare
+    def test_user_has_write_access_detects_modular_grant(self):
+        self._grant_user('create_draft')
+        from projects.permissions import user_has_any_folder_write_access
+        self.assertTrue(user_has_any_folder_write_access(self.user))
+
+
+# ===========================================================================
+# Step F — Progetti: visibilità
+# ===========================================================================
+
+class StepFProjectIntegrationTests(TestCase):
+    """Verifica che project_list e project_detail usino view_projects con fallback legacy."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group as DjangoGroup
+        from projects.services import set_folder_path
+
+        self.owner = User.objects.create_user('sfp_owner', password='pw')
+        self.user = User.objects.create_user('sfp_user', password='pw')
+        self.superuser = User.objects.create_user('sfp_super', password='pw', is_superuser=True)
+        self.staff = User.objects.create_user('sfp_staff', password='pw', is_staff=True)
+
+        self.folder = ProjectFolder.objects.create(
+            code='SFP-FOLD', name='Project Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+        )
+        set_folder_path(self.folder)
+
+        self.project = Project.objects.create(
+            code='SFP-PRJ', name='Test Project',
+            status=Project.Status.ACTIVE,
+            project_type=Project.ProjectType.INTERNAL,
+            folder=self.folder, manager=self.owner, created_by=self.owner,
+        )
+
+    def _grant_user(self, perm, effect='allow'):
+        return FolderPermissionGrant.objects.create(
+            folder=self.folder, user=self.user,
+            permission_code=perm, effect=effect,
+            inherit_to_children=False,
+        )
+
+    # 1. view_projects modulare mostra progetto in lista
+    def test_view_projects_grant_shows_project_in_list(self):
+        self._grant_user('view_projects')
+        self.client.login(username='sfp_user', password='pw')
+        resp = self.client.get(reverse('project_list'))
+        codes = [p.code for p in resp.context['projects']]
+        self.assertIn('SFP-PRJ', codes)
+
+    # 2. Assenza view_projects nasconde progetto anche se read_published presente
+    def test_read_published_without_view_projects_hides_project(self):
+        # Utente con read_published ma senza view_projects e senza membership
+        self._grant_user('read_published')
+        self.client.login(username='sfp_user', password='pw')
+        resp = self.client.get(reverse('project_list'))
+        codes = [p.code for p in resp.context['projects']]
+        self.assertNotIn('SFP-PRJ', codes)
+
+    # 3. Deny view_projects blocca fallback legacy
+    def test_deny_view_projects_blocks_legacy_fallback(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        self._grant_user('view_projects', effect='deny')
+        self.client.login(username='sfp_user', password='pw')
+        resp = self.client.get(reverse('project_list'))
+        codes = [p.code for p in resp.context['projects']]
+        self.assertNotIn('SFP-PRJ', codes)
+
+    # 4. Fallback legacy conserva il comportamento precedente (reader vede progetto)
+    def test_legacy_fallback_reader_sees_project(self):
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        self.client.login(username='sfp_user', password='pw')
+        resp = self.client.get(reverse('project_list'))
+        codes = [p.code for p in resp.context['projects']]
+        self.assertIn('SFP-PRJ', codes)
+
+    # 5. project_detail nega accesso senza view_projects (no membership, solo read_published)
+    def test_project_detail_403_without_view_projects(self):
+        # Solo read_published, nessuna membership → view_projects=False → 403
+        self._grant_user('read_published')
+        self.client.login(username='sfp_user', password='pw')
+        resp = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    # 6. Navigation-only non espone progetto in folder_detail
+    def test_navigation_only_no_project_in_folder_detail(self):
+        from projects.services import set_folder_path
+        child = ProjectFolder.objects.create(
+            code='SFP-CH', name='Child',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            parent=self.folder,
+        )
+        set_folder_path(child)
+        # Grant solo sul child → parent (self.folder) è navigation-only
+        FolderPermissionGrant.objects.create(
+            folder=child, user=self.user,
+            permission_code='read_published', effect='allow',
+            inherit_to_children=False,
+        )
+        self.client.login(username='sfp_user', password='pw')
+        resp = self.client.get(reverse('folder_detail', args=[self.folder.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['is_navigation_only'])
+        self.assertEqual(list(resp.context['folder_projects']), [])
+
+    # 7. Superuser vede il progetto
+    def test_superuser_sees_project(self):
+        self.client.login(username='sfp_super', password='pw')
+        resp = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    # 8. Staff senza grant non vede il progetto
+    def test_staff_without_grant_cannot_see_project(self):
+        self.client.login(username='sfp_staff', password='pw')
+        resp = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(resp.status_code, 403)
