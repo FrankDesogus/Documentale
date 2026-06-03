@@ -14,12 +14,14 @@ from ecn.permissions import (
     can_close_ecn,
     can_configure_ccb,
     can_create_ecn,
+    can_download_ecn_attachment,
     can_edit_ecn,
     can_reconfigure_ccb,
     can_reopen_ccb,
     can_review_ecn,
     can_submit_ecn,
     can_view_ecn,
+    _can_consult_all_ecn,
 )
 
 
@@ -39,22 +41,27 @@ def ecn_list(request):
     from django.db.models import Q
     user = request.user
 
-    from documents.permissions import GROUP_AUDITORS, GROUP_MANAGERS
-    from ecn.permissions import GROUP_CCB, _in_group, _is_superuser_or_staff
-
-    if _is_superuser_or_staff(user) or _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS, GROUP_CCB):
+    # Quality Manager / Quality Operator / Direction / superuser → vedono tutto
+    # is_staff, Document Manager, Document Auditor, CCB globale → NON vedono tutto
+    if _can_consult_all_ecn(user):
         qs = ChangeNotice.objects.select_related(
             'document', 'proposed_by', 'document_version',
         ).order_by('-proposed_at')
     else:
-        # Propri ECN
+        # Propri ECN (proposed_by / created_by)
         own_filter = Q(proposed_by=user) | Q(created_by=user)
-        # ECN su documenti in cartelle dove l'utente ha un ruolo
+        # ECN dove l'utente è approvatore CCB assegnato
+        assigned_ecn_ids = list(
+            ChangeNoticeApprover.objects.filter(user=user)
+            .values_list('change_notice_id', flat=True)
+        )
+        assigned_filter = Q(pk__in=assigned_ecn_ids)
+        # ECN su documenti in cartelle dove l'utente ha un ruolo auditor/manager
         from projects.permissions import get_visible_folder_ids
         visible_folder_ids = get_visible_folder_ids(user)
         folder_filter = Q(document__project_folder_id__in=visible_folder_ids)
         qs = ChangeNotice.objects.filter(
-            own_filter | folder_filter
+            own_filter | assigned_filter | folder_filter
         ).select_related(
             'document', 'proposed_by', 'document_version',
         ).distinct().order_by('-proposed_at')
@@ -471,10 +478,12 @@ def ecn_add_attachment(request, ecn_id):
 def ecn_attachment_download(request, attachment_id):
     """Download di un allegato ECN."""
     attachment = get_object_or_404(
-        ChangeNoticeAttachment.objects.select_related('change_notice'),
+        ChangeNoticeAttachment.objects.select_related(
+            'change_notice__proposed_by', 'change_notice__created_by',
+        ),
         pk=attachment_id,
     )
-    if not can_view_ecn(request.user, attachment.change_notice):
+    if not can_download_ecn_attachment(request.user, attachment):
         raise PermissionDenied
 
     if not attachment.file:
@@ -612,11 +621,8 @@ def ecn_dashboard(request):
 
     Accesso: superuser, staff, Document Managers, Document Auditors.
     """
-    from ecn.permissions import _is_superuser_or_staff, _in_group
-    from documents.permissions import GROUP_MANAGERS, GROUP_AUDITORS
-
     user = request.user
-    if not (_is_superuser_or_staff(user) or _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS)):
+    if not _can_consult_all_ecn(user):
         raise PermissionDenied
 
     # 1 & 2: DRAFT — divisi per CCB configurata o meno

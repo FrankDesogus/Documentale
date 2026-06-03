@@ -22,9 +22,11 @@ class FolderListViewTests(TestCase):
     """folder_list: visibile a tutti gli autenticati; utenti normali vedono solo le proprie cartelle."""
 
     def setUp(self):
-        # fl_user è staff: vede tutte le cartelle senza membership
+        from django.contrib.auth.models import Group
+        # MB1: is_staff non concede visibilità globale; Document Manager vede tutte le cartelle
         self.user = User.objects.create_user('fl_user', password='pw', is_staff=True)
         self.owner = User.objects.create_user('fl_owner', password='pw')
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.user)
 
     def test_folder_list_requires_login(self):
         response = self.client.get(reverse('folder_list'))
@@ -97,10 +99,11 @@ class FolderDetailViewTests(TestCase):
         self.assertIn('FD-CHILD', sub_codes)
 
     def test_folder_detail_shows_associated_documents(self):
+        """MB1: i documenti con versione corrente approvata appaiono nella cartella."""
         from django.contrib.auth.models import User as AuthUser
-        from documents.models import Document
+        from documents.models import Document, DocumentVersion
         doc_owner = AuthUser.objects.create_user('fd_doc_owner', password='pw')
-        Document.objects.create(
+        doc = Document.objects.create(
             code='FD-DOC-001',
             title='Documento in cartella',
             category=Document.Category.QUALITY,
@@ -108,12 +111,52 @@ class FolderDetailViewTests(TestCase):
             owner=doc_owner,
             created_by=doc_owner,
         )
+        # MB1: solo documenti con versione corrente approvata appaiono per i reader
+        version = DocumentVersion.objects.create(
+            document=doc,
+            revision_label='00',
+            revision_number=0,
+            status=DocumentVersion.Status.APPROVED,
+            is_current=True,
+            created_by=doc_owner,
+        )
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+
         self.client.login(username='fd_user', password='pw')
         response = self.client.get(reverse('folder_detail', args=[self.root.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'FD-DOC-001')
         doc_codes = [d.code for d in response.context['documents']]
         self.assertIn('FD-DOC-001', doc_codes)
+
+    def test_folder_detail_hides_draft_only_document_from_other_user(self):
+        """MB1: documento con sola bozza non appare nella cartella per altri utenti."""
+        from django.contrib.auth.models import User as AuthUser
+        from documents.models import Document, DocumentVersion
+        doc_owner = AuthUser.objects.create_user('fd_draft_owner', password='pw')
+        doc = Document.objects.create(
+            code='FD-DRAFT-DOC',
+            title='Bozza privata',
+            category=Document.Category.QUALITY,
+            project_folder=self.root,
+            owner=doc_owner,
+            created_by=doc_owner,
+        )
+        # Solo una bozza — nessuna versione approvata corrente
+        DocumentVersion.objects.create(
+            document=doc,
+            revision_label='00',
+            revision_number=0,
+            status=DocumentVersion.Status.DRAFT,
+            is_current=False,
+            created_by=doc_owner,
+        )
+        # fd_user non è l'autore della bozza — non dovrebbe vederla
+        self.client.login(username='fd_user', password='pw')
+        response = self.client.get(reverse('folder_detail', args=[self.root.pk]))
+        doc_codes = [d.code for d in response.context['documents']]
+        self.assertNotIn('FD-DRAFT-DOC', doc_codes)
 
     def test_user_without_membership_gets_403(self):
         outsider = User.objects.create_user('fd_outsider', password='pw')
@@ -159,7 +202,8 @@ class FolderCreateViewTests(TestCase):
         folder = ProjectFolder.objects.get(code='FC-OK')
         self.assertRedirects(response, reverse('folder_detail', args=[folder.pk]))
 
-    def test_staff_can_create_folder(self):
+    def test_staff_without_group_cannot_create_folder(self):
+        """MB1: is_staff senza Document Manager group non può creare cartelle."""
         self.client.login(username='fc_staff', password='pw')
         response = self.client.post(reverse('folder_create'), {
             'code': 'FC-STAFF',
@@ -167,7 +211,8 @@ class FolderCreateViewTests(TestCase):
             'folder_kind': 'department',
             'status': 'active',
         })
-        self.assertTrue(ProjectFolder.objects.filter(code='FC-STAFF').exists())
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(ProjectFolder.objects.filter(code='FC-STAFF').exists())
 
 
 @override_settings(EMAIL_BACKEND=EMAIL_LOCMEM)
@@ -400,9 +445,12 @@ class ProjectModelTests(TestCase):
 class ProjectListViewTests(TestCase):
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         self.manager = User.objects.create_user('pl_manager', password='pw', is_staff=True)
         self.normal = User.objects.create_user('pl_normal', password='pw')
         self.owner = User.objects.create_user('pl_owner', password='pw')
+        # MB1: is_staff da solo non concede visibilità globale progetti
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
         self.folder = make_folder(code='PL-F-001', owner=self.owner)
         self.project = make_project(code='PL-PRJ-001', owner=self.owner, folder=self.folder)
 
@@ -470,9 +518,12 @@ class ProjectCreateViewTests(TestCase):
 class ProjectDetailViewTests(TestCase):
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         self.owner = User.objects.create_user('pd_owner', password='pw', is_staff=True)
         self.reader = User.objects.create_user('pd_reader', password='pw')
         self.outsider = User.objects.create_user('pd_outsider', password='pw')
+        # MB1: is_staff non concede accesso automatico ai progetti
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.owner)
         self.folder = make_folder(code='PD-F-001', owner=self.owner)
         ProjectFolderMembership.objects.create(
             folder=self.folder, user=self.reader,
@@ -640,8 +691,10 @@ class ProjectRevisionViewTests(TestCase):
     """Views: project_revision_create, project_revision_detail, project_revision_issue."""
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         self.manager = User.objects.create_user('rv_mgr', password='pw', is_staff=True)
         self.outsider = User.objects.create_user('rv_out', password='pw')
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
         self.project, self.folder = make_project_with_folder(code='RV-PRJ-001', owner=self.manager)
 
     def test_create_requires_login(self):
@@ -785,7 +838,9 @@ class BaselineBugFixTests(TestCase):
     """
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         self.manager = User.objects.create_user('bbf_mgr', password='pw', is_staff=True)
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
         self.project, self.folder = make_project_with_folder(code='BBF-PRJ-001', owner=self.manager)
 
     def _make_approved_doc(self, code, folder=None):
@@ -946,7 +1001,9 @@ class BaselineComparisonTests(TestCase):
     """build_project_baseline_comparison: stati aligned/changed/new/missing."""
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         self.manager = User.objects.create_user('bc_mgr', password='pw', is_staff=True)
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
         self.project, self.folder = make_project_with_folder(code='BC-PRJ-001', owner=self.manager)
 
     def _make_approved_version(self, code, label='00', number=0):
@@ -1075,18 +1132,21 @@ class NewDocumentFromProjectTests(TestCase):
 
     def setUp(self):
         from django.contrib.auth.models import Group
+        # MB1: is_staff non concede più privilegi applicativi; aggiungiamo Document Managers
         self.manager = User.objects.create_user('ndp_mgr', password='pw', is_staff=True)
         self.author = User.objects.create_user('ndp_author', password='pw')
         self.outsider = User.objects.create_user('ndp_out', password='pw')
 
         g_authors = Group.objects.get_or_create(name='Document Authors')[0]
+        g_managers = Group.objects.get_or_create(name='Document Managers')[0]
         self.author.groups.add(g_authors)
+        self.manager.groups.add(g_managers)  # MB1: is_staff da solo non basta
 
         self.project, self.folder = make_project_with_folder(code='NDP-PRJ-001', owner=self.manager)
         # author ha ruolo author nella cartella del progetto
         ProjectFolderMembership.objects.create(folder=self.folder, user=self.author, role='author')
 
-    # 1. Bottone visibile per manager (is_staff)
+    # 1. Bottone visibile per manager (Document Manager group)
     def test_button_visible_for_manager(self):
         self.client.login(username='ndp_mgr', password='pw')
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
@@ -1189,6 +1249,8 @@ class AuditUIProjectDetailTests(TestCase):
         self.reader = User.objects.create_user('apd_reader', password='pw')
 
         Group.objects.get_or_create(name=GROUP_AUDITORS)[0].user_set.add(self.global_auditor)
+        # MB1: is_staff da solo non concede accesso; Document Managers per l'utente manager
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager_staff)
 
         self.project, self.folder = make_project_with_folder(code='APD-PRJ-001', owner=self.manager_staff)
         ProjectFolderMembership.objects.create(folder=self.folder, user=self.reader, role='reader')
@@ -1252,8 +1314,11 @@ class FolderCreateWithParentTests(TestCase):
     """
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         self.staff = User.objects.create_user('fc_staff', password='pw', is_staff=True)
         self.owner = User.objects.create_user('fc_owner', password='pw')
+        # MB1: is_staff non concede creazione cartelle; Document Managers per i test di comportamento
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.staff)
         self.parent = make_folder(code='FC-ROOT', name='Cartella Radice', owner=self.owner)
 
     def test_folder_detail_link_includes_parent_param(self):
@@ -1321,8 +1386,11 @@ class ProjectCreateWithFolderTests(TestCase):
     """
 
     def setUp(self):
+        from django.contrib.auth.models import Group
         self.staff = User.objects.create_user('pc_staff', password='pw', is_staff=True)
         self.owner = User.objects.create_user('pc_owner', password='pw')
+        # MB1: is_staff non concede creazione progetti; Document Managers per i test di comportamento
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.staff)
         self.folder = make_folder(code='PC-FOLD', name='Cartella Progetto', owner=self.owner)
 
     def test_folder_detail_create_project_link_includes_folder_param(self):

@@ -9,9 +9,10 @@ from projects.permissions import can_manage_folder, can_view_folder
 
 
 def _can_create_folder(user):
+    """MB1: is_staff NON concede creazione cartelle."""
     if not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_manager
     return is_document_manager(user)
@@ -25,7 +26,8 @@ def folder_list(request):
         parent__isnull=True,
     ).prefetch_related('subfolders').order_by('code')
 
-    if not (user.is_superuser or user.is_staff):
+    # is_staff NON concede visibilità globale cartelle (MB1)
+    if not user.is_superuser:
         from documents.permissions import is_document_manager, is_document_auditor
         if not (is_document_manager(user) or is_document_auditor(user)):
             from projects.permissions import get_visible_folder_ids
@@ -46,9 +48,28 @@ def folder_detail(request, folder_id):
         raise PermissionDenied
 
     subfolders = folder.subfolders.order_by('code')
-    documents = folder.documents.select_related(
-        'current_version', 'owner',
-    ).order_by('code')
+
+    # Documenti visibili nella cartella:
+    # - documenti con versione corrente approvata (visibili a tutti con membership)
+    # - documenti per cui l'utente è autore di almeno una bozza (privata sua)
+    # Le bozze altrui non vengono esposte nella navigazione (MB1)
+    from django.db.models import Exists, OuterRef
+    from documents.models import DocumentVersion as _DocVer
+    user = request.user
+    base_docs = folder.documents.select_related('current_version', 'owner').order_by('code')
+    if user.is_superuser:
+        documents = base_docs
+    else:
+        own_draft_qs = _DocVer.objects.filter(
+            document=OuterRef('pk'),
+            created_by=user,
+            status__in=[_DocVer.Status.DRAFT, _DocVer.Status.REJECTED, _DocVer.Status.IN_APPROVAL],
+        )
+        documents = base_docs.filter(
+            Q(current_version__isnull=False,
+              current_version__status=_DocVer.Status.APPROVED)
+            | Q(Exists(own_draft_qs))
+        )
     # Progetti associati a questa cartella (per mostrare link e bottone "Crea progetto")
     folder_projects = Project.objects.filter(folder=folder).select_related('manager').order_by('code')
     return render(request, 'projects/folder_detail.html', {
@@ -107,9 +128,10 @@ def folder_create(request):
 # ---------------------------------------------------------------------------
 
 def _can_manage_project(user):
+    """MB1: is_staff NON concede gestione progetti."""
     if not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_manager
     return is_document_manager(user)

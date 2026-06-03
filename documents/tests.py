@@ -466,13 +466,14 @@ class DownloadViewTests(TestCase):
             response = self.client.get(reverse('version_download', args=[version.pk]))
         self.assertEqual(response.status_code, 403)
 
-    def test_staff_can_download_superseded_version(self):
+    def test_auditor_can_download_superseded_version(self):
+        """MB1: Document Auditor (non is_staff) può scaricare versioni storiche (SUPERSEDED)."""
+        from django.contrib.auth.models import Group
+        auditor = User.objects.create_user('dl_auditor_dl', password='pw')
+        Group.objects.get_or_create(name='Document Auditors')[0].user_set.add(auditor)
         with self.settings(MEDIA_ROOT=self.temp_media):
             v1 = self._make_version_with_file('A', 1)
             self._approve_version(v1)
-            # Dopo che v1 è approvato il gate ECN blocca create_new_revision.
-            # Usiamo _bypass_ecn_check=True perché questo test verifica il download,
-            # non il flusso ECN (che ha test dedicati in ECNGateServiceTests).
             uploaded = SimpleUploadedFile('doc2.pdf', b'%PDF-1.4 v2', content_type='application/pdf')
             doc_file2 = create_document_file(uploaded, self.author)
             self.document.refresh_from_db()
@@ -482,7 +483,7 @@ class DownloadViewTests(TestCase):
             self._approve_version(v2)
             v1.refresh_from_db()
             self.assertEqual(v1.status, DocumentVersion.Status.SUPERSEDED)
-            self.client.login(username='dl_staff', password='pw')
+            self.client.login(username='dl_auditor_dl', password='pw')
             response = self.client.get(reverse('version_download', args=[v1.pk]))
         self.assertEqual(response.status_code, 200)
 
@@ -1006,6 +1007,8 @@ class NewDocumentFolderRequiredTests(TestCase):
         self.global_author = User.objects.create_user('ndfr_global_author', password='pw')
 
         g_authors = Group.objects.get_or_create(name='Document Authors')[0]
+        # MB1: is_staff da solo non concede creazione documenti
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
         self.author.groups.add(g_authors)
         self.global_author.groups.add(g_authors)
 
@@ -1494,10 +1497,14 @@ class WorkspaceQualityTests(TestCase):
 
     def setUp(self):
         from django.contrib.auth.models import Group
-        self.manager = User.objects.create_user('qmanager', password='pw')
-        self.reader = User.objects.create_user('qreader', password='pw')
-        mg = Group.objects.get_or_create(name='Document Managers')[0]
-        self.manager.groups.add(mg)
+        # MB1: workspace_quality richiede Quality Manager, Operator o Auditor
+        self.quality_manager = User.objects.create_user('q_qmanager', password='pw')
+        self.doc_manager = User.objects.create_user('q_docmanager', password='pw')
+        self.reader = User.objects.create_user('q_reader', password='pw')
+        qmg = Group.objects.get_or_create(name='Quality Manager')[0]
+        dmg = Group.objects.get_or_create(name='Document Managers')[0]
+        self.quality_manager.groups.add(qmg)
+        self.doc_manager.groups.add(dmg)
 
     def test_redirects_anonymous(self):
         r = self.client.get(reverse('workspace_quality'))
@@ -1508,19 +1515,26 @@ class WorkspaceQualityTests(TestCase):
         r = self.client.get(reverse('workspace_quality'))
         self.assertEqual(r.status_code, 403)
 
-    def test_ok_for_manager(self):
-        self.client.force_login(self.manager)
+    def test_forbidden_for_document_manager(self):
+        """MB1: Document Manager NON accede automaticamente al workspace Qualità."""
+        self.client.force_login(self.doc_manager)
+        r = self.client.get(reverse('workspace_quality'))
+        self.assertEqual(r.status_code, 403)
+
+    def test_ok_for_quality_manager(self):
+        self.client.force_login(self.quality_manager)
         r = self.client.get(reverse('workspace_quality'))
         self.assertEqual(r.status_code, 200)
 
-    def test_ok_for_staff(self):
-        staff = User.objects.create_user('staff_q', password='pw', is_staff=True)
+    def test_forbidden_for_staff_without_role(self):
+        """MB1: is_staff NON concede accesso al workspace Qualità."""
+        staff = User.objects.create_user('q_staff_q', password='pw', is_staff=True)
         self.client.force_login(staff)
         r = self.client.get(reverse('workspace_quality'))
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 403)
 
     def test_shows_ecn_to_review_section(self):
-        self.client.force_login(self.manager)
+        self.client.force_login(self.quality_manager)
         r = self.client.get(reverse('workspace_quality'))
         self.assertContains(r, 'Da valutare da Qualità')
 
@@ -1549,9 +1563,18 @@ class NavTagsTests(TestCase):
         from documents.templatetags.nav_tags import user_is_manager
         self.assertFalse(user_is_manager(self.anon_like))
 
-    def test_user_can_quality_workspace_manager(self):
+    def test_user_can_quality_workspace_quality_manager(self):
+        """MB1: il tag quality workspace riconosce Quality Manager."""
+        from django.contrib.auth.models import Group
         from documents.templatetags.nav_tags import user_can_quality_workspace
-        self.assertTrue(user_can_quality_workspace(self.manager))
+        qm = User.objects.create_user('nav_qmgr', password='pw')
+        Group.objects.get_or_create(name='Quality Manager')[0].user_set.add(qm)
+        self.assertTrue(user_can_quality_workspace(qm))
+
+    def test_user_can_quality_workspace_document_manager_false(self):
+        """MB1: Document Manager da solo NON vede workspace Qualità nel nav."""
+        from documents.templatetags.nav_tags import user_can_quality_workspace
+        self.assertFalse(user_can_quality_workspace(self.manager))
 
     def test_user_can_quality_workspace_auditor(self):
         from documents.templatetags.nav_tags import user_can_quality_workspace
@@ -1574,3 +1597,190 @@ class NavTagsTests(TestCase):
     def test_nav_pending_approvals_zero_when_no_pending(self):
         from documents.templatetags.nav_tags import nav_pending_approvals
         self.assertEqual(nav_pending_approvals(self.author), 0)
+
+
+# ---------------------------------------------------------------------------
+# MB1 — Test privacy bozze
+# ---------------------------------------------------------------------------
+
+class DraftPrivacyTests(TestCase):
+    """
+    MB1 — verifica che le bozze siano visibili SOLO all'autore e al superuser.
+    Nessun altro — inclusi Manager, Auditor, staff — può vederle.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.author = User.objects.create_user('priv_author', password='pw')
+        self.other_author = User.objects.create_user('priv_other', password='pw')
+        self.manager = User.objects.create_user('priv_mgr', password='pw')
+        self.auditor = User.objects.create_user('priv_aud', password='pw')
+        self.staff_user = User.objects.create_user('priv_staff', password='pw', is_staff=True)
+        self.superuser = User.objects.create_superuser('priv_su', password='pw', email='')
+
+        mg = Group.objects.get_or_create(name='Document Managers')[0]
+        ag = Group.objects.get_or_create(name='Document Auditors')[0]
+        self.manager.groups.add(mg)
+        self.auditor.groups.add(ag)
+
+        self.doc = Document.objects.create(
+            code='PRIV-001', title='Privato', category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+        )
+        self.draft_version = create_new_revision(self.doc, self.author, 'A', 1)
+
+    # 1. Autore vede propria bozza
+    def test_author_sees_own_draft(self):
+        from documents.permissions import can_view_version
+        self.assertTrue(can_view_version(self.author, self.draft_version))
+
+    # 2. Altro autore non vede bozza altrui
+    def test_other_author_cannot_see_draft(self):
+        from documents.permissions import can_view_version
+        self.assertFalse(can_view_version(self.other_author, self.draft_version))
+
+    # 3. Manager non vede bozza altrui
+    def test_manager_cannot_see_others_draft(self):
+        from documents.permissions import can_view_version
+        self.assertFalse(can_view_version(self.manager, self.draft_version))
+
+    # 4. Auditor non vede bozza altrui
+    def test_auditor_cannot_see_others_draft(self):
+        from documents.permissions import can_view_version
+        self.assertFalse(can_view_version(self.auditor, self.draft_version))
+
+    # 5. staff non-superuser non vede bozza altrui
+    def test_staff_cannot_see_others_draft(self):
+        from documents.permissions import can_view_version
+        self.assertFalse(can_view_version(self.staff_user, self.draft_version))
+
+    # 6. Superuser vede la bozza
+    def test_superuser_sees_draft(self):
+        from documents.permissions import can_view_version
+        self.assertTrue(can_view_version(self.superuser, self.draft_version))
+
+    # 7. folder_detail non mostra la bozza altrui nella navigazione
+    def test_folder_detail_hides_others_draft(self):
+        from projects.models import ProjectFolder, ProjectFolderMembership
+        folder = ProjectFolder.objects.create(
+            code='PRIV-FOLD', name='Cartella privata',
+            owner=self.author, created_by=self.author,
+        )
+        self.doc.project_folder = folder
+        self.doc.save(update_fields=['project_folder'])
+        ProjectFolderMembership.objects.create(
+            folder=folder, user=self.other_author, role='author', created_by=self.author,
+        )
+        ProjectFolderMembership.objects.create(
+            folder=folder, user=self.author, role='author', created_by=self.author,
+        )
+        self.client.force_login(self.other_author)
+        r = self.client.get(f'/folders/{folder.pk}/')
+        self.assertEqual(r.status_code, 200)
+        # La bozza non appare nella lista documenti per un altro utente
+        self.assertNotContains(r, 'PRIV-001')
+
+    # 8. Download diretto file bozza altrui negato
+    def test_download_others_draft_file_denied(self):
+        from documents.permissions import can_download_version_file
+        self.assertFalse(can_download_version_file(self.manager, self.draft_version))
+        self.assertFalse(can_download_version_file(self.auditor, self.draft_version))
+        self.assertFalse(can_download_version_file(self.staff_user, self.draft_version))
+        self.assertFalse(can_download_version_file(self.other_author, self.draft_version))
+
+    # Download del proprio file bozza consentito
+    def test_download_own_draft_allowed(self):
+        """L'autore può scaricare il file della propria bozza (se presente)."""
+        from documents.permissions import can_download_version_file
+        from documents.models import DocumentFile
+        # Assegna un file fittizio al draft (il permesso dipende da file_id != None)
+        mock_file = DocumentFile.objects.create(
+            original_filename='bozza.pdf',
+            uploaded_by=self.author,
+        )
+        self.draft_version.file = mock_file
+        self.draft_version.save(update_fields=['file'])
+        self.assertTrue(can_download_version_file(self.author, self.draft_version))
+
+
+# ---------------------------------------------------------------------------
+# MB1 — Test permessi approvazione allegati
+# ---------------------------------------------------------------------------
+
+class ApprovalAttachmentPrivacyTests(TestCase):
+    """MB1 — allegati richieste di approvazione scaricabili solo da autore, approvatori, superuser."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from approvals.models import ApprovalRequest, ApprovalRequestApprover
+
+        self.author = User.objects.create_user('app_att_author', password='pw')
+        self.approver = User.objects.create_user('app_att_appr', password='pw')
+        self.manager = User.objects.create_user('app_att_mgr', password='pw')
+        self.auditor = User.objects.create_user('app_att_aud', password='pw')
+        self.staff_user = User.objects.create_user('app_att_staff', password='pw', is_staff=True)
+        self.superuser = User.objects.create_superuser('app_att_su', password='pw', email='')
+        self.stranger = User.objects.create_user('app_att_stranger', password='pw')
+
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+        Group.objects.get_or_create(name='Document Auditors')[0].user_set.add(self.auditor)
+
+        self.doc = Document.objects.create(
+            code='APP-ATT-001', title='Doc att', category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+        )
+        self.version = create_new_revision(self.doc, self.author, 'A', 1)
+        from documents.services import submit_version_for_approval
+        self.ar = submit_version_for_approval(self.version, self.author, [self.approver])
+
+    def _can_download(self, user, attachment):
+        from approvals.views import _can_download_attachment
+        return _can_download_attachment(user, attachment)
+
+    def _make_attachment(self):
+        from approvals.models import ApprovalRequestAttachment
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        import tempfile, shutil
+        from django.test import override_settings
+        # Usa un file fittizio
+        from approvals.services import create_approval_request_attachment
+        f = SimpleUploadedFile('firma.pdf', b'%PDF fake', content_type='application/pdf')
+        return create_approval_request_attachment(self.ar, f, self.author)
+
+    @override_settings(MEDIA_ROOT=__import__('tempfile').mkdtemp())
+    def test_author_can_download(self):
+        att = self._make_attachment()
+        self.assertTrue(self._can_download(self.author, att))
+
+    @override_settings(MEDIA_ROOT=__import__('tempfile').mkdtemp())
+    def test_assigned_approver_can_download(self):
+        att = self._make_attachment()
+        self.assertTrue(self._can_download(self.approver, att))
+
+    @override_settings(MEDIA_ROOT=__import__('tempfile').mkdtemp())
+    def test_superuser_can_download(self):
+        att = self._make_attachment()
+        self.assertTrue(self._can_download(self.superuser, att))
+
+    @override_settings(MEDIA_ROOT=__import__('tempfile').mkdtemp())
+    def test_manager_cannot_download(self):
+        """MB1: Document Manager NON scarica automaticamente allegati approvazione."""
+        att = self._make_attachment()
+        self.assertFalse(self._can_download(self.manager, att))
+
+    @override_settings(MEDIA_ROOT=__import__('tempfile').mkdtemp())
+    def test_auditor_cannot_download(self):
+        """MB1: Document Auditor NON scarica automaticamente allegati approvazione."""
+        att = self._make_attachment()
+        self.assertFalse(self._can_download(self.auditor, att))
+
+    @override_settings(MEDIA_ROOT=__import__('tempfile').mkdtemp())
+    def test_staff_cannot_download(self):
+        """MB1: is_staff NON scarica automaticamente allegati approvazione."""
+        att = self._make_attachment()
+        self.assertFalse(self._can_download(self.staff_user, att))
+
+    @override_settings(MEDIA_ROOT=__import__('tempfile').mkdtemp())
+    def test_stranger_cannot_download(self):
+        att = self._make_attachment()
+        self.assertFalse(self._can_download(self.stranger, att))

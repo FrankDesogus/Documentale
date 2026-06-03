@@ -3,7 +3,8 @@
 Fornisce helper leggeri per:
 - contatori badge (approvazioni pendenti, CCB, ECN, bozze)
 - controlli ruolo per mostrare/nascondere voci di menu
-- nessuna logica di business: delega a permissions.py esistenti
+
+MB1: is_staff NON concede bypass applicativo automatico.
 """
 from django import template
 
@@ -16,10 +17,10 @@ register = template.Library()
 
 @register.simple_tag
 def user_is_manager(user):
-    """True se l'utente è Document Manager o staff/superuser."""
+    """True se l'utente è Document Manager o superuser."""
     if not user or not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_manager
     return is_document_manager(user)
@@ -27,10 +28,10 @@ def user_is_manager(user):
 
 @register.simple_tag
 def user_is_auditor(user):
-    """True se l'utente è Document Auditor o staff/superuser."""
+    """True se l'utente è Document Auditor o superuser."""
     if not user or not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_auditor
     return is_document_auditor(user)
@@ -38,13 +39,18 @@ def user_is_auditor(user):
 
 @register.simple_tag
 def user_can_quality_workspace(user):
-    """True se l'utente può accedere al workspace Qualità (manager/auditor/staff)."""
+    """True se l'utente può accedere al workspace Qualità.
+    MB1: Quality Manager, Quality Operator, Document Auditor, superuser."""
     if not user or not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
-    from documents.permissions import is_document_manager, is_document_auditor
-    return is_document_manager(user) or is_document_auditor(user)
+    from documents.permissions import (
+        is_quality_manager,
+        is_quality_operator,
+        is_document_auditor,
+    )
+    return is_quality_manager(user) or is_quality_operator(user) or is_document_auditor(user)
 
 
 @register.simple_tag
@@ -52,16 +58,18 @@ def user_can_create_doc(user):
     """True se l'utente può creare nuovi documenti."""
     if not user or not user.is_authenticated:
         return False
+    if user.is_superuser:
+        return True
     from documents.permissions import can_create_document
     return can_create_document(user)
 
 
 @register.simple_tag
 def user_can_create_folder(user):
-    """True se l'utente può creare cartelle."""
+    """True se l'utente può creare cartelle. MB1: solo Document Manager e superuser."""
     if not user or not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_manager
     return is_document_manager(user)
@@ -69,10 +77,10 @@ def user_can_create_folder(user):
 
 @register.simple_tag
 def user_can_create_project(user):
-    """True se l'utente può creare progetti."""
+    """True se l'utente può creare progetti. MB1: solo Document Manager e superuser."""
     if not user or not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_manager
     return is_document_manager(user)
@@ -155,19 +163,18 @@ def nav_my_drafts(user):
 
 @register.simple_tag
 def nav_ecn_to_review(user):
-    """ECN draft senza CCB configurata — da valutare (solo per manager/staff)."""
+    """ECN draft senza CCB configurata — da valutare (solo per Quality Manager/Operator)."""
     if not user or not user.is_authenticated:
         return 0
     try:
-        if not (user.is_superuser or user.is_staff):
-            from documents.permissions import is_document_manager, is_document_auditor
-            if not (is_document_manager(user) or is_document_auditor(user)):
+        if not user.is_superuser:
+            from documents.permissions import is_quality_manager, is_quality_operator
+            if not (is_quality_manager(user) or is_quality_operator(user)):
                 return 0
-        from ecn.models import ChangeNotice
+        from ecn.models import ChangeNotice, ChangeNoticeApprover
         draft_ids = ChangeNotice.objects.filter(
             status=ChangeNotice.Status.DRAFT
         ).values_list('pk', flat=True)
-        from ecn.models import ChangeNoticeApprover
         configured_ids = ChangeNoticeApprover.objects.filter(
             change_notice_id__in=draft_ids
         ).values_list('change_notice_id', flat=True).distinct()
@@ -180,13 +187,13 @@ def nav_ecn_to_review(user):
 
 @register.simple_tag
 def nav_ecn_to_close(user):
-    """ECN approvati con revisione eseguita, da chiudere (solo manager/staff)."""
+    """ECN approvati con revisione eseguita, da chiudere (solo Quality Manager)."""
     if not user or not user.is_authenticated:
         return 0
     try:
-        if not (user.is_superuser or user.is_staff):
-            from documents.permissions import is_document_manager
-            if not is_document_manager(user):
+        if not user.is_superuser:
+            from documents.permissions import is_quality_manager
+            if not is_quality_manager(user):
                 return 0
         from ecn.models import ChangeNotice
         return ChangeNotice.objects.filter(

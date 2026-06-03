@@ -10,8 +10,7 @@ def user_can_view_ecn_dashboard(context):
     user = context.get('user')
     if not user or not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
-    return user.groups.filter(
-        name__in=['Document Managers', 'Document Auditors']
-    ).exists()
+    from ecn.permissions import _can_consult_all_ecn
+    return _can_consult_all_ecn(user)

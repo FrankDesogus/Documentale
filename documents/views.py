@@ -16,8 +16,11 @@ from documents.permissions import (
     can_submit_for_approval,
     can_view_audit,
     can_view_document,
+    can_view_version,
     is_document_auditor,
     is_document_manager,
+    is_quality_manager,
+    is_quality_operator,
 )
 from documents.services import create_document_file, create_new_revision
 
@@ -122,8 +125,11 @@ def workspace_quality(request):
     from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeDecision
 
     user = request.user
-    if not (user.is_superuser or user.is_staff
-            or is_document_manager(user) or is_document_auditor(user)):
+    # is_staff NON concede accesso (MB1)
+    if not (user.is_superuser
+            or is_quality_manager(user)
+            or is_quality_operator(user)
+            or is_document_auditor(user)):
         raise PermissionDenied
 
     # ECN DRAFT senza CCB configurata
@@ -178,7 +184,8 @@ def document_list(request):
         current_version__is_current=True,
     ).select_related('current_version', 'owner').order_by('code')
 
-    if not (user.is_superuser or user.is_staff or is_document_auditor(user) or is_document_manager(user)):
+    # is_staff NON concede visibilità globale (MB1)
+    if not (user.is_superuser or is_document_auditor(user) or is_document_manager(user)):
         from projects.permissions import get_visible_folder_ids
         visible_ids = get_visible_folder_ids(user)
         qs = qs.filter(
@@ -200,9 +207,11 @@ def document_detail(request, document_id):
     versions = None
     audit_logs = None
     if show_history:
-        versions = doc.versions.select_related(
+        all_versions = doc.versions.select_related(
             'created_by', 'approved_by'
         ).order_by('-revision_number')
+        # Filtra le versioni a quelle visibili all'utente (bozze private escluse)
+        versions = [v for v in all_versions if can_view_version(request.user, v)]
         from auditlog.models import AuditLog
         audit_logs = AuditLog.objects.filter(
             changes__document_id=doc.pk

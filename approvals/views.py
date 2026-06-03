@@ -11,12 +11,16 @@ from approvals.services import approve_version, reject_version
 
 
 def _can_download_attachment(user, attachment):
+    """
+    Download allegato richiesta di approvazione:
+      - superuser
+      - autore della versione in approvazione
+      - approvatori assegnati alla specifica richiesta
+    MB1: rimosso bypass is_staff, Document Manager, Document Auditor.
+    """
     if not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
-        return True
-    from documents.permissions import is_document_manager, is_document_auditor
-    if is_document_manager(user) or is_document_auditor(user):
+    if user.is_superuser:
         return True
     ar = attachment.approval_request
     version = ar.document_version

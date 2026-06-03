@@ -24,15 +24,17 @@ def get_folder_role(user, folder):
 
 
 def _is_privileged(user):
-    """True se superuser, staff o Document Manager/Auditor globale."""
-    if user.is_superuser or user.is_staff:
+    """True se superuser, Document Manager o Document Auditor globale.
+    MB1: is_staff NON è più privilegiato applicativo."""
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_manager, is_document_auditor
     return is_document_manager(user) or is_document_auditor(user)
 
 
 def _is_global_manager(user):
-    if user.is_superuser or user.is_staff:
+    """MB1: is_staff NON è più privilegiato applicativo."""
+    if user.is_superuser:
         return True
     from documents.permissions import is_document_manager
     return is_document_manager(user)

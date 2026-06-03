@@ -550,14 +550,17 @@ class ECNPermissionsTests(TestCase):
     def test_superuser_can_view(self):
         self.assertTrue(can_view_ecn(self.superuser, self.ecn))
 
-    def test_staff_can_view(self):
-        self.assertTrue(can_view_ecn(self.staff, self.ecn))
+    def test_staff_cannot_view_automatically(self):
+        """MB1: is_staff NON dà visibilità automatica sulle ECN."""
+        self.assertFalse(can_view_ecn(self.staff, self.ecn))
 
-    def test_manager_can_view(self):
+    def test_manager_can_view_when_assigned_approver(self):
+        """Manager vede l'ECN perché è assegnato come ChangeNoticeApprover (in setUp)."""
         self.assertTrue(can_view_ecn(self.manager, self.ecn))
 
-    def test_auditor_can_view(self):
-        self.assertTrue(can_view_ecn(self.auditor, self.ecn))
+    def test_auditor_cannot_view_automatically(self):
+        """MB1: Document Auditor NON ha visibilità automatica sulle ECN."""
+        self.assertFalse(can_view_ecn(self.auditor, self.ecn))
 
     def test_ccb_can_view(self):
         self.assertTrue(can_view_ecn(self.ccb, self.ecn))
@@ -607,14 +610,16 @@ class ECNPermissionsTests(TestCase):
 
     # --- can_configure_ccb --------------------------------------------------
 
-    def test_manager_can_configure_ccb(self):
-        self.assertTrue(can_configure_ccb(self.manager, self.ecn))
+    def test_document_manager_cannot_configure_ccb(self):
+        """MB1: Document Manager NON può configurare CCB — solo Quality Manager."""
+        self.assertFalse(can_configure_ccb(self.manager, self.ecn))
 
     def test_superuser_can_configure_ccb(self):
         self.assertTrue(can_configure_ccb(self.superuser, self.ecn))
 
-    def test_staff_can_configure_ccb(self):
-        self.assertTrue(can_configure_ccb(self.staff, self.ecn))
+    def test_staff_cannot_configure_ccb(self):
+        """MB1: is_staff NON dà diritto di configurare CCB."""
+        self.assertFalse(can_configure_ccb(self.staff, self.ecn))
 
     def test_proposer_cannot_configure_ccb(self):
         self.assertFalse(can_configure_ccb(self.proposer, self.ecn))
@@ -631,8 +636,9 @@ class ECNPermissionsTests(TestCase):
         """Il proponente non può più inviare direttamente alla CCB."""
         self.assertFalse(can_submit_ecn(self.proposer, self.ecn))
 
-    def test_manager_can_submit(self):
-        self.assertTrue(can_submit_ecn(self.manager, self.ecn))
+    def test_document_manager_cannot_submit(self):
+        """MB1: Document Manager NON può inviare ECN alla CCB — solo Quality Manager."""
+        self.assertFalse(can_submit_ecn(self.manager, self.ecn))
 
     def test_stranger_cannot_submit(self):
         self.assertFalse(can_submit_ecn(self.stranger, self.ecn))
@@ -700,11 +706,13 @@ class ECNPermissionsTests(TestCase):
 
     # --- can_close_ecn ------------------------------------------------------
 
-    def test_manager_can_close(self):
-        self.assertTrue(can_close_ecn(self.manager, self.ecn))
+    def test_document_manager_cannot_close(self):
+        """MB1: Document Manager NON può chiudere ECN — solo Quality Manager."""
+        self.assertFalse(can_close_ecn(self.manager, self.ecn))
 
-    def test_staff_can_close(self):
-        self.assertTrue(can_close_ecn(self.staff, self.ecn))
+    def test_staff_cannot_close(self):
+        """MB1: is_staff NON dà diritto di chiudere ECN."""
+        self.assertFalse(can_close_ecn(self.staff, self.ecn))
 
     def test_superuser_can_close(self):
         self.assertTrue(can_close_ecn(self.superuser, self.ecn))
@@ -1466,8 +1474,9 @@ class ECNViewTests(TestCase):
         self.stranger = _make_user('view_stranger')
 
         grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
         grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        self.manager.groups.add(grp_mgr, grp_qmgr)  # Manager ha anche Quality Manager (MB1)
         self.ccb.groups.add(grp_ccb)
 
         # Documento + versione approvata
@@ -2039,8 +2048,9 @@ class ECNEditPermissionTests(TestCase):
         self.ccb_user = _make_user('edit_ccb')
 
         grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
         grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        self.manager.groups.add(grp_mgr, grp_qmgr)  # Manager ha Quality Manager per service tests
         self.ccb_user.groups.add(grp_ccb)
 
         self.folder   = _make_folder(self.manager, code='FOLD-EDIT')
@@ -2059,8 +2069,9 @@ class ECNEditPermissionTests(TestCase):
     def test_can_edit_ecn_draft_proposer(self):
         self.assertTrue(self.can_edit_ecn(self.proposer, self.ecn))
 
-    def test_can_edit_ecn_draft_manager(self):
-        self.assertTrue(self.can_edit_ecn(self.manager, self.ecn))
+    def test_can_edit_ecn_draft_quality_manager(self):
+        """Quality Manager può modificare ECN in bozza."""
+        self.assertTrue(self.can_edit_ecn(self.manager, self.ecn))  # manager ha Quality Manager group
 
     def test_can_edit_ecn_draft_stranger_denied(self):
         self.assertFalse(self.can_edit_ecn(self.stranger, self.ecn))
@@ -2074,8 +2085,9 @@ class ECNEditPermissionTests(TestCase):
 
     # --- can_reconfigure_ccb --------------------------------------------------
 
-    def test_can_reconfigure_ccb_draft_manager(self):
-        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))
+    def test_can_reconfigure_ccb_draft_quality_manager(self):
+        """Quality Manager può riconfigurare CCB su DRAFT."""
+        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))  # manager ha Quality Manager group
 
     def test_can_reconfigure_ccb_draft_stranger_denied(self):
         self.assertFalse(self.can_reconfigure_ccb(self.stranger, self.ecn))
@@ -2083,7 +2095,7 @@ class ECNEditPermissionTests(TestCase):
     def test_can_reconfigure_ccb_under_review_no_decisions(self):
         self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
         self.ecn.save(update_fields=['status'])
-        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))
+        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))  # manager ha Quality Manager group
 
     def test_can_reconfigure_ccb_under_review_with_decisions_denied(self):
         """Con decisioni esistenti, la modifica diretta è bloccata."""
@@ -2330,8 +2342,9 @@ class ECNDashboardQualityUXTests(TestCase):
         self.proposer = _make_user('ux_proposer')
         self.stranger = _make_user('ux_stranger')
 
-        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
-        self.manager.groups.add(grp_mgr)
+        grp_mgr  = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
+        self.manager.groups.add(grp_mgr, grp_qmgr)  # MB1: dashboard ECN richiede Quality Manager
 
         self.folder   = _make_folder(self.manager, code='FOLD-UX')
         self.document = _make_document(self.manager, self.folder, code='DOC-UX-001')
@@ -2383,7 +2396,264 @@ class ECNDashboardQualityUXTests(TestCase):
         self.assertContains(r, 'In attesa di valutazione Qualità')
 
     def test_detail_manager_ha_bottone_configura_ccb(self):
-        """Il manager ha ancora il bottone 'Configura CCB' nel dettaglio."""
+        """Il manager (Quality Manager) ha il bottone 'Configura CCB' nel dettaglio."""
         self.client.force_login(self.manager)
         r = self.client.get(f'/ecn/{self.ecn.pk}/')
         self.assertContains(r, 'Configura CCB')
+
+
+# ===========================================================================
+# MB1 — Test privacy e governance ECN/CCB
+# ===========================================================================
+
+class ECNVisibilityPrivacyTests(TestCase):
+    """
+    MB1 — Visibilità ECN:
+      Quality Manager / Quality Operator / Direction → vedono tutte
+      Proponente → propria ECN
+      CCB assegnato → ECN specifica
+      Document Manager / Auditor / staff → NON vedono automaticamente
+    """
+
+    def setUp(self):
+        from documents.permissions import GROUP_QUALITY_MANAGER, GROUP_QUALITY_OPERATOR, GROUP_DIRECTION
+
+        self.proposer = _make_user('vis_proposer')
+        self.quality_mgr = _make_user_in_groups('vis_qmgr', GROUP_QUALITY_MANAGER)
+        self.quality_op = _make_user_in_groups('vis_qop', GROUP_QUALITY_OPERATOR)
+        self.direction = _make_user_in_groups('vis_dir', GROUP_DIRECTION)
+        self.doc_manager = _make_user_in_groups('vis_docmgr', GROUP_MANAGERS)
+        self.doc_auditor = _make_user_in_groups('vis_docaud', GROUP_AUDITORS)
+        self.staff_user = User.objects.create_user('vis_staff', password='pw', is_staff=True)
+        self.ccb_member = _make_user_in_groups('vis_ccb', GROUP_CCB)
+        self.stranger = _make_user('vis_stranger')
+        self.superuser = _make_superuser('vis_su')
+
+        self.folder = _make_folder(self.proposer, 'FOLD-VIS')
+        self.document = _make_document(self.proposer, self.folder, 'DOC-VIS-001')
+        self.version = _make_version(self.document, self.proposer)
+        self.document.current_version = self.version
+        self.document.save(update_fields=['current_version'])
+        self.ecn = _make_ecn(self.document, self.version, self.proposer, 'ECN-VIS-001')
+
+        # CCB assegnato come approvatore
+        ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_member, order=1,
+        )
+
+    # 1. Proponente vede propria ECN
+    def test_proposer_can_view_own_ecn(self):
+        self.assertTrue(can_view_ecn(self.proposer, self.ecn))
+
+    # 2. Stranger non vede ECN
+    def test_stranger_cannot_view_ecn(self):
+        self.assertFalse(can_view_ecn(self.stranger, self.ecn))
+
+    # 3. CCB non assegnato NON vede automaticamente
+    def test_ccb_member_not_assigned_cannot_view(self):
+        unassigned_ccb = _make_user_in_groups('vis_ccb2', GROUP_CCB)
+        self.assertFalse(can_view_ecn(unassigned_ccb, self.ecn))
+
+    # 4. CCB assegnato vede la propria ECN
+    def test_assigned_ccb_can_view_ecn(self):
+        self.assertTrue(can_view_ecn(self.ccb_member, self.ecn))
+
+    # 5. Quality Manager vede tutto
+    def test_quality_manager_can_view_all(self):
+        self.assertTrue(can_view_ecn(self.quality_mgr, self.ecn))
+
+    # 6. Quality Operator vede (consultazione)
+    def test_quality_operator_can_view(self):
+        self.assertTrue(can_view_ecn(self.quality_op, self.ecn))
+
+    # 7. Direction vede (consultazione)
+    def test_direction_can_view(self):
+        self.assertTrue(can_view_ecn(self.direction, self.ecn))
+
+    # 8. staff non-superuser NON vede automaticamente
+    def test_staff_cannot_view_ecn_automatically(self):
+        self.assertFalse(can_view_ecn(self.staff_user, self.ecn))
+
+    # 9. Document Manager NON vede automaticamente
+    def test_document_manager_cannot_view_ecn_automatically(self):
+        self.assertFalse(can_view_ecn(self.doc_manager, self.ecn))
+
+    # 10. Superuser vede tutto
+    def test_superuser_can_view(self):
+        self.assertTrue(can_view_ecn(self.superuser, self.ecn))
+
+    # --- URL diretti (view HTTP) ------------------------------------------
+
+    def test_ecn_detail_url_stranger_returns_404(self):
+        self.client.force_login(self.stranger)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_ecn_detail_url_unassigned_ccb_returns_404(self):
+        unassigned_ccb = _make_user_in_groups('vis_ccb3', GROUP_CCB)
+        self.client.force_login(unassigned_ccb)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_ecn_detail_url_doc_manager_returns_404(self):
+        """MB1: Document Manager NON ha accesso diretto al dettaglio ECN."""
+        self.client.force_login(self.doc_manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_ecn_list_url_doc_manager_does_not_show_ecn(self):
+        """MB1: Document Manager non vede le ECN nella lista."""
+        self.client.force_login(self.doc_manager)
+        r = self.client.get('/ecn/')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'ECN-VIS-001')
+
+
+class ECNCCBGovernanceTests(TestCase):
+    """
+    MB1 — Governance CCB: solo Quality Manager e superuser.
+    Document Manager, staff, Direction, Quality Operator → nessuna governance.
+    """
+
+    def setUp(self):
+        from documents.permissions import (
+            GROUP_QUALITY_MANAGER, GROUP_QUALITY_OPERATOR, GROUP_DIRECTION,
+        )
+        self.quality_mgr = _make_user_in_groups('gov_qmgr', GROUP_QUALITY_MANAGER)
+        self.doc_manager = _make_user_in_groups('gov_docmgr', GROUP_MANAGERS)
+        self.quality_op = _make_user_in_groups('gov_qop', GROUP_QUALITY_OPERATOR)
+        self.direction = _make_user_in_groups('gov_dir', GROUP_DIRECTION)
+        self.staff_user = User.objects.create_user('gov_staff', password='pw', is_staff=True)
+        self.superuser = _make_superuser('gov_su')
+        self.proposer = _make_user('gov_proposer')
+
+        folder = _make_folder(self.quality_mgr, 'FOLD-GOV')
+        doc = _make_document(self.quality_mgr, folder, 'DOC-GOV-001')
+        version = _make_version(doc, self.quality_mgr)
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        self.ecn = _make_ecn(doc, version, self.proposer, 'ECN-GOV-001')
+
+    # 1. Solo Quality Manager configura CCB
+    def test_quality_manager_can_configure_ccb(self):
+        self.assertTrue(can_configure_ccb(self.quality_mgr, self.ecn))
+
+    def test_document_manager_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.doc_manager, self.ecn))
+
+    def test_quality_operator_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.quality_op, self.ecn))
+
+    def test_direction_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.direction, self.ecn))
+
+    def test_staff_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.staff_user, self.ecn))
+
+    def test_superuser_can_configure_ccb(self):
+        self.assertTrue(can_configure_ccb(self.superuser, self.ecn))
+
+    # 2. Quality Manager può chiudere; gli altri no
+    def test_quality_manager_can_close(self):
+        self.assertTrue(can_close_ecn(self.quality_mgr, self.ecn))
+
+    def test_document_manager_cannot_close(self):
+        self.assertFalse(can_close_ecn(self.doc_manager, self.ecn))
+
+    def test_staff_cannot_close(self):
+        self.assertFalse(can_close_ecn(self.staff_user, self.ecn))
+
+
+class ECNAttachmentDownloadTests(TestCase):
+    """
+    MB1 — Download allegati ECN: proponente, Quality Manager, CCB assegnato, superuser.
+    """
+
+    def setUp(self):
+        from documents.permissions import GROUP_QUALITY_MANAGER
+        from ecn.permissions import can_download_ecn_attachment
+
+        self.can_download = can_download_ecn_attachment
+
+        self.proposer = _make_user('att_proposer')
+        self.quality_mgr = _make_user_in_groups('att_qmgr', GROUP_QUALITY_MANAGER)
+        self.doc_manager = _make_user_in_groups('att_docmgr', GROUP_MANAGERS)
+        self.doc_auditor = _make_user_in_groups('att_docaud', GROUP_AUDITORS)
+        self.quality_op = _make_user_in_groups(
+            'att_qop', 'Quality Operator'
+        )
+        self.direction = _make_user_in_groups('att_dir', 'Direction')
+        self.staff_user = User.objects.create_user('att_staff', password='pw', is_staff=True)
+        self.ccb_assigned = _make_user_in_groups('att_ccb_a', GROUP_CCB)
+        self.ccb_unassigned = _make_user_in_groups('att_ccb_u', GROUP_CCB)
+        self.stranger = _make_user('att_stranger')
+        self.superuser = _make_superuser('att_su')
+
+        folder = _make_folder(self.proposer, 'FOLD-ATT')
+        doc = _make_document(self.proposer, folder, 'DOC-ATT-001')
+        version = _make_version(doc, self.proposer)
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        self.ecn = _make_ecn(doc, version, self.proposer, 'ECN-ATT-001')
+        ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_assigned, order=1,
+        )
+        self.attachment = ChangeNoticeAttachment.objects.create(
+            change_notice=self.ecn,
+            original_filename='doc.pdf',
+            title='Test',
+            uploaded_by=self.proposer,
+        )
+
+    # 1. Proponente scarica
+    def test_proposer_can_download(self):
+        self.assertTrue(self.can_download(self.proposer, self.attachment))
+
+    # 2. CCB assegnato scarica
+    def test_assigned_ccb_can_download(self):
+        self.assertTrue(self.can_download(self.ccb_assigned, self.attachment))
+
+    # 3. Quality Manager scarica
+    def test_quality_manager_can_download(self):
+        self.assertTrue(self.can_download(self.quality_mgr, self.attachment))
+
+    # 4. Superuser scarica
+    def test_superuser_can_download(self):
+        self.assertTrue(self.can_download(self.superuser, self.attachment))
+
+    # 5. Direction NON scarica automaticamente
+    def test_direction_cannot_download(self):
+        self.assertFalse(self.can_download(self.direction, self.attachment))
+
+    # 6. Quality Operator NON assegnato NON scarica
+    def test_quality_operator_not_assigned_cannot_download(self):
+        self.assertFalse(self.can_download(self.quality_op, self.attachment))
+
+    # 7. Auditor NON scarica
+    def test_auditor_cannot_download(self):
+        self.assertFalse(self.can_download(self.doc_auditor, self.attachment))
+
+    # 8. staff non-superuser NON scarica
+    def test_staff_cannot_download(self):
+        self.assertFalse(self.can_download(self.staff_user, self.attachment))
+
+    # 9. CCB globale non assegnato NON scarica
+    def test_unassigned_ccb_cannot_download(self):
+        self.assertFalse(self.can_download(self.ccb_unassigned, self.attachment))
+
+    # 10. Utente casuale NON scarica
+    def test_stranger_cannot_download(self):
+        self.assertFalse(self.can_download(self.stranger, self.attachment))
+
+    # --- URL diretto download -----------------------------------------------
+
+    def test_download_url_stranger_returns_403(self):
+        self.client.force_login(self.stranger)
+        r = self.client.get(f'/ecn/attachment/{self.attachment.pk}/download/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_download_url_doc_manager_returns_403(self):
+        """MB1: Document Manager riceve 403 sul download allegati ECN."""
+        self.client.force_login(self.doc_manager)
+        r = self.client.get(f'/ecn/attachment/{self.attachment.pk}/download/')
+        self.assertEqual(r.status_code, 403)
