@@ -1,69 +1,85 @@
 {% extends "base.html" %}
-{% block title %}{{ project.code }} — Documentale{% endblock %}
+{% block title %}{{ project.code }} — {{ project.name }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'project_list' %}">← Progetti</a>
-</p>
-<h1>{{ project.code }} — {{ project.name }}</h1>
 
-<div class="card">
+{# Breadcrumb #}
+<p class="meta" style="margin-bottom:.5rem">
+  <a href="{% url 'folder_list' %}">Archivio</a>
+  {% if project.root_folder and project.root_folder.parent %}
+  &nbsp;/&nbsp;<a href="{% url 'folder_detail' project.root_folder.parent.pk %}">{{ project.root_folder.parent.name }}</a>
+  {% endif %}
+  &nbsp;/&nbsp;<span style="color:#1a3a5c;font-weight:600">🗂️ {{ project.code }}</span>
+</p>
+
+<h1>{{ project.code }} — {{ project.name }}
+  <span class="badge badge-{{ project.status }}" style="font-size:.75rem;vertical-align:middle;margin-left:.4rem">{{ project.get_status_display }}</span>
+</h1>
+
+{# Scheda progetto #}
+<div class="card" style="margin-bottom:1.25rem">
   <dl class="dl-grid">
-    <dt>Stato</dt>        <dd><span class="badge badge-{{ project.status }}">{{ project.get_status_display }}</span></dd>
-    <dt>Tipo</dt>         <dd>{{ project.get_project_type_display }}</dd>
+    <dt>Tipo</dt>           <dd>{{ project.get_project_type_display }}</dd>
     {% if project.manager %}
-    <dt>Responsabile</dt> <dd>{{ project.manager.get_full_name|default:project.manager.username }}</dd>
+    <dt>Responsabile</dt>   <dd>{{ project.manager.get_full_name|default:project.manager.username }}</dd>
     {% endif %}
-    {% if project.folder %}
-    <dt>Cartella</dt>     <dd><a href="{% url 'folder_detail' project.folder.pk %}">{{ project.folder }}</a></dd>
+    {% if project.root_folder and project.root_folder.parent %}
+    <dt>Cartella padre</dt> <dd><a href="{% url 'folder_detail' project.root_folder.parent.pk %}">{{ project.root_folder.parent.code }} – {{ project.root_folder.parent.name }}</a></dd>
     {% endif %}
     {% if project.description %}
-    <dt>Descrizione</dt>  <dd>{{ project.description }}</dd>
+    <dt>Descrizione</dt>    <dd>{{ project.description }}</dd>
     {% endif %}
-    <dt>Creato il</dt>    <dd>{{ project.created_at|date:"d/m/Y" }}</dd>
+    <dt>Creato il</dt>      <dd>{{ project.created_at|date:"d/m/Y" }}</dd>
   </dl>
 </div>
 
+{# Azioni principali #}
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem">
+  {% if project.root_folder and project.root_folder.parent %}
+  <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="btn btn-secondary" style="font-size:.88rem">← Cartella padre</a>
+  {% else %}
+  <a href="{% url 'project_list' %}" class="btn btn-secondary" style="font-size:.88rem">← Progetti</a>
+  {% endif %}
+  {% if can_create_doc %}
+  <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary" style="font-size:.88rem">+ Nuovo documento</a>
+  {% endif %}
+  {% if can_manage and project.root_folder %}
+  <a href="{% url 'folder_create' %}?parent={{ project.root_folder.pk }}" class="btn btn-secondary" style="font-size:.88rem">+ Sottocartella</a>
+  {% endif %}
+</div>
+
+{# Sottocartelle della root folder #}
 {% if subfolders %}
-<h2>Sottocartelle</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Codice</th>
-      <th>Nome</th>
-      <th>Tipo</th>
-      <th>Stato</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for sub in subfolders %}
-    <tr>
-      <td><strong>{{ sub.code }}</strong></td>
-      <td>{{ sub.name }}</td>
-      <td>{{ sub.get_folder_kind_display }}</td>
-      <td><span class="badge badge-{{ sub.status }}">{{ sub.get_status_display }}</span></td>
-      <td><a href="{% url 'folder_detail' sub.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<h2 style="margin-bottom:.5rem">Struttura cartelle</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:.65rem;margin-bottom:1.25rem">
+  {% for sub in subfolders %}
+  <a href="{% url 'folder_detail' sub.pk %}" style="text-decoration:none;color:inherit">
+    <div class="card" style="cursor:pointer;padding:.75rem 1rem;display:flex;align-items:center;gap:.6rem">
+      <span style="font-size:1.5rem;line-height:1">📁</span>
+      <div style="min-width:0">
+        <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">{{ sub.name }}</div>
+        <div class="meta" style="font-size:.76rem">{{ sub.code }}</div>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
 {% endif %}
 
-{% if can_create_doc %}
-<p style="margin-top:1rem">
-  <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary">+ Nuovo documento in questo progetto</a>
-</p>
-{% endif %}
-
+{# Documenti nella root folder #}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;margin-top:1rem">
+  <h2 style="margin:0">Documenti</h2>
+  {% if can_create_doc %}
+  <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Nuovo</a>
+  {% endif %}
+</div>
 {% if documents %}
-<h2>Documenti nella cartella</h2>
 <table>
   <thead>
     <tr>
       <th>Codice</th>
       <th>Titolo</th>
-      <th>Revisione corrente</th>
+      <th>Revisione</th>
       <th>Stato</th>
       <th></th>
     </tr>
@@ -73,7 +89,7 @@
     <tr>
       <td><strong>{{ doc.code }}</strong></td>
       <td>{{ doc.title }}</td>
-      <td>{% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}{% else %}—{% endif %}</td>
+      <td>{% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
       <td>
         {% if doc.current_version %}
         <span class="badge badge-{{ doc.current_version.status }}">{{ doc.current_version.get_status_display }}</span>
@@ -81,30 +97,30 @@
         <span class="meta">—</span>
         {% endif %}
       </td>
-      <td><a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
+      <td><a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary" style="padding:.15rem .5rem;font-size:.82rem">Apri</a></td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-{% elif project.folder %}
-<div class="card" style="margin-top:1rem">
-  <p class="meta">Nessun documento nella cartella associata.</p>
+{% else %}
+<div class="card">
+  <p class="meta">
+    {% if project.root_folder %}
+    Nessun documento nella root folder del progetto.
+    {% else %}
+    Nessuna root folder associata a questo progetto.
+    {% endif %}
+  </p>
 </div>
 {% endif %}
 
-{% if not project.folder %}
-<div class="card" style="margin-top:1rem">
-  <p class="meta">Nessuna cartella documentale associata a questo progetto.</p>
-</div>
-{% endif %}
-
-{# ECN collegati ai documenti del progetto #}
+{# ECN collegati #}
 {% if project_ecns %}
-<h2 style="margin-top:2rem;margin-bottom:.5rem">ECN / Varianti collegate</h2>
+<h2 style="margin-top:1.75rem;margin-bottom:.5rem">ECN / Varianti collegate</h2>
 <table>
   <thead>
     <tr>
-      <th>Codice</th><th>Titolo</th><th>Documento</th><th>Stato</th><th>Proponente</th><th>Data</th><th></th>
+      <th>Codice</th><th>Titolo</th><th>Documento</th><th>Stato</th><th>Data</th><th></th>
     </tr>
   </thead>
   <tbody>
@@ -113,8 +129,11 @@
       <td><strong>{{ ecn.code }}</strong></td>
       <td>{{ ecn.title }}</td>
       <td><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a></td>
-      <td><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></td>
-      <td class="meta">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
+      <td><span class="badge badge-{{ ecn.status }}">
+        {% if ecn.status == 'ccb_preparation' %}Istruttoria CCB
+        {% elif ecn.status == 'under_review' %}In revisione CCB
+        {% else %}{{ ecn.get_status_display }}{% endif %}
+      </span></td>
       <td class="meta" style="white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
       <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
     </tr>
@@ -123,35 +142,29 @@
 </table>
 {% endif %}
 
-<h2 style="margin-top:2rem">Baseline</h2>
-<p class="meta">Una baseline è una fotografia dei documenti approvati del progetto in un determinato momento. Le modifiche successive ai documenti non aggiornano automaticamente la baseline corrente.</p>
+{# Baseline #}
+<h2 style="margin-top:1.75rem">Baseline progetto</h2>
+<p class="meta">Fotografia documentale in un momento specifico. Le modifiche successive non aggiornano la baseline corrente.</p>
 {% if can_manage %}
-<p><a href="{% url 'project_revision_create' project.pk %}" class="btn btn-primary">Congela stato corrente</a></p>
+<p style="margin-bottom:1rem"><a href="{% url 'project_revision_create' project.pk %}" class="btn btn-primary" style="font-size:.88rem">Congela stato corrente</a></p>
 {% endif %}
 
 {% if revisions %}
 <table>
   <thead>
     <tr>
-      <th>Etichetta</th>
-      <th>N°</th>
-      <th>Titolo</th>
-      <th>Stato</th>
-      <th>Corrente</th>
-      <th>Emessa il</th>
-      <th></th>
+      <th>Etichetta</th><th>Titolo</th><th>Stato</th><th>Corrente</th><th>Emessa il</th><th></th>
     </tr>
   </thead>
   <tbody>
     {% for rev in revisions %}
     <tr>
       <td><strong>{{ rev.revision_label }}</strong></td>
-      <td>{{ rev.revision_number }}</td>
       <td>{{ rev.title }}</td>
       <td>
         {% if rev.status == 'draft' %}<span class="badge badge-draft">Bozza</span>
         {% elif rev.status == 'issued' %}<span class="badge badge-active">Emessa</span>
-        {% elif rev.status == 'superseded' %}<span class="badge badge-archived">Superata</span>
+        {% elif rev.status == 'superseded' %}<span class="badge badge-superseded">Superata</span>
         {% elif rev.status == 'archived' %}<span class="badge badge-archived">Archiviata</span>
         {% endif %}
       </td>
@@ -166,82 +179,58 @@
 <p class="meta">Nessuna baseline creata per questo progetto.</p>
 {% endif %}
 
-<h2 style="margin-top:2rem">Confronto con baseline corrente</h2>
-
-{% if not current_baseline %}
-<p class="meta">Nessuna baseline corrente emessa. Crea una baseline per congelare lo stato documentale del progetto.</p>
-{% elif not comparison_rows %}
-<p class="meta">Nessun documento approvato trovato nelle cartelle del progetto.</p>
-{% else %}
-<p class="meta">Baseline corrente: <strong>{{ current_baseline.revision_label }}</strong> — {{ current_baseline.title }}{% if current_baseline.issued_at %} (emessa il {{ current_baseline.issued_at|date:"d/m/Y" }}){% endif %}</p>
+{# Confronto baseline corrente #}
+{% if current_baseline %}
+<h2 style="margin-top:1.5rem">Confronto con baseline corrente</h2>
+<p class="meta">Baseline corrente: <strong>{{ current_baseline.revision_label }}</strong> — {{ current_baseline.title }}{% if current_baseline.issued_at %} ({{ current_baseline.issued_at|date:"d/m/Y" }}){% endif %}</p>
+{% if comparison_rows %}
 <table>
   <thead>
     <tr>
-      <th>Documento</th>
-      <th>Revisione corrente</th>
-      <th>Revisione in baseline</th>
-      <th>Stato</th>
+      <th>Documento</th><th>Revisione corrente</th><th>Revisione baseline</th><th>Stato</th>
     </tr>
   </thead>
   <tbody>
     {% for row in comparison_rows %}
     <tr>
       <td>
-        {% if row.document %}
-        <a href="{% url 'document_detail' row.document.pk %}">{{ row.document.code }}</a>
+        {% if row.document %}<a href="{% url 'document_detail' row.document.pk %}">{{ row.document.code }}</a>
         <span class="meta" style="display:block;font-size:.8rem">{{ row.document.title }}</span>
         {% else %}—{% endif %}
       </td>
+      <td>{% if row.current_version %}Rev. {{ row.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
+      <td>{% if row.baseline_version %}Rev. {{ row.baseline_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
       <td>
-        {% if row.current_version %}
-        Rev. {{ row.current_version.revision_label }}
-        {% else %}
-        <span class="meta">—</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if row.baseline_version %}
-        Rev. {{ row.baseline_version.revision_label }}
-        {% else %}
-        <span class="meta">—</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if row.status == 'aligned' %}
-        <span class="badge badge-approved">{{ row.status_label }}</span>
-        {% elif row.status == 'changed' %}
-        <span class="badge badge-draft">{{ row.status_label }}</span>
-        {% elif row.status == 'new' %}
-        <span class="badge badge-in_approval">{{ row.status_label }}</span>
-        {% elif row.status == 'missing' %}
-        <span class="badge badge-rejected">{{ row.status_label }}</span>
+        {% if row.status == 'aligned' %}<span class="badge badge-approved">{{ row.status_label }}</span>
+        {% elif row.status == 'changed' %}<span class="badge badge-draft">{{ row.status_label }}</span>
+        {% elif row.status == 'new' %}<span class="badge badge-in_approval">{{ row.status_label }}</span>
+        {% elif row.status == 'missing' %}<span class="badge badge-rejected">{{ row.status_label }}</span>
         {% endif %}
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+{% else %}
+<p class="meta">Nessun documento approvato trovato nelle cartelle del progetto.</p>
+{% endif %}
 {% endif %}
 
+{# Storico eventi #}
 {% if show_audit %}
-<h2 style="margin-top:2rem">Storico eventi progetto</h2>
+<h2 style="margin-top:1.75rem">Storico eventi</h2>
 {% if audit_logs %}
 <table>
   <thead>
-    <tr>
-      <th>Data/ora</th>
-      <th>Utente</th>
-      <th>Azione</th>
-      <th>Oggetto</th>
-    </tr>
+    <tr><th>Data/ora</th><th>Utente</th><th>Azione</th><th>Oggetto</th></tr>
   </thead>
   <tbody>
     {% for entry in audit_logs %}
     <tr>
       <td class="meta" style="white-space:nowrap">{{ entry.timestamp|date:"d/m/Y H:i" }}</td>
       <td>{% if entry.user %}{{ entry.user.get_full_name|default:entry.user.username }}{% else %}—{% endif %}</td>
-      <td><code style="font-size:.85rem">{{ entry.action }}</code></td>
-      <td class="meta" style="font-size:.85rem">{{ entry.object_repr }}</td>
+      <td><code style="font-size:.82rem">{{ entry.action }}</code></td>
+      <td class="meta" style="font-size:.82rem">{{ entry.object_repr }}</td>
     </tr>
     {% endfor %}
   </tbody>

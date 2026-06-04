@@ -362,9 +362,9 @@ def new_document(request):
             from_project = get_object_or_404(Project, pk=int(project_id_param))
         except (ValueError, TypeError):
             raise PermissionDenied
-        if from_project.folder is None or not can_create_document_in_folder(request.user, from_project.folder):
+        if from_project.root_folder is None or not can_create_document_in_folder(request.user, from_project.root_folder):
             raise PermissionDenied
-        fixed_folder = from_project.folder
+        fixed_folder = from_project.root_folder
     elif not can_create_document(request.user):
         raise PermissionDenied
 

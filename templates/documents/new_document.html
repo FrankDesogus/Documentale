@@ -6,7 +6,7 @@
 <p class="meta"><a href="{% url 'project_detail' from_project.pk %}">← {{ from_project.code }} — {{ from_project.name }}</a></p>
 <h1>Nuovo documento in {{ from_project.code }}</h1>
 <div class="card" style="margin-bottom:1rem">
-  <p class="meta" style="margin:0">Il documento sarà creato nella cartella <strong>{{ from_project.folder }}</strong> associata al progetto.</p>
+  <p class="meta" style="margin:0">Il documento sarà creato nella cartella radice <strong>{{ from_project.root_folder }}</strong> del progetto.</p>
 </div>
 {% else %}
 <p class="meta"><a href="{% url 'dashboard' %}">← Dashboard</a></p>

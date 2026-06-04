@@ -16,8 +16,8 @@
     {% if can_create %}
     <a href="{% url 'folder_create' %}?parent={{ folder.pk }}" class="btn btn-secondary" style="font-size:.85rem;padding:.3rem .75rem">+ Sottocartella</a>
     {% endif %}
-    {% if can_create_project and not folder_projects %}
-    <a href="{% url 'project_create' %}?folder={{ folder.pk }}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Crea progetto</a>
+    {% if can_create_project %}
+    <a href="{% url 'project_create' %}?parent_folder={{ folder.pk }}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Nuovo progetto</a>
     {% endif %}
   </div>
 </div>
@@ -45,39 +45,58 @@
 </div>
 {% endif %}
 
-{# Progetti associati #}
-{% if folder_projects %}
-<h2 style="margin-bottom:.5rem">Progetti</h2>
-<div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem">
-  {% for proj in folder_projects %}
-  <a href="{% url 'project_detail' proj.pk %}" style="text-decoration:none;color:inherit">
-    <div class="card" style="cursor:pointer;padding:.75rem 1.25rem;min-width:200px">
-      <div style="font-weight:600;color:#1a3a5c">{{ proj.code }}</div>
-      <div style="font-size:.9rem">{{ proj.name }}</div>
-      {% if proj.manager %}
-      <div class="meta" style="font-size:.8rem">{{ proj.manager.get_full_name|default:proj.manager.username }}</div>
-      {% endif %}
-      <span class="badge badge-{{ proj.status }}" style="font-size:.75rem;margin-top:.3rem">{{ proj.get_status_display }}</span>
-    </div>
-  </a>
-  {% endfor %}
-</div>
-{% endif %}
+{# Explorer unificato: progetti + sottocartelle ordinarie insieme #}
+{% if explorer_items %}
+<h2 style="margin-bottom:.5rem">Contenuto</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.75rem;margin-bottom:1.5rem">
+  {% for kind, item in explorer_items %}
 
-{# Sottocartelle — card explorer #}
-{% if subfolders %}
-<h2 style="margin-bottom:.5rem">Sottocartelle</h2>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;margin-bottom:1.25rem">
-  {% for sub in subfolders %}
-  <a href="{% url 'folder_detail' sub.pk %}" style="text-decoration:none;color:inherit">
-    <div class="card" style="cursor:pointer;padding:.75rem 1rem;display:flex;align-items:center;gap:.6rem">
-      <span style="font-size:1.5rem;line-height:1">📁</span>
+  {% if kind == 'project' %}
+  {# Tile PROGETTO #}
+  <a href="{% url 'project_detail' item.pk %}" style="text-decoration:none;color:inherit">
+    <div class="card" style="cursor:pointer;padding:.85rem 1.1rem;border-left:4px solid #1a3a5c;display:flex;align-items:flex-start;gap:.7rem">
+      <span style="font-size:1.7rem;line-height:1">🗂️</span>
       <div style="min-width:0">
-        <div style="font-weight:600;color:#1a3a5c;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sub.name }}</div>
-        <div class="meta" style="font-size:.78rem">{{ sub.code }} · {{ sub.get_folder_kind_display }}</div>
+        <div style="font-weight:700;color:#1a3a5c;font-size:.97rem;margin-bottom:.15rem">{{ item.code }}</div>
+        <div style="font-size:.88rem;color:#333;margin-bottom:.25rem;word-break:break-word">{{ item.name }}</div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
+          <span class="badge" style="background:#e8eef5;color:#1a3a5c;font-size:.7rem">Progetto</span>
+          <span class="badge badge-{{ item.status }}" style="font-size:.7rem">{{ item.get_status_display }}</span>
+        </div>
+        {% if item.manager %}
+        <div class="meta" style="font-size:.75rem;margin-top:.2rem">{{ item.manager.get_full_name|default:item.manager.username }}</div>
+        {% endif %}
       </div>
     </div>
   </a>
+
+  {% elif kind == 'orphan_project_folder' %}
+  {# Tile cartella PROJECT orfana (nessun progetto collegato) #}
+  <a href="{% url 'folder_detail' item.pk %}" style="text-decoration:none;color:inherit">
+    <div class="card" style="cursor:pointer;padding:.85rem 1.1rem;border-left:4px solid #ffc107;display:flex;align-items:flex-start;gap:.7rem">
+      <span style="font-size:1.7rem;line-height:1">🗂️</span>
+      <div style="min-width:0">
+        <div style="font-weight:600;color:#856404;font-size:.9rem;margin-bottom:.1rem">{{ item.code }}</div>
+        <div style="font-size:.82rem;color:#856404;margin-bottom:.2rem">{{ item.name }}</div>
+        <span class="badge" style="background:#fff3cd;color:#856404;font-size:.7rem">Progetto non collegato</span>
+      </div>
+    </div>
+  </a>
+
+  {% else %}
+  {# Tile cartella ordinaria #}
+  <a href="{% url 'folder_detail' item.pk %}" style="text-decoration:none;color:inherit">
+    <div class="card" style="cursor:pointer;padding:.85rem 1.1rem;display:flex;align-items:flex-start;gap:.7rem">
+      <span style="font-size:1.7rem;line-height:1">📁</span>
+      <div style="min-width:0;flex:1">
+        <div style="font-weight:600;color:#1a3a5c;font-size:.95rem;margin-bottom:.15rem;word-break:break-word">{{ item.name }}</div>
+        <div class="meta" style="font-size:.78rem;margin-bottom:.3rem">{{ item.code }}</div>
+        <span class="badge badge-{{ item.folder_kind }}" style="font-size:.72rem">{{ item.get_folder_kind_display }}</span>
+      </div>
+    </div>
+  </a>
+  {% endif %}
+
   {% endfor %}
 </div>
 {% endif %}

@@ -149,16 +149,89 @@ def build_folder_path_for_existing() -> int:
 
 
 def get_project_document_folders(project):
-    """Restituisce la cartella del progetto e tutte le sottocartelle (BFS, qualsiasi stato)."""
-    if project.folder is None:
+    """Restituisce la root folder del progetto e tutte le sottocartelle (BFS, qualsiasi stato)."""
+    root = project.root_folder
+    if root is None:
         return []
-    result = [project.folder]
-    queue = list(project.folder.subfolders.all())
+    result = [root]
+    queue = list(root.subfolders.all())
     while queue:
         folder = queue.pop(0)
         result.append(folder)
         queue.extend(folder.subfolders.all())
     return result
+
+
+@transaction.atomic
+def create_project_with_root_folder(
+    *,
+    parent_folder,
+    code: str,
+    name: str,
+    description: str = '',
+    project_type: str = 'other',
+    status: str = 'draft',
+    manager=None,
+    created_by=None,
+) -> 'Project':
+    """
+    Crea atomicamente un progetto con la propria root folder dedicata.
+
+    La root folder viene creata come figlio diretto di parent_folder,
+    con folder_kind=PROJECT, stesso codice e nome del progetto.
+
+    Il path materializzato viene valorizzato tramite set_folder_path.
+
+    Raises:
+        ValidationError: codice già in uso nel Project o ProjectFolder,
+                         o parent_folder non valida.
+    """
+    from django.core.exceptions import ValidationError
+    from .models import Project, ProjectFolder
+
+    if not parent_folder:
+        raise ValidationError("La cartella padre è obbligatoria per creare un progetto.")
+
+    if not code or not code.strip():
+        raise ValidationError("Il codice progetto è obbligatorio.")
+
+    code = code.strip()
+    name = name.strip() if name else code
+
+    # Verifica codice univoco
+    if Project.objects.filter(code=code).exists():
+        raise ValidationError(f"Esiste già un progetto con codice '{code}'.")
+    if ProjectFolder.objects.filter(code=code).exists():
+        raise ValidationError(f"Esiste già una cartella con codice '{code}'.")
+
+    # Crea la root folder
+    root_folder = ProjectFolder(
+        code=code,
+        name=name,
+        folder_kind=ProjectFolder.FolderKind.PROJECT,
+        parent=parent_folder,
+        status=ProjectFolder.Status.ACTIVE,
+        owner=created_by or manager or parent_folder.owner,
+        created_by=created_by,
+    )
+    root_folder.save()
+    set_folder_path(root_folder)
+
+    # Crea il progetto con la root folder
+    project = Project(
+        code=code,
+        name=name,
+        description=description,
+        project_type=project_type,
+        status=status,
+        manager=manager,
+        created_by=created_by,
+        root_folder=root_folder,
+    )
+    project.full_clean()  # Esegue clean() per validare coerenza root_folder
+    project.save()
+
+    return project
 
 
 def create_project_revision(

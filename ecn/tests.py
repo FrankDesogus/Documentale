@@ -822,7 +822,7 @@ class ECNServiceCreateTests(TestCase):
             code='PRJ-ECN-01',
             name='Progetto ECN test',
             status=Project.Status.ACTIVE,
-            folder=self.folder,
+            root_folder=None,  # STEP PROJECT-ROOT: non necessita root folder in questo test
             created_by=self.user,
         )
         ecn = create_change_notice(

@@ -14,6 +14,7 @@ class ProjectFolder(models.Model):
         DEPARTMENT = 'department', 'Reparto'
         GENERIC = 'generic', 'Generica'
         ARCHIVE = 'archive', 'Archivio'
+        PROJECT = 'project', 'Progetto'
 
     code = models.CharField(max_length=50, unique=True, verbose_name='Codice')
     name = models.CharField(max_length=255, verbose_name='Nome')
@@ -276,13 +277,14 @@ class Project(models.Model):
         default=ProjectType.OTHER,
         verbose_name='Tipo',
     )
-    folder = models.ForeignKey(
+    root_folder = models.OneToOneField(
         ProjectFolder,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
-        related_name='projects',
-        verbose_name='Cartella documentale',
+        related_name='root_project',
+        verbose_name='Cartella radice progetto',
+        help_text='Cartella dedicata che contiene tutti i documenti e sottocartelle del progetto.',
     )
     manager = models.ForeignKey(
         User,
@@ -310,6 +312,19 @@ class Project(models.Model):
 
     def __str__(self):
         return f"{self.code} – {self.name}"
+
+    def clean(self):
+        """Valida coerenza root_folder: se impostata deve avere folder_kind=PROJECT."""
+        from django.core.exceptions import ValidationError
+        if self.root_folder_id is not None:
+            if self.root_folder.folder_kind != ProjectFolder.FolderKind.PROJECT:
+                raise ValidationError({
+                    'root_folder': (
+                        f"La cartella '{self.root_folder.code}' non è di tipo Progetto "
+                        f"(tipo attuale: {self.root_folder.get_folder_kind_display()}). "
+                        "Usa il servizio di creazione progetto."
+                    )
+                })
 
 
 class ProjectRevision(models.Model):

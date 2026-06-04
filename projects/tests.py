@@ -398,14 +398,19 @@ class MembershipPermissionTests(TestCase):
 from projects.models import Project  # noqa: E402
 
 
-def make_project(code='PRJ-001', name='Test Project', owner=None, folder=None,
-                 status=Project.Status.ACTIVE):
+def make_project(code='PRJ-001', name='Test Project', owner=None, root_folder=None,
+                 status=Project.Status.ACTIVE, folder=None):
+    """
+    Helper per i test: crea un progetto senza root folder atomica.
+    Il parametro 'folder' è mantenuto per backward compat dei test vecchi
+    ma viene ignorato (usare root_folder).
+    """
     return Project.objects.create(
         code=code,
         name=name,
         status=status,
         project_type=Project.ProjectType.INTERNAL,
-        folder=folder,
+        root_folder=root_folder,
         manager=owner,
         created_by=owner,
     )
@@ -438,9 +443,9 @@ class ProjectModelTests(TestCase):
         self.assertIn('PRJ-STR', str(p))
         self.assertIn('Stringa Test', str(p))
 
-    def test_project_without_folder(self):
-        p = make_project(code='PRJ-NF', owner=self.user, folder=None)
-        self.assertIsNone(p.folder)
+    def test_project_without_root_folder(self):
+        p = make_project(code='PRJ-NF', owner=self.user, root_folder=None)
+        self.assertIsNone(p.root_folder)
 
 
 class ProjectListViewTests(TestCase):
@@ -453,7 +458,7 @@ class ProjectListViewTests(TestCase):
         # MB1: is_staff da solo non concede visibilità globale progetti
         Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
         self.folder = make_folder(code='PL-F-001', owner=self.owner)
-        self.project = make_project(code='PL-PRJ-001', owner=self.owner, folder=self.folder)
+        self.project = make_project(code='PL-PRJ-001', owner=self.owner, root_folder=self.folder)
 
     def test_project_list_requires_login(self):
         response = self.client.get(reverse('project_list'))
@@ -492,10 +497,14 @@ class ProjectCreateViewTests(TestCase):
         self.manager = User.objects.create_user('pc_manager', password='pw')
         self.normal = User.objects.create_user('pc_normal', password='pw')
         Group.objects.get_or_create(name=GROUP_MANAGERS)[0].user_set.add(self.manager)
+        # Cartella padre per il progetto (STEP PROJECT-ROOT: obbligatoria)
+        self.parent_folder = make_folder(code='PC-PARENT', owner=self.manager)
 
     def test_document_manager_can_create_project(self):
+        """STEP PROJECT-ROOT: la creazione richiede parent_folder."""
         self.client.login(username='pc_manager', password='pw')
         response = self.client.post(reverse('project_create'), {
+            'parent_folder': self.parent_folder.pk,
             'code': 'PRJ-NEW-001',
             'name': 'Nuovo Progetto',
             'status': 'active',
@@ -503,10 +512,16 @@ class ProjectCreateViewTests(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Project.objects.filter(code='PRJ-NEW-001').exists())
+        # Verifica root folder creata
+        prj = Project.objects.get(code='PRJ-NEW-001')
+        self.assertIsNotNone(prj.root_folder)
+        self.assertEqual(prj.root_folder.folder_kind, ProjectFolder.FolderKind.PROJECT)
+        self.assertEqual(prj.root_folder.parent, self.parent_folder)
 
     def test_normal_user_cannot_create_project(self):
         self.client.login(username='pc_normal', password='pw')
         response = self.client.post(reverse('project_create'), {
+            'parent_folder': self.parent_folder.pk,
             'code': 'PRJ-DENIED',
             'name': 'Non autorizzato',
             'status': 'active',
@@ -532,7 +547,7 @@ class ProjectDetailViewTests(TestCase):
         )
         self.project = make_project(
             code='PD-PRJ-001', name='Progetto Dettaglio',
-            owner=self.owner, folder=self.folder,
+            owner=self.owner, root_folder=self.folder,
         )
 
     def test_project_detail_shows_project_data(self):
@@ -579,7 +594,8 @@ class DemoWorkflowProjectTests(TestCase):
         p = Project.objects.get(code='PRJ-DEMO-001')
         self.assertEqual(p.status, Project.Status.ACTIVE)
         self.assertEqual(p.project_type, Project.ProjectType.INTERNAL)
-        self.assertIsNotNone(p.folder)
+        # STEP PROJECT-ROOT: ora usa root_folder
+        self.assertIsNotNone(p.root_folder)
 
 
 # ---------------------------------------------------------------------------
@@ -587,16 +603,21 @@ class DemoWorkflowProjectTests(TestCase):
 # ---------------------------------------------------------------------------
 
 def make_project_with_folder(code='BP-PRJ-001', owner=None):
-    folder = ProjectFolder.objects.create(
-        code=f'{code}-FOLD', name='Folder', folder_kind=ProjectFolder.FolderKind.GENERIC,
+    """
+    Helper per test baseline: crea un progetto con root folder.
+    STEP PROJECT-ROOT: usa root_folder invece di folder.
+    """
+    root_folder = ProjectFolder.objects.create(
+        code=f'{code}-ROOT', name='Root Folder',
+        folder_kind=ProjectFolder.FolderKind.PROJECT,
         status=ProjectFolder.Status.ACTIVE, owner=owner,
     )
     project = Project.objects.create(
         code=code, name='Baseline Project', status=Project.Status.ACTIVE,
-        project_type=Project.ProjectType.INTERNAL, folder=folder,
+        project_type=Project.ProjectType.INTERNAL, root_folder=root_folder,
         manager=owner, created_by=owner,
     )
-    return project, folder
+    return project, root_folder
 
 
 class ProjectRevisionServiceTests(TestCase):
@@ -1153,7 +1174,7 @@ class NewDocumentFromProjectTests(TestCase):
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['can_create_doc'])
-        self.assertContains(response, 'Nuovo documento in questo progetto')
+        self.assertContains(response, '+ Nuovo documento')
 
     # 2. Bottone visibile per author con membership nella cartella
     def test_button_visible_for_folder_author(self):
@@ -1161,7 +1182,7 @@ class NewDocumentFromProjectTests(TestCase):
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['can_create_doc'])
-        self.assertContains(response, 'Nuovo documento in questo progetto')
+        self.assertContains(response, '+ Nuovo documento')
 
     # 3. Bottone non visibile per utente senza write access alla cartella
     def test_button_not_visible_for_outsider(self):
@@ -1171,7 +1192,7 @@ class NewDocumentFromProjectTests(TestCase):
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context['can_create_doc'])
-        self.assertNotContains(response, 'Nuovo documento in questo progetto')
+        self.assertNotContains(response, '+ Nuovo documento')
 
     # 4. GET /documents/new/?project=<id> preseleziona la cartella nel form
     def test_new_document_with_project_param_preselects_folder(self):
@@ -1215,14 +1236,14 @@ class NewDocumentFromProjectTests(TestCase):
         # redirect al documento creato
         self.assertRedirects(response, reverse('document_detail', args=[doc.pk]))
 
-    # 7. Progetto senza cartella associata: bottone non visibile
+    # 7. Progetto senza root_folder: bottone non visibile
     def test_button_not_shown_when_project_has_no_folder(self):
         project_no_folder = Project.objects.create(
             code='NDP-PRJ-NOFOLD',
             name='No folder project',
             status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
-            folder=None,
+            root_folder=None,  # STEP PROJECT-ROOT: usa root_folder invece di folder
             manager=self.manager,
             created_by=self.manager,
         )
@@ -1230,7 +1251,7 @@ class NewDocumentFromProjectTests(TestCase):
         response = self.client.get(reverse('project_detail', args=[project_no_folder.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context['can_create_doc'])
-        self.assertNotContains(response, 'Nuovo documento in questo progetto')
+        self.assertNotContains(response, '+ Nuovo documento')
 
 
 # ---------------------------------------------------------------------------
@@ -1239,7 +1260,7 @@ class NewDocumentFromProjectTests(TestCase):
 
 @override_settings(EMAIL_BACKEND=EMAIL_LOCMEM)
 class AuditUIProjectDetailTests(TestCase):
-    """Sezione 'Storico eventi progetto' nel dettaglio progetto."""
+    """Sezione 'Storico eventi' nel dettaglio progetto."""
 
     def setUp(self):
         from django.contrib.auth.models import Group
@@ -1256,29 +1277,29 @@ class AuditUIProjectDetailTests(TestCase):
         self.project, self.folder = make_project_with_folder(code='APD-PRJ-001', owner=self.manager_staff)
         ProjectFolderMembership.objects.create(folder=self.folder, user=self.reader, role='reader')
 
-    # 1. Manager (staff) vede "Storico eventi progetto"
+    # 1. Manager (staff) vede "Storico eventi"
     def test_manager_sees_storico_eventi_progetto(self):
         self.client.login(username='apd_mgr', password='pw')
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['show_audit'])
-        self.assertContains(response, 'Storico eventi progetto')
+        self.assertContains(response, 'Storico eventi')
 
-    # 2. Auditor globale vede "Storico eventi progetto"
+    # 2. Auditor globale vede "Storico eventi"
     def test_global_auditor_sees_storico_eventi_progetto(self):
         self.client.login(username='apd_auditor', password='pw')
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['show_audit'])
-        self.assertContains(response, 'Storico eventi progetto')
+        self.assertContains(response, 'Storico eventi')
 
-    # 3. Reader normale NON vede "Storico eventi progetto"
+    # 3. Reader normale NON vede "Storico eventi"
     def test_reader_does_not_see_storico_eventi_progetto(self):
         self.client.login(username='apd_reader', password='pw')
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context['show_audit'])
-        self.assertNotContains(response, 'Storico eventi progetto')
+        self.assertNotContains(response, 'Storico eventi')
         self.assertIsNone(response.context['audit_logs'])
 
     # 4. Pagina funziona anche senza AuditLog
@@ -1292,7 +1313,7 @@ class AuditUIProjectDetailTests(TestCase):
         self.assertEqual(len(list(response.context['audit_logs'])), 0)
         self.assertContains(response, 'Nessun evento registrato per questo progetto.')
 
-    # 5. Folder-auditor (membership cartella) vede "Storico eventi progetto"
+    # 5. Folder-auditor (membership cartella) vede "Storico eventi"
     def test_folder_auditor_sees_storico_eventi_progetto(self):
         folder_auditor = User.objects.create_user('apd_foldaud', password='pw')
         ProjectFolderMembership.objects.create(
@@ -1302,7 +1323,7 @@ class AuditUIProjectDetailTests(TestCase):
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['show_audit'])
-        self.assertContains(response, 'Storico eventi progetto')
+        self.assertContains(response, 'Storico eventi')
 
 
 # ---------------------------------------------------------------------------
@@ -1383,41 +1404,48 @@ class FolderCreateWithParentTests(TestCase):
 
 class ProjectCreateWithFolderTests(TestCase):
     """
-    Verifica che project_create accetti ?folder=<id> e precompili la cartella documentale.
+    STEP PROJECT-ROOT: project_create usa ?parent_folder=<id>.
+    Verifica backward compat (anche ?folder= funziona) e precompilazione form.
     """
 
     def setUp(self):
         from django.contrib.auth.models import Group
         self.staff = User.objects.create_user('pc_staff', password='pw', is_staff=True)
         self.owner = User.objects.create_user('pc_owner', password='pw')
-        # MB1: is_staff non concede creazione progetti; Document Managers per i test di comportamento
         Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.staff)
         self.folder = make_folder(code='PC-FOLD', name='Cartella Progetto', owner=self.owner)
 
-    def test_folder_detail_create_project_link_includes_folder_param(self):
-        """Il link '+ Crea progetto' in folder_detail punta a project_create?folder=<pk>."""
+    def test_folder_detail_create_project_link_includes_parent_folder_param(self):
+        """STEP PROJECT-ROOT: il link usa ?parent_folder=<pk>."""
         self.client.login(username='pc_staff', password='pw')
         response = self.client.get(reverse('folder_detail', args=[self.folder.pk]))
-        # Il bottone appare solo se can_create_project e non ci sono già progetti
-        self.assertContains(response, f'?folder={self.folder.pk}')
+        self.assertContains(response, f'?parent_folder={self.folder.pk}')
 
-    def test_project_create_get_with_folder_precompiles_form(self):
-        """GET project_create?folder=<pk> passa prefill_folder al contesto."""
+    def test_project_create_get_with_parent_folder_precompiles_form(self):
+        """GET project_create?parent_folder=<pk> passa prefill_folder al contesto."""
+        self.client.login(username='pc_staff', password='pw')
+        response = self.client.get(
+            reverse('project_create') + f'?parent_folder={self.folder.pk}'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['prefill_folder'], self.folder)
+        self.assertContains(response, 'PC-FOLD')
+
+    def test_project_create_get_with_folder_param_still_works(self):
+        """Backward compat: ?folder=<pk> precompila anche con il vecchio parametro."""
         self.client.login(username='pc_staff', password='pw')
         response = self.client.get(
             reverse('project_create') + f'?folder={self.folder.pk}'
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['prefill_folder'], self.folder)
-        self.assertContains(response, 'PC-FOLD')
 
-    def test_project_create_get_with_folder_shows_banner(self):
-        """Il form mostra il banner con la cartella pre-selezionata."""
+    def test_project_create_get_shows_form_with_folder_info(self):
+        """Il form mostra la cartella padre preselezionata."""
         self.client.login(username='pc_staff', password='pw')
         response = self.client.get(
-            reverse('project_create') + f'?folder={self.folder.pk}'
+            reverse('project_create') + f'?parent_folder={self.folder.pk}'
         )
-        self.assertContains(response, 'Cartella documentale')
         self.assertContains(response, 'Cartella Progetto')
 
 
@@ -2978,7 +3006,7 @@ class StepFFolderListIntegrationTests(TestCase):
             code='SFF-NAV-PRJ', name='Nav Project',
             status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
-            folder=self.root, manager=self.owner, created_by=self.owner,
+            root_folder=None, manager=self.owner, created_by=self.owner,
         )
         self.client.login(username='sff_user', password='pw')
         resp = self.client.get(reverse('folder_detail', args=[self.root.pk]))
@@ -3098,7 +3126,7 @@ class StepFProjectIntegrationTests(TestCase):
             code='SFP-PRJ', name='Test Project',
             status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
-            folder=self.folder, manager=self.owner, created_by=self.owner,
+            root_folder=self.folder, manager=self.owner, created_by=self.owner,
         )
 
     def _grant_user(self, perm, effect='allow'):
@@ -3187,3 +3215,351 @@ class StepFProjectIntegrationTests(TestCase):
         self.client.login(username='sfp_staff', password='pw')
         resp = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(resp.status_code, 403)
+
+
+# ===========================================================================
+# STEP PROJECT-ROOT — Test nuovi
+# ===========================================================================
+
+from django.test import override_settings  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Modello e FolderKind.PROJECT
+# ---------------------------------------------------------------------------
+
+class ProjectRootFolderModelTests(TestCase):
+    """Test modello root_folder e FolderKind.PROJECT."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('prm_user', password='pw')
+        self.parent = ProjectFolder.objects.create(
+            code='PRM-PARENT', name='Parent', owner=self.user,
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+        )
+
+    # 1. FolderKind.PROJECT disponibile
+    def test_folder_kind_project_available(self):
+        self.assertIn('project', [k.value for k in ProjectFolder.FolderKind])
+
+    # 2. Root folder PROJECT accettata
+    def test_project_accepts_project_kind_root_folder(self):
+        rf = ProjectFolder.objects.create(
+            code='PRM-ROOT', name='Root', owner=self.user,
+            folder_kind=ProjectFolder.FolderKind.PROJECT,
+            parent=self.parent,
+        )
+        prj = Project.objects.create(
+            code='PRM-PRJ', name='Test', root_folder=rf,
+            created_by=self.user,
+        )
+        self.assertEqual(prj.root_folder, rf)
+
+    # 3. Cartella ordinaria come root_folder: clean() deve rifiutare
+    def test_clean_rejects_generic_folder_as_root_folder(self):
+        from django.core.exceptions import ValidationError
+        generic = ProjectFolder.objects.create(
+            code='PRM-GEN', name='Generica', owner=self.user,
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+        )
+        prj = Project(code='PRM-BAD', name='Bad', root_folder=generic, created_by=self.user)
+        with self.assertRaises(ValidationError):
+            prj.full_clean()
+
+    # 4. Stessa root folder non assegnabile a due progetti (OneToOneField)
+    def test_root_folder_cannot_be_shared(self):
+        from django.db import IntegrityError
+        rf = ProjectFolder.objects.create(
+            code='PRM-SHARED', name='Shared', owner=self.user,
+            folder_kind=ProjectFolder.FolderKind.PROJECT,
+        )
+        Project.objects.create(code='PRM-P1', name='P1', root_folder=rf, created_by=self.user)
+        with self.assertRaises(IntegrityError):
+            Project.objects.create(code='PRM-P2', name='P2', root_folder=rf, created_by=self.user)
+
+    # 5. Progetto legacy senza root_folder temporaneamente consentito
+    def test_project_without_root_folder_allowed(self):
+        prj = Project.objects.create(code='PRM-LEGACY', name='Legacy',
+                                     root_folder=None, created_by=self.user)
+        self.assertIsNone(prj.root_folder)
+
+    # 6. Cancellazione root folder collegata protetta (PROTECT)
+    def test_delete_root_folder_protected(self):
+        from django.db.models.deletion import ProtectedError
+        rf = ProjectFolder.objects.create(
+            code='PRM-PROT', name='Prot', owner=self.user,
+            folder_kind=ProjectFolder.FolderKind.PROJECT,
+        )
+        Project.objects.create(code='PRM-PROT-PRJ', name='P', root_folder=rf, created_by=self.user)
+        with self.assertRaises(ProtectedError):
+            rf.delete()
+
+
+# ---------------------------------------------------------------------------
+# Service atomico create_project_with_root_folder
+# ---------------------------------------------------------------------------
+
+class ProjectRootFolderServiceTests(TestCase):
+    """Test service atomico STEP PROJECT-ROOT."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from documents.permissions import GROUP_MANAGERS
+        self.user = User.objects.create_user('prs_user', password='pw')
+        Group.objects.get_or_create(name=GROUP_MANAGERS)[0].user_set.add(self.user)
+        self.parent = ProjectFolder.objects.create(
+            code='PRS-PARENT', name='Parent', owner=self.user,
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+        )
+        from projects.services import set_folder_path
+        set_folder_path(self.parent)
+
+    def _create(self, code='PRS-PRJ-001', **kwargs):
+        from projects.services import create_project_with_root_folder
+        return create_project_with_root_folder(
+            parent_folder=self.parent,
+            code=code,
+            name=kwargs.get('name', 'Test Project'),
+            description=kwargs.get('description', ''),
+            manager=kwargs.get('manager', self.user),
+            created_by=self.user,
+        )
+
+    # 1. Service crea progetto + root folder
+    def test_service_creates_project_and_root_folder(self):
+        prj = self._create()
+        self.assertIsNotNone(prj.root_folder)
+        self.assertEqual(prj.code, 'PRS-PRJ-001')
+
+    # 2. Parent corretto
+    def test_root_folder_parent_correct(self):
+        prj = self._create()
+        self.assertEqual(prj.root_folder.parent, self.parent)
+
+    # 3. Kind PROJECT
+    def test_root_folder_kind_is_project(self):
+        prj = self._create()
+        self.assertEqual(prj.root_folder.folder_kind, ProjectFolder.FolderKind.PROJECT)
+
+    # 4. Path valorizzato
+    def test_root_folder_path_set(self):
+        prj = self._create()
+        self.assertTrue(prj.root_folder.path, "Il path deve essere valorizzato")
+
+    # 5. Relazione OneToOne: root_project → project
+    def test_root_folder_one_to_one_reverse(self):
+        prj = self._create()
+        self.assertEqual(prj.root_folder.root_project, prj)
+
+    # 6. Codice coerente
+    def test_root_folder_code_matches_project(self):
+        prj = self._create(code='PRS-COERENTE')
+        self.assertEqual(prj.root_folder.code, prj.code)
+
+    # 7. Transazione atomica: codice duplicato → nessuna root folder orfana
+    def test_duplicate_code_leaves_no_orphan_folder(self):
+        from django.core.exceptions import ValidationError
+        self._create(code='PRS-DUP')
+        before = ProjectFolder.objects.count()
+        with self.assertRaises(ValidationError):
+            self._create(code='PRS-DUP')
+        after = ProjectFolder.objects.count()
+        self.assertEqual(before, after, "Nessuna cartella orfana deve essere stata creata")
+
+    # 8. Codice duplicato gestito con errore leggibile
+    def test_duplicate_project_code_raises_validation_error(self):
+        from django.core.exceptions import ValidationError
+        self._create(code='PRS-DUPCODE')
+        with self.assertRaises(ValidationError) as ctx:
+            self._create(code='PRS-DUPCODE')
+        self.assertIn('PRS-DUPCODE', str(ctx.exception))
+
+    # 9. Parent folder obbligatorio
+    def test_no_parent_raises(self):
+        from django.core.exceptions import ValidationError
+        from projects.services import create_project_with_root_folder
+        with self.assertRaises(ValidationError):
+            create_project_with_root_folder(
+                parent_folder=None, code='PRS-NOPA', name='No Parent',
+            )
+
+
+# ---------------------------------------------------------------------------
+# Explorer unificato
+# ---------------------------------------------------------------------------
+
+class ProjectExplorerTests(TestCase):
+    """Test explorer unificato cartelle + progetti (STEP PROJECT-ROOT)."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from documents.permissions import GROUP_MANAGERS
+        self.manager = User.objects.create_user('pex_mgr', password='pw')
+        Group.objects.get_or_create(name=GROUP_MANAGERS)[0].user_set.add(self.manager)
+
+        from projects.services import create_project_with_root_folder, set_folder_path
+        self.parent = ProjectFolder.objects.create(
+            code='PEX-PARENT', name='Parent Folder', owner=self.manager,
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+        )
+        set_folder_path(self.parent)
+
+        # Sottocartella ordinaria
+        self.subfolder = ProjectFolder.objects.create(
+            code='PEX-SUB', name='Sottocartella', owner=self.manager,
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            parent=self.parent,
+        )
+        set_folder_path(self.subfolder)
+
+        # Progetto con root folder
+        self.project = create_project_with_root_folder(
+            parent_folder=self.parent,
+            code='PEX-PRJ', name='Progetto Explorer',
+            created_by=self.manager,
+        )
+
+    # 1. Progetto appare nella cartella padre come tile progetto
+    def test_project_appears_in_parent_folder(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        self.assertEqual(r.status_code, 200)
+        items = r.context['explorer_items']
+        kinds = [k for k, _ in items]
+        self.assertIn('project', kinds)
+
+    # 2. Tile progetto distinguibile (kind='project')
+    def test_tile_kind_project(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        items = r.context['explorer_items']
+        project_items = [item for k, item in items if k == 'project']
+        self.assertTrue(any(p.code == 'PEX-PRJ' for p in project_items))
+
+    # 3. Tile cartella ordinaria ancora presente
+    def test_ordinary_subfolder_still_visible(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        items = r.context['explorer_items']
+        folder_items = [item for k, item in items if k == 'folder']
+        self.assertTrue(any(f.code == 'PEX-SUB' for f in folder_items))
+
+    # 4. Root folder NON duplicata tra tile cartella e tile progetto
+    def test_root_folder_not_in_ordinary_subfolders(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        items = r.context['explorer_items']
+        folder_items = [item for k, item in items if k == 'folder']
+        # La root folder del progetto (kind=PROJECT) non deve apparire come cartella ordinaria
+        root_code = self.project.root_folder.code
+        self.assertFalse(any(f.code == root_code for f in folder_items))
+
+    # 5. Cartella ordinaria punta a folder_detail
+    def test_ordinary_folder_link_is_folder_detail(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        self.assertContains(r, f'/folders/{self.subfolder.pk}/')
+
+    # 6. Tile progetto punta a project_detail (via template)
+    def test_project_tile_link_is_project_detail(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        self.assertContains(r, f'/projects/{self.project.pk}/')
+
+    # 7. Accesso diretto a root folder → redirect a project_detail
+    def test_direct_access_to_root_folder_redirects(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.project.root_folder.pk]))
+        self.assertRedirects(
+            r,
+            reverse('project_detail', args=[self.project.pk]),
+            fetch_redirect_response=False,
+        )
+
+    # 8. PROJECT orfana non genera 500
+    def test_orphan_project_folder_no_500(self):
+        orphan = ProjectFolder.objects.create(
+            code='PEX-ORPHAN', name='Orphan', owner=self.manager,
+            folder_kind=ProjectFolder.FolderKind.PROJECT,
+            parent=self.parent,
+        )
+        from projects.services import set_folder_path
+        set_folder_path(orphan)
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('folder_detail', args=[self.parent.pk]))
+        self.assertEqual(r.status_code, 200)
+        items = r.context['explorer_items']
+        orphan_items = [item for k, item in items if k == 'orphan_project_folder']
+        self.assertTrue(any(f.code == 'PEX-ORPHAN' for f in orphan_items))
+
+    # 9. Breadcrumb corretto nel project_detail
+    def test_project_detail_breadcrumb_shows_parent(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'PEX-PARENT')
+
+    # 10. Project detail mostra root folder in scheda
+    def test_project_detail_shows_root_folder_parent(self):
+        self.client.force_login(self.manager)
+        r = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertContains(r, 'Cartella padre')
+
+
+# ---------------------------------------------------------------------------
+# Demo company
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class ProjectDemoTests(TestCase):
+    """Test demo_company crea progetto PRJ-DEMO-001 con root folder."""
+
+    def _call(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('demo_company', *args, stdout=out)
+        return out.getvalue()
+
+    # 1. demo_company crea PRJ-DEMO-001
+    def test_demo_company_creates_project(self):
+        self._call('--reset', '--no-email')
+        self.assertTrue(Project.objects.filter(code='PRJ-DEMO-001').exists())
+
+    # 2. Root folder demo kind PROJECT
+    def test_project_root_folder_kind(self):
+        self._call('--reset', '--no-email')
+        prj = Project.objects.get(code='PRJ-DEMO-001')
+        self.assertIsNotNone(prj.root_folder)
+        self.assertEqual(prj.root_folder.folder_kind, ProjectFolder.FolderKind.PROJECT)
+
+    # 3. Sottocartelle demo create
+    def test_project_subfolders_created(self):
+        self._call('--reset', '--no-email')
+        prj = Project.objects.get(code='PRJ-DEMO-001')
+        subs = prj.root_folder.subfolders.count()
+        self.assertGreaterEqual(subs, 2, "Almeno 2 sottocartelle (Specifiche, Collaudi)")
+
+    # 4. Documento demo progetto creato
+    def test_project_demo_document_created(self):
+        from documents.models import Document
+        self._call('--reset', '--no-email')
+        self.assertTrue(Document.objects.filter(code='PRJ-DEMO-001-SPEC-001').exists())
+
+    # 5. Secondo run idempotente
+    def test_demo_company_idempotent(self):
+        self._call('--reset', '--no-email')
+        self._call('--no-email')
+        self.assertEqual(Project.objects.filter(code='PRJ-DEMO-001').count(), 1)
+
+    # 6. Reset funziona
+    def test_demo_company_reset_removes_project(self):
+        self._call('--reset', '--no-email')
+        self.assertTrue(Project.objects.filter(code='PRJ-DEMO-001').exists())
+        self._call('--reset', '--no-email')
+        # Dopo il secondo reset+ricreazione esiste ancora 1 progetto
+        self.assertEqual(Project.objects.filter(code='PRJ-DEMO-001').count(), 1)

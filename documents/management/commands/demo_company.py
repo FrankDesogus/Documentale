@@ -81,6 +81,7 @@ class Command(BaseCommand):
         from documents.models import Document
         from auditlog.models import AuditLog
         from ecn.models import ChangeNotice
+        from projects.models import Project, ProjectFolder
 
         # Prima elimina gli ECN demo (PROTECT sui documenti)
         ecn_deleted = ChangeNotice.objects.filter(
@@ -88,6 +89,33 @@ class Command(BaseCommand):
         ).delete()[0]
         if ecn_deleted:
             self.stdout.write(f'  >> {ecn_deleted} ECN demo eliminati.')
+
+        # Poi elimina i documenti demo del progetto
+        prj_doc_code = 'PRJ-DEMO-001-SPEC-001'
+        try:
+            doc = Document.objects.get(code=prj_doc_code)
+            AuditLog.objects.filter(changes__document_id=doc.pk).delete()
+            doc.delete()
+            self.stdout.write(f'  >> Documento progetto {prj_doc_code} eliminato.')
+        except Document.DoesNotExist:
+            pass
+
+        # Elimina il progetto demo e la sua root folder (PROTECT richiede prima il progetto)
+        try:
+            prj = Project.objects.get(code='PRJ-DEMO-001')
+            root_folder_pk = prj.root_folder_id
+            prj.root_folder = None
+            prj.save(update_fields=['root_folder'])
+            prj.delete()
+            if root_folder_pk:
+                # Elimina cartelle figlie prima, poi la root
+                ProjectFolder.objects.filter(
+                    path__startswith=f'/{root_folder_pk}/'
+                ).exclude(pk=root_folder_pk).delete()
+                ProjectFolder.objects.filter(pk=root_folder_pk).delete()
+            self.stdout.write('  >> Progetto PRJ-DEMO-001 e root folder eliminati.')
+        except Project.DoesNotExist:
+            pass
 
         # Poi elimina i documenti demo
         deleted_total = 0
@@ -194,6 +222,9 @@ class Command(BaseCommand):
             )
 
         self._step('Cartelle: QUA, ING, QUA-PROC, ING-STD con membership realistiche')
+
+        # ── Progetto demo ─────────────────────────────────────────────
+        prj_demo = self._create_project_demo(supervisor, folder_ing)
 
         # ── Dataset demo per supervisor_demo ──────────────────────────
         self._create_published_doc(supervisor, folder_qua_proc)
@@ -403,6 +434,92 @@ class Command(BaseCommand):
             f'{code}: documento approvato + ECN {ecn.code} in istruttoria CCB '
             '(dossier pre-compilato, pronto per l\'invio alla CCB).'
         )
+
+    # ------------------------------------------------------------------
+    # Progetto demo
+    # ------------------------------------------------------------------
+
+    def _create_project_demo(self, supervisor, folder_ing):
+        """Crea PRJ-DEMO-001 (Amplificatore RF Demo) come progetto con root folder in ING."""
+        from documents.models import Document, DocumentVersion
+        from projects.models import Project, ProjectFolder, ProjectFolderMembership
+        from projects.services import create_project_with_root_folder, set_folder_path
+
+        PRJ_CODE = 'PRJ-DEMO-001'
+
+        # Progetto già esistente?
+        try:
+            prj = Project.objects.get(code=PRJ_CODE)
+            self._step(f'{PRJ_CODE}: già esistente, saltato.')
+            return prj
+        except Project.DoesNotExist:
+            pass
+
+        # Crea progetto + root folder atomicamente
+        prj = create_project_with_root_folder(
+            parent_folder=folder_ing,
+            code=PRJ_CODE,
+            name='Amplificatore RF Demo',
+            description='Progetto demo: sviluppo amplificatore RF per presentazioni.',
+            project_type='engineering',
+            status='active',
+            manager=supervisor,
+            created_by=supervisor,
+        )
+        self._step(f'{PRJ_CODE}: progetto creato con root folder {prj.root_folder.code}.')
+
+        # Sottocartelle del progetto
+        root = prj.root_folder
+        folder_spec = self._ensure_folder(
+            f'{PRJ_CODE}-SPEC', 'Specifiche', ProjectFolder.FolderKind.GENERIC,
+            owner=supervisor, parent=root,
+        )
+        folder_coll = self._ensure_folder(
+            f'{PRJ_CODE}-COLL', 'Collaudi', ProjectFolder.FolderKind.GENERIC,
+            owner=supervisor, parent=root,
+        )
+        for f in [folder_spec, folder_coll]:
+            if not f.path:
+                set_folder_path(f)
+        self._step(f'{PRJ_CODE}: sottocartelle Specifiche, Collaudi create.')
+
+        # Membership sulla root folder (supervisor ha tutti i ruoli)
+        ProjectFolderMembership.objects.get_or_create(
+            folder=root, user=supervisor,
+            defaults={'role': 'manager', 'created_by': supervisor},
+        )
+
+        # Documento demo nella root folder del progetto
+        doc_code = f'{PRJ_CODE}-SPEC-001'
+        if not Document.objects.filter(code=doc_code).exists():
+            from documents.services import submit_version_for_approval
+            from approvals.services import approve_version
+
+            doc = Document.objects.create(
+                code=doc_code,
+                title='Specifiche tecniche amplificatore RF — Demo',
+                category=Document.Category.QUALITY,
+                document_type='Specifica',
+                project_folder=folder_spec,
+                owner=supervisor,
+                created_by=supervisor,
+                status=Document.Status.ACTIVE,
+            )
+            ver = DocumentVersion.objects.create(
+                document=doc,
+                revision_label='00',
+                revision_number=0,
+                status=DocumentVersion.Status.DRAFT,
+                is_current=False,
+                created_by=supervisor,
+                change_summary='Prima emissione demo.',
+            )
+            req = submit_version_for_approval(ver, supervisor, [supervisor])
+            approve_version(req, supervisor, comment='Demo: specifica approvata.')
+            doc.refresh_from_db()
+            self._step(f'{doc_code}: documento demo progetto creato e approvato.')
+
+        return prj
 
     # ------------------------------------------------------------------
     # Helpers

@@ -6,7 +6,7 @@
 {# Breadcrumb #}
 <p class="meta">
   {% if prefill_folder %}
-  <a href="{% url 'folder_list' %}">Cartelle</a>
+  <a href="{% url 'folder_list' %}">Archivio</a>
   &nbsp;/&nbsp;<a href="{% url 'folder_detail' prefill_folder.pk %}">{{ prefill_folder.name }}</a>
   &nbsp;/&nbsp;<strong>Nuovo progetto</strong>
   {% else %}
@@ -16,40 +16,76 @@
 
 <h1>Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %}</h1>
 
-{% if prefill_folder %}
-<div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
-  <strong style="color:#004085">Cartella documentale:</strong>
-  <span style="color:#004085">
-    Stai creando un progetto associato alla cartella
-    <a href="{% url 'folder_detail' prefill_folder.pk %}" style="color:#004085;font-weight:600">{{ prefill_folder.code }} — {{ prefill_folder.name }}</a>.
-    Il campo "Cartella" è già precompilato.
+<div class="card" style="background:#e8eef5;border-left:4px solid #1a3a5c;margin-bottom:1rem;padding:.75rem 1rem">
+  <strong style="color:#1a3a5c">Come funziona:</strong>
+  <span style="color:#333;font-size:.92rem">
+    Il progetto riceverà automaticamente una <strong>cartella radice dedicata</strong>
+    con lo stesso codice. La cartella sarà creata come sottocartella della cartella padre selezionata.
   </span>
 </div>
-{% endif %}
 
 <form method="post">
   {% csrf_token %}
   {% if prefill_folder %}
-  <input type="hidden" name="_folder_prefill" value="{{ prefill_folder.pk }}">
+  <input type="hidden" name="_parent_prefill" value="{{ prefill_folder.pk }}">
   {% endif %}
 
   <div class="card">
 
-    {% for field in form %}
+    {# Cartella padre #}
     <div style="margin-bottom:1.1rem">
-      <label for="{{ field.id_for_label }}">
-        {{ field.label }}
-        {% if field.field.required %}<span style="color:#dc3545"> *</span>{% endif %}
+      <label for="{{ form.parent_folder.id_for_label }}">
+        {{ form.parent_folder.label }} <span style="color:#dc3545">*</span>
       </label>
-      {{ field }}
-      {% if field.help_text %}
-      <div class="meta" style="margin-top:.2rem">{{ field.help_text }}</div>
+      {{ form.parent_folder }}
+      {% if form.parent_folder.help_text %}
+      <div class="meta" style="margin-top:.2rem">{{ form.parent_folder.help_text }}</div>
       {% endif %}
-      {% for error in field.errors %}
+      {% for error in form.parent_folder.errors %}
       <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
       {% endfor %}
     </div>
-    {% endfor %}
+
+    {# Codice #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.code.id_for_label }}">
+        {{ form.code.label }} <span style="color:#dc3545">*</span>
+      </label>
+      {{ form.code }}
+      {% if form.code.help_text %}
+      <div class="meta" style="margin-top:.2rem">{{ form.code.help_text }}</div>
+      {% endif %}
+      {% for error in form.code.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    {# Nome #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.name.id_for_label }}">{{ form.name.label }} <span style="color:#dc3545">*</span></label>
+      {{ form.name }}
+      {% for error in form.name.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    {# Descrizione #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+    </div>
+
+    {# Tipo #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.project_type.id_for_label }}">{{ form.project_type.label }}</label>
+      {{ form.project_type }}
+    </div>
+
+    {# Responsabile #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.manager.id_for_label }}">{{ form.manager.label }}</label>
+      {{ form.manager }}
+    </div>
 
   </div>
 

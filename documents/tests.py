@@ -1095,7 +1095,7 @@ class NewDocumentFolderRequiredTests(TestCase):
             name='Progetto test',
             status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
-            folder=self.folder,
+            root_folder=self.folder,  # STEP PROJECT-ROOT
             manager=self.manager,
             created_by=self.manager,
         )

@@ -24,25 +24,79 @@ class ProjectFolderForm(forms.ModelForm):
 
 
 class ProjectForm(forms.ModelForm):
+    """
+    Form per la modifica di un progetto esistente.
+    NON include root_folder (non modificabile manualmente).
+    """
     class Meta:
         model = Project
-        fields = ['code', 'name', 'description', 'status', 'project_type', 'folder', 'manager']
+        fields = ['code', 'name', 'description', 'status', 'project_type', 'manager']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['folder'].queryset = ProjectFolder.objects.filter(
-            status=ProjectFolder.Status.ACTIVE
-        ).order_by('code')
-        self.fields['folder'].required = False
-        self.fields['folder'].empty_label = '— nessuna —'
         self.fields['manager'].queryset = User.objects.filter(
             is_active=True
         ).order_by('last_name', 'first_name', 'username')
         self.fields['manager'].required = False
         self.fields['manager'].empty_label = '— nessuno —'
+
+
+class ProjectCreateForm(forms.Form):
+    """
+    Form per la CREAZIONE di un nuovo progetto con root folder atomica.
+    NON include root_folder: viene creata automaticamente dal service.
+    """
+    parent_folder = forms.ModelChoiceField(
+        queryset=ProjectFolder.objects.none(),
+        label='Cartella padre',
+        help_text='La root folder del progetto verrà creata come sottocartella di questa cartella.',
+        empty_label='— seleziona cartella —',
+    )
+    code = forms.CharField(
+        max_length=50,
+        label='Codice progetto',
+        help_text='Codice univoco. Sarà usato anche per la root folder.',
+    )
+    name = forms.CharField(max_length=255, label='Nome progetto')
+    description = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False,
+        label='Descrizione',
+    )
+    project_type = forms.ChoiceField(
+        choices=Project.ProjectType.choices,
+        initial=Project.ProjectType.OTHER,
+        label='Tipo',
+    )
+    manager = forms.ModelChoiceField(
+        queryset=User.objects.filter(is_active=True).order_by('last_name', 'first_name'),
+        required=False,
+        label='Responsabile',
+        empty_label='— nessuno —',
+    )
+
+    def __init__(self, *args, allowed_parent_folders=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if allowed_parent_folders is not None:
+            self.fields['parent_folder'].queryset = allowed_parent_folders
+        else:
+            self.fields['parent_folder'].queryset = ProjectFolder.objects.filter(
+                status=ProjectFolder.Status.ACTIVE,
+            ).order_by('code')
+
+    def clean_code(self):
+        code = self.cleaned_data['code'].strip()
+        if Project.objects.filter(code=code).exists():
+            raise forms.ValidationError(f"Esiste già un progetto con codice '{code}'.")
+        if ProjectFolder.objects.filter(code=code).exists():
+            raise forms.ValidationError(
+                f"Esiste già una cartella con codice '{code}'. "
+                "Il codice deve essere unico anche tra le cartelle."
+            )
+        return code
 
 
 class ProjectRevisionForm(forms.ModelForm):

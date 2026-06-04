@@ -141,7 +141,7 @@ class UISecuritySearchTests(TestCase):
         proj = Project.objects.create(
             code='SEC-PRJ', name='Progetto riservato',
             status=Project.Status.ACTIVE,
-            folder=self.folder_b, created_by=mgr,
+            root_folder=self.folder_b, created_by=mgr,
         )
         self.client.force_login(self.viewer)
         r = self.client.get(reverse('project_list'), {'q': 'SEC-PRJ'})
@@ -345,7 +345,7 @@ class UIProjectSearchTests(TestCase):
                 code=f'UPS-PRJ-{i+1:02d}',
                 name=f'Progetto {i+1}',
                 status=Project.Status.ACTIVE,
-                folder=self.folder,
+                root_folder=None,  # Senza root folder per semplicità (test di ricerca)
                 created_by=self.manager,
             )
 
@@ -363,7 +363,7 @@ class UIProjectSearchTests(TestCase):
         Project.objects.create(
             code='UPS-SUSP', name='Sospeso',
             status=Project.Status.SUSPENDED,
-            folder=self.folder, created_by=self.manager,
+            root_folder=None, created_by=self.manager,
         )
         self.client.force_login(self.manager)
         r = self.client.get(reverse('project_list'), {'status': 'suspended'})
@@ -380,13 +380,13 @@ class UIProjectSearchTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(list(r.context['projects'])), 20)
 
-    # 4. Cartella precompilata nel link da folder_detail
+    # 4. Cartella precompilata nel link da folder_detail (STEP PROJECT-ROOT: ?parent_folder=)
     def test_create_project_link_has_folder_precompiled(self):
         self.client.force_login(self.manager)
         r = self.client.get(reverse('folder_detail', args=[self.folder.pk]))
         self.assertEqual(r.status_code, 200)
-        # Il link "+ Crea progetto" deve contenere ?folder=
-        self.assertContains(r, f'?folder={self.folder.pk}')
+        # Il link "+ Nuovo progetto" deve contenere ?parent_folder=
+        self.assertContains(r, f'?parent_folder={self.folder.pk}')
 
     # 5. Total count nel contesto
     def test_total_count_in_context(self):

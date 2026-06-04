@@ -143,24 +143,21 @@ class Command(BaseCommand):
         )
         self._step(f'Cartelle: {cartella_ing} -> {cartella_std}, {cartella_prj}')
 
-        # 2b. Progetto demo
-        # La cartella usata è cartella_std: anche il documento demo è in cartella_std,
-        # così populate_project_revision_from_current_documents trova i documenti.
-        progetto, created = Project.objects.get_or_create(
-            code='PRJ-DEMO-001',
-            defaults={
-                'name': 'Progetto Demo Documentale',
-                'status': Project.Status.ACTIVE,
-                'project_type': Project.ProjectType.INTERNAL,
-                'folder': cartella_std,
-                'manager': autore,
-                'created_by': autore,
-            },
-        )
-        if not created and progetto.folder_id != cartella_std.pk:
-            progetto.folder = cartella_std
-            progetto.save(update_fields=['folder'])
-        self._step(f'Progetto: {progetto}')
+        # 2b. Progetto demo — crea con root folder dedicata (nuova semantica)
+        from projects.services import create_project_with_root_folder
+        try:
+            progetto = Project.objects.get(code='PRJ-DEMO-001')
+        except Project.DoesNotExist:
+            progetto = create_project_with_root_folder(
+                parent_folder=cartella_ing,
+                code='PRJ-DEMO-001',
+                name='Progetto Demo Documentale',
+                project_type='internal',
+                status='active',
+                manager=autore,
+                created_by=autore,
+            )
+        self._step(f'Progetto: {progetto} root_folder={progetto.root_folder}')
 
         # 3. Membership per-cartella su ING-STD
         ProjectFolderMembership.objects.get_or_create(
@@ -187,12 +184,14 @@ class Command(BaseCommand):
             )
             return
 
+        # Il documento demo va nella root folder del progetto (nuova semantica)
+        doc_folder = progetto.root_folder if progetto.root_folder else cartella_std
         doc = Document.objects.create(
             code=DEMO_DOCUMENT_CODE,
             title='Procedura demo gestione qualità',
             category=Document.Category.QUALITY,
             document_type='Procedura',
-            project_folder=cartella_std,
+            project_folder=doc_folder,
             owner=autore,
             created_by=autore,
         )

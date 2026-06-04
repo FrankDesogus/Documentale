@@ -57,8 +57,19 @@ def folder_list(request):
 
 @login_required
 def folder_detail(request, folder_id):
-    folder = get_object_or_404(ProjectFolder, pk=folder_id)
+    folder = get_object_or_404(
+        ProjectFolder.objects.select_related('parent', 'root_project'),
+        pk=folder_id,
+    )
     user = request.user
+
+    # Redirect: se la cartella è una root folder di progetto, vai al project_detail
+    if folder.folder_kind == ProjectFolder.FolderKind.PROJECT:
+        try:
+            linked_project = folder.root_project  # OneToOneField reverse
+            return redirect('project_detail', project_id=linked_project.pk)
+        except Project.DoesNotExist:
+            pass  # Cartella PROJECT orfana: mostra come cartella normale
 
     is_readable = can_view_folder(user, folder)
     is_navigation_only = False
@@ -89,12 +100,57 @@ def folder_detail(request, folder_id):
             'is_navigation_only': True,
         })
 
-    subfolders = folder.subfolders.order_by('code')
+    # ── Explorer unificato: sottocartelle ordinarie + root folder progetti ──
 
-    # Documenti visibili nella cartella:
-    # - documenti con versione corrente approvata
-    # - documenti per cui l'utente è autore di almeno una bozza privata
-    # Le bozze altrui non vengono esposte nella navigazione (MB1)
+    # Progetti la cui root folder è figlia diretta di questa cartella
+    from projects.resolver import has_folder_permission as _has_fperm
+    from projects.permissions import _is_global_manager
+    # I manager globali (Document Manager, superuser) vedono i progetti in tutte le cartelle
+    can_view_projs = (
+        _is_global_manager(user)
+        or _has_fperm(user, folder, 'view_projects', include_legacy_fallback=True)
+    )
+
+    # Root folder dei progetti figli (folder_kind=PROJECT con root_project collegato)
+    child_project_roots_qs = folder.subfolders.filter(
+        folder_kind=ProjectFolder.FolderKind.PROJECT
+    ).order_by('code')
+
+    # IDs delle root folder progetto da escludere dalle sottocartelle ordinarie
+    project_root_ids = set(child_project_roots_qs.values_list('pk', flat=True))
+
+    # Sottocartelle ordinarie (escluse le root folder di progetto)
+    subfolders = folder.subfolders.exclude(
+        pk__in=project_root_ids
+    ).order_by('code')
+
+    # Progetti collegati alle root folder figlie (se l'utente ha view_projects)
+    if can_view_projs and project_root_ids:
+        child_projects_raw = list(
+            Project.objects.filter(
+                root_folder__in=project_root_ids
+            ).select_related('root_folder', 'manager').order_by('code')
+        )
+        # Associazione root_folder_id → project per il template
+        project_by_root = {p.root_folder_id: p for p in child_projects_raw}
+    else:
+        child_projects_raw = []
+        project_by_root = {}
+
+    # Costruisci lista explorer unificata: (kind, subfolder/project)
+    explorer_items = []
+    for sub in folder.subfolders.order_by('code'):
+        if sub.pk in project_root_ids:
+            proj = project_by_root.get(sub.pk)
+            if proj:
+                explorer_items.append(('project', proj))
+            else:
+                # Root PROJECT orfana: folder_kind=PROJECT ma nessun progetto collegato
+                explorer_items.append(('orphan_project_folder', sub))
+        else:
+            explorer_items.append(('folder', sub))
+
+    # Documenti visibili nella cartella
     from django.db.models import Exists, OuterRef
     from documents.models import DocumentVersion as _DocVer
     base_docs = folder.documents.select_related('current_version', 'owner').order_by('code')
@@ -112,20 +168,12 @@ def folder_detail(request, folder_id):
             | Q(Exists(own_draft_qs))
         )
 
-    # Progetti: visibili solo se l'utente ha view_projects sulla cartella
-    from projects.resolver import has_folder_permission as _has_fperm
-    can_view_projs = _has_fperm(user, folder, 'view_projects', include_legacy_fallback=True)
-    folder_projects = (
-        Project.objects.filter(folder=folder).select_related('manager').order_by('code')
-        if can_view_projs else
-        Project.objects.none()
-    )
-
     return render(request, 'projects/folder_detail.html', {
         'folder': folder,
+        'explorer_items': explorer_items,
         'subfolders': subfolders,
         'documents': documents,
-        'folder_projects': folder_projects,
+        'folder_projects': child_projects_raw,  # backward compat per sezione ECN ecc.
         'can_create': _can_create_folder(user),
         'can_manage': can_manage_folder(user, folder),
         'can_create_project': _can_manage_project(user),
@@ -191,13 +239,13 @@ def _can_manage_project(user):
 def project_list(request):
     from django.core.paginator import Paginator
 
-    qs = Project.objects.select_related('folder', 'manager').order_by('code')
+    qs = Project.objects.select_related('root_folder', 'root_folder__parent', 'manager').order_by('code')
 
     if not _can_manage_project(request.user):
         from projects.permissions import get_project_visible_folder_ids
         visible_ids = get_project_visible_folder_ids(request.user)
         qs = qs.filter(
-            Q(folder__isnull=False) & Q(folder_id__in=visible_ids)
+            Q(root_folder__isnull=False) & Q(root_folder_id__in=visible_ids)
         )
 
     # Ricerca e filtri
@@ -214,7 +262,7 @@ def project_list(request):
     folder_id = request.GET.get('folder', '').strip()
     if folder_id:
         try:
-            qs = qs.filter(folder_id=int(folder_id))
+            qs = qs.filter(root_folder__parent_id=int(folder_id))
         except (ValueError, TypeError):
             pass
 
@@ -235,16 +283,19 @@ def project_list(request):
 
 @login_required
 def project_detail(request, project_id):
-    project = get_object_or_404(Project, pk=project_id)
+    project = get_object_or_404(
+        Project.objects.select_related('root_folder', 'root_folder__parent', 'manager'),
+        pk=project_id,
+    )
 
     if not _can_manage_project(request.user):
-        if project.folder:
+        if project.root_folder:
             # Document Auditor globale può vedere il dettaglio progetto (per audit)
             from projects.permissions import _is_privileged
             if not _is_privileged(request.user):
                 from projects.resolver import has_folder_permission as _has_fperm
                 if not _has_fperm(
-                    request.user, project.folder, 'view_projects',
+                    request.user, project.root_folder, 'view_projects',
                     include_legacy_fallback=True,
                 ):
                     raise PermissionDenied
@@ -253,11 +304,11 @@ def project_detail(request, project_id):
 
     documents = []
     subfolders = []
-    if project.folder:
-        documents = project.folder.documents.select_related(
+    if project.root_folder:
+        documents = project.root_folder.documents.select_related(
             'current_version', 'owner'
         ).order_by('code')
-        subfolders = project.folder.subfolders.order_by('code')
+        subfolders = project.root_folder.subfolders.order_by('code')
 
     revisions = project.revisions.order_by('-revision_number')
 
@@ -266,12 +317,12 @@ def project_detail(request, project_id):
 
     from projects.permissions import can_create_document_in_folder
     can_create_doc = (
-        project.folder is not None
-        and can_create_document_in_folder(request.user, project.folder)
+        project.root_folder is not None
+        and can_create_document_in_folder(request.user, project.root_folder)
     )
 
     from documents.permissions import can_view_audit
-    show_audit = can_view_audit(request.user, folder=project.folder)
+    show_audit = can_view_audit(request.user, folder=project.root_folder)
 
     audit_logs = None
     if show_audit:
@@ -292,11 +343,11 @@ def project_detail(request, project_id):
 
     # ECN collegati ai documenti nelle cartelle del progetto
     project_ecns = []
-    if project.folder:
+    if project.root_folder:
         from ecn.models import ChangeNotice
         project_ecns = list(
             ChangeNotice.objects
-            .filter(document__project_folder=project.folder)
+            .filter(document__project_folder=project.root_folder)
             .select_related('document', 'proposed_by')
             .order_by('-proposed_at')[:20]
         )
@@ -318,33 +369,57 @@ def project_detail(request, project_id):
 
 @login_required
 def project_create(request):
-    from projects.forms import ProjectForm
+    from projects.forms import ProjectCreateForm
+    from projects.services import create_project_with_root_folder
 
     if not _can_manage_project(request.user):
         raise PermissionDenied
 
-    # Supporto ?folder=<folder_id> per precompilare la cartella documentale
+    # Supporto ?parent_folder=<pk> o ?folder=<pk> (retrocompat) per precompilare la cartella padre
     prefill_folder = None
-    folder_id = request.GET.get('folder') or request.POST.get('_folder_prefill')
-    if folder_id:
+    parent_id = (
+        request.GET.get('parent_folder')
+        or request.GET.get('folder')
+        or request.POST.get('_parent_prefill')
+    )
+    if parent_id:
         try:
-            prefill_folder = ProjectFolder.objects.get(pk=int(folder_id))
+            prefill_folder = ProjectFolder.objects.get(pk=int(parent_id))
         except (ProjectFolder.DoesNotExist, ValueError, TypeError):
             prefill_folder = None
 
+    # Cartelle selezionabili come parent (solo cartelle ordinarie attive)
+    allowed_parents = ProjectFolder.objects.filter(
+        status=ProjectFolder.Status.ACTIVE,
+    ).exclude(
+        folder_kind=ProjectFolder.FolderKind.PROJECT,
+    ).order_by('code')
+
     if request.method == 'POST':
-        form = ProjectForm(request.POST)
+        form = ProjectCreateForm(request.POST, allowed_parent_folders=allowed_parents)
         if form.is_valid():
-            project = form.save(commit=False)
-            project.created_by = request.user
-            project.save()
-            messages.success(request, f'Progetto "{project.name}" creato.')
-            return redirect('project_detail', project_id=project.pk)
+            d = form.cleaned_data
+            try:
+                from django.core.exceptions import ValidationError as DjVE
+                project = create_project_with_root_folder(
+                    parent_folder=d['parent_folder'],
+                    code=d['code'],
+                    name=d['name'],
+                    description=d.get('description', ''),
+                    project_type=d['project_type'],
+                    manager=d.get('manager'),
+                    created_by=request.user,
+                )
+                messages.success(request, f'Progetto "{project.name}" creato.')
+                return redirect('project_detail', project_id=project.pk)
+            except (DjVE, Exception) as exc:
+                err = getattr(exc, 'message', str(exc))
+                messages.error(request, f'Errore creazione progetto: {err}')
     else:
         initial = {}
         if prefill_folder:
-            initial['folder'] = prefill_folder.pk
-        form = ProjectForm(initial=initial)
+            initial['parent_folder'] = prefill_folder.pk
+        form = ProjectCreateForm(initial=initial, allowed_parent_folders=allowed_parents)
 
     return render(request, 'projects/project_form.html', {
         'form': form,
@@ -418,12 +493,12 @@ def project_revision_detail(request, revision_id):
     project = revision.project
 
     if not _can_manage_project(request.user):
-        if project and project.folder:
+        if project and project.root_folder:
             from projects.permissions import _is_privileged
             if not _is_privileged(request.user):
                 from projects.resolver import has_folder_permission as _has_fperm
                 if not _has_fperm(
-                    request.user, project.folder, 'view_projects',
+                    request.user, project.root_folder, 'view_projects',
                     include_legacy_fallback=True,
                 ):
                     raise PermissionDenied

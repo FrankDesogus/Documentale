@@ -54,11 +54,11 @@ class ProjectFolderAdmin(admin.ModelAdmin):
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'status', 'project_type', 'folder', 'manager', 'created_at')
+    list_display = ('code', 'name', 'status', 'project_type', 'root_folder', 'manager', 'created_at')
     list_filter = ('status', 'project_type')
-    search_fields = ('code', 'name', 'description', 'folder__code', 'folder__name')
+    search_fields = ('code', 'name', 'description', 'root_folder__code', 'root_folder__name')
     readonly_fields = ('created_at', 'updated_at')
-    autocomplete_fields = ('folder', 'manager')
+    autocomplete_fields = ('root_folder', 'manager')
     inlines = [ProjectRevisionInline]
 
 
