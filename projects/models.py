@@ -248,13 +248,6 @@ class ProjectFolderMembership(models.Model):
 
 
 class Project(models.Model):
-    class Status(models.TextChoices):
-        DRAFT = 'draft', 'Bozza'
-        ACTIVE = 'active', 'In corso'
-        SUSPENDED = 'suspended', 'Sospeso'
-        CLOSED = 'closed', 'Chiuso'
-        ARCHIVED = 'archived', 'Archiviato'
-
     class ProjectType(models.TextChoices):
         CUSTOMER = 'customer', 'Cliente'
         INTERNAL = 'internal', 'Interno'
@@ -265,12 +258,6 @@ class Project(models.Model):
     code = models.CharField(max_length=50, unique=True, verbose_name='Codice')
     name = models.CharField(max_length=255, verbose_name='Nome')
     description = models.TextField(blank=True, verbose_name='Descrizione')
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.DRAFT,
-        verbose_name='Stato',
-    )
     project_type = models.CharField(
         max_length=20,
         choices=ProjectType.choices,

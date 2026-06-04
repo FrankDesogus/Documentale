@@ -54,12 +54,18 @@ class ProjectFolderAdmin(admin.ModelAdmin):
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'status', 'project_type', 'root_folder', 'manager', 'created_at')
-    list_filter = ('status', 'project_type')
+    list_display = ('code', 'name', 'project_type', 'root_folder', 'root_parent_folder', 'manager', 'created_at')
+    list_filter = ('project_type',)
     search_fields = ('code', 'name', 'description', 'root_folder__code', 'root_folder__name')
     readonly_fields = ('created_at', 'updated_at')
     autocomplete_fields = ('root_folder', 'manager')
     inlines = [ProjectRevisionInline]
+
+    @admin.display(description='Cartella padre', ordering='root_folder__parent__code')
+    def root_parent_folder(self, obj):
+        if obj.root_folder and obj.root_folder.parent:
+            return obj.root_folder.parent.code
+        return '—'
 
 
 @admin.register(ProjectFolderMembership)
