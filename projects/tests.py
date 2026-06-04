@@ -399,7 +399,7 @@ from projects.models import Project  # noqa: E402
 
 
 def make_project(code='PRJ-001', name='Test Project', owner=None, root_folder=None,
-                 status=Project.Status.ACTIVE, folder=None):
+                 folder=None):
     """
     Helper per i test: crea un progetto senza root folder atomica.
     Il parametro 'folder' è mantenuto per backward compat dei test vecchi
@@ -408,7 +408,6 @@ def make_project(code='PRJ-001', name='Test Project', owner=None, root_folder=No
     return Project.objects.create(
         code=code,
         name=name,
-        status=status,
         project_type=Project.ProjectType.INTERNAL,
         root_folder=root_folder,
         manager=owner,
@@ -424,7 +423,6 @@ class ProjectModelTests(TestCase):
     def test_project_creation(self):
         p = make_project(code='PRJ-001', owner=self.user)
         self.assertEqual(p.code, 'PRJ-001')
-        self.assertEqual(p.status, Project.Status.ACTIVE)
         self.assertEqual(p.project_type, Project.ProjectType.INTERNAL)
 
     def test_project_code_unique(self):
@@ -507,7 +505,6 @@ class ProjectCreateViewTests(TestCase):
             'parent_folder': self.parent_folder.pk,
             'code': 'PRJ-NEW-001',
             'name': 'Nuovo Progetto',
-            'status': 'active',
             'project_type': 'internal',
         })
         self.assertEqual(response.status_code, 302)
@@ -524,7 +521,6 @@ class ProjectCreateViewTests(TestCase):
             'parent_folder': self.parent_folder.pk,
             'code': 'PRJ-DENIED',
             'name': 'Non autorizzato',
-            'status': 'active',
             'project_type': 'internal',
         })
         self.assertEqual(response.status_code, 403)
@@ -592,7 +588,6 @@ class DemoWorkflowProjectTests(TestCase):
         call_command('demo_workflow', '--no-email', stdout=out)
         self.assertTrue(Project.objects.filter(code='PRJ-DEMO-001').exists())
         p = Project.objects.get(code='PRJ-DEMO-001')
-        self.assertEqual(p.status, Project.Status.ACTIVE)
         self.assertEqual(p.project_type, Project.ProjectType.INTERNAL)
         # STEP PROJECT-ROOT: ora usa root_folder
         self.assertIsNotNone(p.root_folder)
@@ -613,7 +608,7 @@ def make_project_with_folder(code='BP-PRJ-001', owner=None):
         status=ProjectFolder.Status.ACTIVE, owner=owner,
     )
     project = Project.objects.create(
-        code=code, name='Baseline Project', status=Project.Status.ACTIVE,
+        code=code, name='Baseline Project',
         project_type=Project.ProjectType.INTERNAL, root_folder=root_folder,
         manager=owner, created_by=owner,
     )
@@ -1241,9 +1236,8 @@ class NewDocumentFromProjectTests(TestCase):
         project_no_folder = Project.objects.create(
             code='NDP-PRJ-NOFOLD',
             name='No folder project',
-            status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
-            root_folder=None,  # STEP PROJECT-ROOT: usa root_folder invece di folder
+            root_folder=None,
             manager=self.manager,
             created_by=self.manager,
         )
@@ -3004,7 +2998,6 @@ class StepFFolderListIntegrationTests(TestCase):
         self._grant_user(self.child, 'read_published')
         Project.objects.create(
             code='SFF-NAV-PRJ', name='Nav Project',
-            status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
             root_folder=None, manager=self.owner, created_by=self.owner,
         )
@@ -3124,7 +3117,6 @@ class StepFProjectIntegrationTests(TestCase):
 
         self.project = Project.objects.create(
             code='SFP-PRJ', name='Test Project',
-            status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
             root_folder=self.folder, manager=self.owner, created_by=self.owner,
         )
@@ -3563,3 +3555,477 @@ class ProjectDemoTests(TestCase):
         self._call('--reset', '--no-email')
         # Dopo il secondo reset+ricreazione esiste ancora 1 progetto
         self.assertEqual(Project.objects.filter(code='PRJ-DEMO-001').count(), 1)
+
+# ===========================================================================
+# STEP PROJECT-UX — Nuove classi di test
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Rimozione Project.status
+# ---------------------------------------------------------------------------
+
+class ProjectStatusRemovalTests(TestCase):
+    """Project non espone piu il campo status."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.manager = User.objects.create_user('psr_mgr', password='pw')
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+        self.owner = User.objects.create_user('psr_owner', password='pw')
+        self.folder = make_folder(code='PSR-FOLD', owner=self.owner)
+        self.project = Project.objects.create(
+            code='PSR-PRJ-001', name='Status Test',
+            project_type=Project.ProjectType.INTERNAL,
+            root_folder=self.folder, manager=self.manager, created_by=self.manager,
+        )
+
+    def test_project_model_has_no_status_field(self):
+        from django.core.exceptions import FieldDoesNotExist
+        with self.assertRaises(FieldDoesNotExist):
+            Project._meta.get_field('status')
+
+    def test_project_form_has_no_status_field(self):
+        from projects.forms import ProjectUpdateForm
+        form = ProjectUpdateForm(instance=self.project)
+        self.assertNotIn('status', form.fields)
+
+    def test_project_list_no_status_filter(self):
+        self.client.login(username='psr_mgr', password='pw')
+        r = self.client.get(reverse('project_list'))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn('status_choices', r.context)
+
+    def test_project_detail_no_status_badge(self):
+        self.client.login(username='psr_mgr', password='pw')
+        r = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'get_status_display')
+
+    def test_demo_creates_project_without_status(self):
+        from django.core.management import call_command
+        from io import StringIO
+        call_command('demo_workflow', '--no-email', stdout=StringIO())
+        prj = Project.objects.get(code='PRJ-DEMO-001')
+        self.assertFalse(hasattr(prj, 'status'))
+
+
+# ---------------------------------------------------------------------------
+# Edit progetto
+# ---------------------------------------------------------------------------
+
+class ProjectEditTests(TestCase):
+    """View project_edit: modifica metadati, sicurezza, atomicita."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.manager = User.objects.create_user('pe_mgr', password='pw')
+        self.normal = User.objects.create_user('pe_normal', password='pw')
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+
+        self.parent = make_folder(code='PE-PARENT', owner=self.manager)
+        from projects.services import create_project_with_root_folder
+        self.project = create_project_with_root_folder(
+            parent_folder=self.parent,
+            code='PE-PRJ-001',
+            name='Progetto Edit Test',
+            description='Descrizione originale',
+            project_type='internal',
+            manager=self.manager,
+            created_by=self.manager,
+        )
+        self.root_folder_pk = self.project.root_folder.pk
+        self.root_folder_code = self.project.root_folder.code
+
+    def _edit_url(self):
+        return reverse('project_edit', args=[self.project.pk])
+
+    def test_authorized_user_gets_edit_form(self):
+        self.client.login(username='pe_mgr', password='pw')
+        r = self.client.get(self._edit_url())
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('form', r.context)
+
+    def test_unauthorized_user_gets_403(self):
+        self.client.login(username='pe_normal', password='pw')
+        r = self.client.get(self._edit_url())
+        self.assertEqual(r.status_code, 403)
+
+    def test_unauthorized_post_gets_403(self):
+        self.client.login(username='pe_normal', password='pw')
+        r = self.client.post(self._edit_url(), {'name': 'Hacked', 'description': ''})
+        self.assertEqual(r.status_code, 403)
+
+    def test_update_name(self):
+        self.client.login(username='pe_mgr', password='pw')
+        r = self.client.post(self._edit_url(), {'name': 'Nuovo Nome', 'description': ''})
+        self.assertRedirects(r, reverse('project_detail', args=[self.project.pk]))
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, 'Nuovo Nome')
+
+    def test_update_description(self):
+        self.client.login(username='pe_mgr', password='pw')
+        self.client.post(self._edit_url(), {'name': 'Progetto Edit Test', 'description': 'Nuova desc'})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.description, 'Nuova desc')
+
+    def test_update_manager(self):
+        new_mgr = User.objects.create_user('pe_new_mgr', password='pw')
+        self.client.login(username='pe_mgr', password='pw')
+        self.client.post(self._edit_url(), {'name': 'Progetto Edit Test', 'description': '', 'manager': new_mgr.pk})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.manager, new_mgr)
+
+    def test_code_unchanged_after_edit(self):
+        self.client.login(username='pe_mgr', password='pw')
+        self.client.post(self._edit_url(), {'name': 'Nuovo Nome', 'description': ''})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.code, 'PE-PRJ-001')
+
+    def test_root_folder_code_unchanged(self):
+        self.client.login(username='pe_mgr', password='pw')
+        self.client.post(self._edit_url(), {'name': 'Nuovo Nome', 'description': ''})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.root_folder.code, self.root_folder_code)
+
+    def test_root_folder_name_synced(self):
+        self.client.login(username='pe_mgr', password='pw')
+        self.client.post(self._edit_url(), {'name': 'Nome Sincronizzato', 'description': ''})
+        self.project.root_folder.refresh_from_db()
+        self.assertEqual(self.project.root_folder.name, 'Nome Sincronizzato')
+
+    def test_root_folder_pk_unchanged(self):
+        self.client.login(username='pe_mgr', password='pw')
+        self.client.post(self._edit_url(), {'name': 'Nuovo Nome', 'description': ''})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.root_folder.pk, self.root_folder_pk)
+
+    def test_invalid_post_shows_errors(self):
+        self.client.login(username='pe_mgr', password='pw')
+        r = self.client.post(self._edit_url(), {'name': '', 'description': ''})
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.context['form'].is_valid())
+
+    def test_edit_button_visible_for_manager(self):
+        self.client.login(username='pe_mgr', password='pw')
+        r = self.client.get(reverse('project_detail', args=[self.project.pk]))
+        self.assertContains(r, 'Modifica progetto')
+
+
+# ---------------------------------------------------------------------------
+# Ricerca contestuale folder_detail
+# ---------------------------------------------------------------------------
+
+class FolderDetailSearchTests(TestCase):
+    """Barra di ricerca contestuale in folder_detail."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from projects.services import create_project_with_root_folder, set_folder_path
+        from documents.models import Document, DocumentVersion
+
+        self.manager = User.objects.create_user('fds_mgr', password='pw')
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+
+        self.root = make_folder(code='FDS-ROOT', owner=self.manager)
+        set_folder_path(self.root)
+
+        self.subfolder = ProjectFolder.objects.create(
+            code='FDS-SUB', name='Sottocartella Ricerca',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            parent=self.root, owner=self.manager,
+            status=ProjectFolder.Status.ACTIVE,
+        )
+        set_folder_path(self.subfolder)
+
+        self.deep_sub = ProjectFolder.objects.create(
+            code='FDS-DEEP', name='Sottocartella Profonda',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            parent=self.subfolder, owner=self.manager,
+            status=ProjectFolder.Status.ACTIVE,
+        )
+        set_folder_path(self.deep_sub)
+
+        self.project = create_project_with_root_folder(
+            parent_folder=self.root,
+            code='FDS-PRJ-001',
+            name='Progetto Figlio',
+            project_type='internal',
+            created_by=self.manager,
+        )
+
+        self.doc_root = Document.objects.create(
+            code='FDS-DOC-ROOT', title='Documento root',
+            category=Document.Category.QUALITY,
+            project_folder=self.root,
+            owner=self.manager, created_by=self.manager,
+        )
+        ver = DocumentVersion.objects.create(
+            document=self.doc_root, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.manager,
+        )
+        self.doc_root.current_version = ver
+        self.doc_root.save(update_fields=['current_version'])
+
+        self.doc_deep = Document.objects.create(
+            code='FDS-DOC-DEEP', title='Documento profondo',
+            category=Document.Category.QUALITY,
+            project_folder=self.deep_sub,
+            owner=self.manager, created_by=self.manager,
+        )
+        ver2 = DocumentVersion.objects.create(
+            document=self.doc_deep, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.manager,
+        )
+        self.doc_deep.current_version = ver2
+        self.doc_deep.save(update_fields=['current_version'])
+
+    def _get(self, **params):
+        self.client.login(username='fds_mgr', password='pw')
+        return self.client.get(reverse('folder_detail', args=[self.root.pk]), params)
+
+    def test_search_bar_present(self):
+        r = self._get()
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'name="q"')
+
+    def test_search_finds_immediate_subfolder(self):
+        r = self._get(q='Sottocartella')
+        kinds = [k for k, _ in r.context['search_results']]
+        self.assertIn('folder', kinds)
+
+    def test_search_finds_child_project(self):
+        r = self._get(q='Progetto Figlio')
+        kinds = [k for k, _ in r.context['search_results']]
+        self.assertIn('project', kinds)
+
+    def test_search_finds_immediate_document(self):
+        r = self._get(q='FDS-DOC-ROOT')
+        kinds = [k for k, _ in r.context['search_results']]
+        self.assertIn('document', kinds)
+
+    def test_non_recursive_does_not_find_deep_document(self):
+        r = self._get(q='FDS-DOC-DEEP')
+        codes = [item.code for _, item in r.context['search_results']]
+        self.assertNotIn('FDS-DOC-DEEP', codes)
+
+    def test_recursive_finds_deep_document(self):
+        r = self._get(q='FDS-DOC-DEEP', recursive='1')
+        codes = [item.code for _, item in r.context['search_results']]
+        self.assertIn('FDS-DOC-DEEP', codes)
+
+    def test_results_distinguish_types(self):
+        r = self._get(q='FDS', recursive='1')
+        kinds = set(k for k, _ in r.context['search_results'])
+        self.assertGreater(len(kinds), 1)
+
+    def test_empty_q_shows_explorer(self):
+        r = self._get()
+        self.assertIsNone(r.context['search_results'])
+        self.assertIn('explorer_items', r.context)
+
+    def test_search_excludes_other_users_draft(self):
+        from documents.models import Document, DocumentVersion
+        other = User.objects.create_user('fds_other', password='pw')
+        doc_draft = Document.objects.create(
+            code='FDS-PRIVATE-DRAFT', title='Bozza privata',
+            category=Document.Category.QUALITY,
+            project_folder=self.root,
+            owner=other, created_by=other,
+        )
+        DocumentVersion.objects.create(
+            document=doc_draft, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=other,
+        )
+        r = self._get(q='FDS-PRIVATE-DRAFT')
+        codes = [item.code for _, item in (r.context['search_results'] or [])]
+        self.assertNotIn('FDS-PRIVATE-DRAFT', codes)
+
+
+# ---------------------------------------------------------------------------
+# Ricerca documenti project_detail
+# ---------------------------------------------------------------------------
+
+class ProjectDetailSearchTests(TestCase):
+    """Barra di ricerca documenti in project_detail."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from projects.services import create_project_with_root_folder, set_folder_path
+        from documents.models import Document, DocumentVersion
+
+        self.manager = User.objects.create_user('pds_mgr', password='pw')
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+        self.other_user = User.objects.create_user('pds_other', password='pw')
+
+        self.parent = make_folder(code='PDS-PARENT', owner=self.manager)
+        set_folder_path(self.parent)
+
+        self.project = create_project_with_root_folder(
+            parent_folder=self.parent,
+            code='PDS-PRJ-001',
+            name='Progetto Detail Search',
+            project_type='internal',
+            created_by=self.manager,
+        )
+        root = self.project.root_folder
+
+        self.folder_spec = ProjectFolder.objects.create(
+            code='PDS-SPEC', name='Specifiche',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            parent=root, owner=self.manager,
+            status=ProjectFolder.Status.ACTIVE,
+        )
+        set_folder_path(self.folder_spec)
+        self.folder_coll = ProjectFolder.objects.create(
+            code='PDS-COLL', name='Collaudi',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            parent=root, owner=self.manager,
+            status=ProjectFolder.Status.ACTIVE,
+        )
+        set_folder_path(self.folder_coll)
+
+        def _make_doc(code, title, doc_type, folder):
+            doc = Document.objects.create(
+                code=code, title=title, category=Document.Category.QUALITY,
+                document_type=doc_type, project_folder=folder,
+                owner=self.manager, created_by=self.manager,
+                status=Document.Status.ACTIVE,
+            )
+            ver = DocumentVersion.objects.create(
+                document=doc, revision_label='00', revision_number=0,
+                status=DocumentVersion.Status.APPROVED, is_current=True,
+                created_by=self.manager,
+            )
+            doc.current_version = ver
+            doc.save(update_fields=['current_version'])
+            return doc
+
+        self.doc_root = _make_doc('PDS-DOC-ROOT', 'Doc root', 'Procedura', root)
+        self.doc_spec = _make_doc('PDS-DOC-SPEC', 'Doc specifica', 'Specifica', self.folder_spec)
+        self.doc_coll = _make_doc('PDS-DOC-COLL', 'Doc collaudo', 'Piano di collaudo', self.folder_coll)
+
+        external_folder = make_folder(code='PDS-EXT', owner=self.manager)
+        self.doc_ext = _make_doc('PDS-DOC-EXT', 'Doc esterno', 'Procedura', external_folder)
+
+    def _get(self, **params):
+        self.client.login(username='pds_mgr', password='pw')
+        return self.client.get(reverse('project_detail', args=[self.project.pk]), params)
+
+    def test_search_bar_present(self):
+        r = self._get()
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'name="q"')
+
+    def test_search_finds_root_document(self):
+        r = self._get(q='PDS-DOC-ROOT')
+        codes = [doc.code for doc in r.context['doc_page_obj']]
+        self.assertIn('PDS-DOC-ROOT', codes)
+
+    def test_search_finds_spec_document(self):
+        r = self._get(q='PDS-DOC-SPEC')
+        codes = [doc.code for doc in r.context['doc_page_obj']]
+        self.assertIn('PDS-DOC-SPEC', codes)
+
+    def test_search_finds_coll_document(self):
+        r = self._get(q='PDS-DOC-COLL')
+        codes = [doc.code for doc in r.context['doc_page_obj']]
+        self.assertIn('PDS-DOC-COLL', codes)
+
+    def test_external_document_excluded(self):
+        r = self._get(q='PDS-DOC-EXT')
+        codes = [doc.code for doc in r.context['doc_page_obj']]
+        self.assertNotIn('PDS-DOC-EXT', codes)
+
+    def test_filter_by_document_type(self):
+        r = self._get(document_type='Specifica')
+        codes = [doc.code for doc in r.context['doc_page_obj']]
+        self.assertIn('PDS-DOC-SPEC', codes)
+        self.assertNotIn('PDS-DOC-COLL', codes)
+
+    def test_filter_by_folder(self):
+        r = self._get(folder=str(self.folder_coll.pk))
+        codes = [doc.code for doc in r.context['doc_page_obj']]
+        self.assertIn('PDS-DOC-COLL', codes)
+        self.assertNotIn('PDS-DOC-SPEC', codes)
+
+    def test_pagination_context(self):
+        r = self._get()
+        self.assertIsNotNone(r.context['doc_page_obj'])
+        self.assertTrue(hasattr(r.context['doc_page_obj'], 'paginator'))
+
+    def test_empty_state_with_filter(self):
+        r = self._get(q='CODICE-INESISTENTE-XYZ')
+        page = r.context['doc_page_obj']
+        self.assertEqual(page.paginator.count, 0)
+
+    def test_other_users_draft_excluded(self):
+        from documents.models import Document, DocumentVersion
+        doc_draft = Document.objects.create(
+            code='PDS-PRIVATE', title='Bozza privata',
+            category=Document.Category.QUALITY,
+            document_type='Procedura',
+            project_folder=self.project.root_folder,
+            owner=self.other_user, created_by=self.other_user,
+        )
+        DocumentVersion.objects.create(
+            document=doc_draft, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=self.other_user,
+        )
+        r = self._get(q='PDS-PRIVATE')
+        codes = [doc.code for doc in r.context['doc_page_obj']]
+        self.assertNotIn('PDS-PRIVATE', codes)
+
+
+# ---------------------------------------------------------------------------
+# Demo company — dataset progetto espanso
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class DemoProjectDataTests(TestCase):
+    """demo_company crea due documenti nelle sottocartelle del progetto."""
+
+    def _call(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('demo_company', *args, stdout=out)
+        return out.getvalue()
+
+    def test_project_created(self):
+        self._call('--reset', '--no-email')
+        self.assertTrue(Project.objects.filter(code='PRJ-DEMO-001').exists())
+
+    def test_two_subfolders_created(self):
+        self._call('--reset', '--no-email')
+        prj = Project.objects.get(code='PRJ-DEMO-001')
+        subs = list(prj.root_folder.subfolders.values_list('code', flat=True))
+        self.assertIn('PRJ-DEMO-001-SPEC', subs)
+        self.assertIn('PRJ-DEMO-001-COLL', subs)
+
+    def test_spec_document_created_and_approved(self):
+        from documents.models import Document, DocumentVersion
+        self._call('--reset', '--no-email')
+        self.assertTrue(Document.objects.filter(code='PRJ-DEMO-001-SPEC-001').exists())
+        doc = Document.objects.get(code='PRJ-DEMO-001-SPEC-001')
+        self.assertIsNotNone(doc.current_version)
+        self.assertEqual(doc.current_version.status, DocumentVersion.Status.APPROVED)
+
+    def test_test_document_created_and_approved(self):
+        from documents.models import Document, DocumentVersion
+        self._call('--reset', '--no-email')
+        self.assertTrue(Document.objects.filter(code='PRJ-DEMO-001-TEST-001').exists())
+        doc = Document.objects.get(code='PRJ-DEMO-001-TEST-001')
+        self.assertIsNotNone(doc.current_version)
+        self.assertEqual(doc.current_version.status, DocumentVersion.Status.APPROVED)
+
+    def test_idempotent(self):
+        from documents.models import Document
+        self._call('--reset', '--no-email')
+        self._call('--no-email')
+        self.assertEqual(Project.objects.filter(code='PRJ-DEMO-001').count(), 1)
+        self.assertEqual(Document.objects.filter(code='PRJ-DEMO-001-SPEC-001').count(), 1)
+        self.assertEqual(Document.objects.filter(code='PRJ-DEMO-001-TEST-001').count(), 1)

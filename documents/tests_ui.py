@@ -140,7 +140,6 @@ class UISecuritySearchTests(TestCase):
         _add_group(mgr, 'Document Managers')
         proj = Project.objects.create(
             code='SEC-PRJ', name='Progetto riservato',
-            status=Project.Status.ACTIVE,
             root_folder=self.folder_b, created_by=mgr,
         )
         self.client.force_login(self.viewer)
@@ -344,8 +343,7 @@ class UIProjectSearchTests(TestCase):
             Project.objects.create(
                 code=f'UPS-PRJ-{i+1:02d}',
                 name=f'Progetto {i+1}',
-                status=Project.Status.ACTIVE,
-                root_folder=None,  # Senza root folder per semplicità (test di ricerca)
+                root_folder=None,
                 created_by=self.manager,
             )
 
@@ -358,22 +356,7 @@ class UIProjectSearchTests(TestCase):
         self.assertIn('UPS-PRJ-01', codes)
         self.assertNotIn('UPS-PRJ-02', codes)
 
-    # 2. Filtro stato
-    def test_filter_by_status(self):
-        Project.objects.create(
-            code='UPS-SUSP', name='Sospeso',
-            status=Project.Status.SUSPENDED,
-            root_folder=None, created_by=self.manager,
-        )
-        self.client.force_login(self.manager)
-        r = self.client.get(reverse('project_list'), {'status': 'suspended'})
-        self.assertEqual(r.status_code, 200)
-        codes = [p.code for p in r.context['projects']]
-        self.assertIn('UPS-SUSP', codes)
-        # Gli attivi non devono apparire
-        self.assertNotIn('UPS-PRJ-01', codes)
-
-    # 3. Paginazione: 25 progetti, pagina 1 ha 20
+    # 2. Paginazione: 25 progetti, pagina 1 ha 20
     def test_pagination_page1(self):
         self.client.force_login(self.manager)
         r = self.client.get(reverse('project_list'))

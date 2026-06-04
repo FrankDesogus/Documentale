@@ -821,8 +821,7 @@ class ECNServiceCreateTests(TestCase):
         project = Project.objects.create(
             code='PRJ-ECN-01',
             name='Progetto ECN test',
-            status=Project.Status.ACTIVE,
-            root_folder=None,  # STEP PROJECT-ROOT: non necessita root folder in questo test
+            root_folder=None,
             created_by=self.user,
         )
         ecn = create_change_notice(

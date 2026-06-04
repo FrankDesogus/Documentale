@@ -1093,9 +1093,8 @@ class NewDocumentFolderRequiredTests(TestCase):
         project = Project.objects.create(
             code='NDFR-PRJ-001',
             name='Progetto test',
-            status=Project.Status.ACTIVE,
             project_type=Project.ProjectType.INTERNAL,
-            root_folder=self.folder,  # STEP PROJECT-ROOT
+            root_folder=self.folder,
             manager=self.manager,
             created_by=self.manager,
         )
