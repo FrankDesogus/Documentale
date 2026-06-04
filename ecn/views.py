@@ -243,7 +243,7 @@ def ecn_configure_ccb(request, ecn_id):
     initial = {'ccb_policy': ecn.ccb_policy}
 
     if request.method == 'POST':
-        form = ChangeNoticeCCBConfigForm(request.POST)
+        form = ChangeNoticeCCBConfigForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -262,7 +262,7 @@ def ecn_configure_ccb(request, ecn_id):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = ChangeNoticeCCBConfigForm(initial=initial)
+        form = ChangeNoticeCCBConfigForm(initial=initial, current_user=request.user)
 
     return render(request, 'ecn/ecn_configure_ccb.html', {
         'form': form,

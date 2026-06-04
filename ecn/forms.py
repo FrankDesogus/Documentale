@@ -68,8 +68,14 @@ class ChangeNoticeCCBConfigForm(forms.Form):
         },
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, current_user=None, **kwargs):
         super().__init__(*args, **kwargs)
+        from config.demo_utils import is_demo_supervisor
+        if current_user and is_demo_supervisor(current_user):
+            # Demo mode: i candidati CCB sono solo il supervisore stesso
+            self.fields['approvers'].queryset = User.objects.filter(pk=current_user.pk)
+            return
+
         from django.contrib.auth.models import Group
         from ecn.permissions import GROUP_CCB
         from documents.permissions import GROUP_MANAGERS, GROUP_APPROVERS

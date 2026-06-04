@@ -109,8 +109,28 @@ class ApproverRowForm(forms.Form):
         required=False,
     )
 
+    def __init__(self, *args, current_user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from config.demo_utils import is_demo_supervisor
+        if current_user and is_demo_supervisor(current_user):
+            # Demo mode: l'unico approvatore selezionabile è il supervisore stesso
+            self.fields['approver'].queryset = User.objects.filter(pk=current_user.pk)
+        else:
+            self.fields['approver'].queryset = User.objects.filter(
+                is_active=True
+            ).order_by('last_name', 'first_name', 'username')
+
 
 class BaseApproverFormSet(forms.BaseFormSet):
+    def __init__(self, *args, current_user=None, **kwargs):
+        self.current_user = current_user
+        super().__init__(*args, **kwargs)
+
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs['current_user'] = self.current_user
+        return kwargs
+
     def clean(self):
         if any(self.errors):
             return

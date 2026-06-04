@@ -472,7 +472,9 @@ def submit_for_approval(request, version_id):
 
     if request.method == 'POST':
         form = SubmitForApprovalForm(request.POST, request.FILES)
-        approver_formset = ApproverFormSet(request.POST, prefix='approver')
+        approver_formset = ApproverFormSet(
+            request.POST, prefix='approver', current_user=request.user
+        )
         if form.is_valid() and approver_formset.is_valid():
             d = form.cleaned_data
             ordered_approvers = [
@@ -503,7 +505,9 @@ def submit_for_approval(request, version_id):
                     messages.error(request, msg)
     else:
         form = SubmitForApprovalForm()
-        approver_formset = ApproverFormSet(prefix='approver', initial=[{}])
+        approver_formset = ApproverFormSet(
+            prefix='approver', initial=[{}], current_user=request.user
+        )
 
     return render(request, 'documents/submit_for_approval.html', {
         'form': form,

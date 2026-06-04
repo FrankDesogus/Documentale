@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -135,6 +136,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
+
+
+# ---------------------------------------------------------------------------
+# Demo mode — attiva SOLO quando la variabile d'ambiente è esplicitamente True
+# ---------------------------------------------------------------------------
+# Imposta DOCUMENTALE_DEMO_MODE=true nell'ambiente di presentazione.
+# Con False (default) nessuna deroga speciale è attiva, anche se esiste
+# l'utente supervisor_demo.
+# ---------------------------------------------------------------------------
+DOCUMENTALE_DEMO_MODE: bool = os.environ.get(
+    'DOCUMENTALE_DEMO_MODE', ''
+).strip().lower() in ('1', 'true', 'yes')
+
+DOCUMENTALE_DEMO_SUPERVISOR_USERNAME: str = os.environ.get(
+    'DOCUMENTALE_DEMO_SUPERVISOR_USERNAME', 'supervisor_demo'
+)
 
 
 # Email — relay SMTP aziendale Office 365 / Exchange Online Protection

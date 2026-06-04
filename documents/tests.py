@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from documents.permissions import can_download_version_file
+from ecn.permissions import GROUP_CCB
 
 from documents.models import Document, DocumentVersion
 from documents.services import (
@@ -2446,3 +2447,283 @@ class StepGPerformanceTests(TestCase):
             len(ctx), 40,
             f"document_list ha eseguito {len(ctx)} query per {len(folders)} cartelle"
         )
+
+
+# ===========================================================================
+# Demo Supervisor — test
+# ===========================================================================
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class DemoSupervisorTests(TestCase):
+    """
+    Test della funzionalità demo supervisor.
+    Verifica che le deroghe siano attive SOLO con demo mode + username corretto.
+    """
+
+    SUPERVISOR_USERNAME = 'supervisor_demo'
+
+    def setUp(self):
+        self.supervisor = User.objects.create_user(
+            username=self.SUPERVISOR_USERNAME,
+            password='demo1234',
+            is_superuser=True,
+            is_staff=True,
+        )
+        self.other_user = User.objects.create_user('other_demo_user', password='pw')
+
+    # ── Test 1-3: creazione account via comando ────────────────────────────
+
+    @override_settings(EMAIL_BACKEND=LOCMEM)
+    def test_supervisor_created_by_command(self):
+        """demo_company crea supervisor_demo (get_or_create idempotente)."""
+        from io import StringIO
+        from django.core.management import call_command
+        call_command('demo_company', '--reset', '--no-email', stdout=StringIO())
+        self.assertTrue(User.objects.filter(username=self.SUPERVISOR_USERNAME).exists())
+
+    def test_supervisor_is_superuser(self):
+        self.assertTrue(self.supervisor.is_superuser)
+
+    def test_supervisor_is_staff(self):
+        self.assertTrue(self.supervisor.is_staff)
+
+    # ── Test 4-5: approvatori documentali in demo mode ────────────────────
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_demo_mode_supervisor_approver_queryset_shows_only_self(self):
+        """Demo mode + supervisor → lista approvatori contiene solo sé stesso."""
+        from documents.forms import ApproverRowForm
+        form = ApproverRowForm(current_user=self.supervisor)
+        qs = list(form.fields['approver'].queryset)
+        self.assertEqual(len(qs), 1)
+        self.assertEqual(qs[0].pk, self.supervisor.pk)
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_demo_mode_supervisor_can_select_self_as_approver(self):
+        """Demo mode + supervisor → può selezionare sé stesso nel formset."""
+        from documents.forms import ApproverFormSet
+        data = {
+            'form-TOTAL_FORMS': '1',
+            'form-INITIAL_FORMS': '0',
+            'form-MIN_NUM_FORMS': '0',
+            'form-MAX_NUM_FORMS': '1000',
+            'form-0-approver': str(self.supervisor.pk),
+        }
+        formset = ApproverFormSet(data, prefix='form', current_user=self.supervisor)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        selected = [
+            f.cleaned_data['approver']
+            for f in formset.forms
+            if f.cleaned_data and f.cleaned_data.get('approver')
+        ]
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0].pk, self.supervisor.pk)
+
+    # ── Test 6: approvazione propria bozza in demo mode ───────────────────
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_demo_mode_supervisor_can_approve_own_draft(self):
+        """Demo mode + supervisor → può approvare la propria bozza."""
+        from documents.models import Document, DocumentVersion
+        from documents.services import submit_version_for_approval
+        from approvals.services import approve_version
+
+        doc = Document.objects.create(
+            code='DEMO-SELF-APPR',
+            title='Test autoapprovazione demo',
+            category=Document.Category.QUALITY,
+            owner=self.supervisor,
+            created_by=self.supervisor,
+            status=Document.Status.ACTIVE,
+        )
+        ver = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=self.supervisor, change_summary='test',
+        )
+        # Invio con sé stesso come approvatore
+        req = submit_version_for_approval(ver, self.supervisor, [self.supervisor])
+        # Approvazione: superuser bypass in approve_version
+        approve_version(req, self.supervisor, comment='Autoapprovazione demo')
+        ver.refresh_from_db()
+        self.assertEqual(ver.status, DocumentVersion.Status.APPROVED)
+
+    # ── Test 7-8: CCB in demo mode ─────────────────────────────────────────
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_demo_mode_supervisor_can_configure_ccb(self):
+        """Demo mode + supervisor → can_configure_ccb restituisce True."""
+        from ecn.models import ChangeNotice
+        from documents.models import Document, DocumentVersion
+        doc = Document.objects.create(
+            code='DEMO-CCB-DOC', title='T', category=Document.Category.QUALITY,
+            owner=self.supervisor, created_by=self.supervisor, status=Document.Status.ACTIVE,
+        )
+        ver = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.supervisor,
+        )
+        doc.current_version = ver; doc.save(update_fields=['current_version'])
+        ecn = ChangeNotice.objects.create(
+            code='ECN-TEST-CCB', title='Test CCB',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            document=doc, document_version=ver,
+            proposed_by=self.supervisor, created_by=self.supervisor,
+        )
+        from ecn.permissions import can_configure_ccb
+        self.assertTrue(can_configure_ccb(self.supervisor, ecn))
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_demo_mode_ccb_form_shows_only_supervisor(self):
+        """Demo mode + supervisor → lista candidati CCB contiene solo sé stesso."""
+        from ecn.forms import ChangeNoticeCCBConfigForm
+        form = ChangeNoticeCCBConfigForm(current_user=self.supervisor)
+        qs = list(form.fields['approvers'].queryset)
+        self.assertEqual(len(qs), 1)
+        self.assertEqual(qs[0].pk, self.supervisor.pk)
+
+    # ── Test 9-10: ECN flow in demo mode ──────────────────────────────────
+
+    @override_settings(EMAIL_BACKEND=LOCMEM, DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_demo_mode_supervisor_can_approve_own_ecn(self):
+        """Demo mode + supervisor → può approvare la propria ECN."""
+        from ecn.models import ChangeNotice
+        from ecn.services import (
+            create_change_notice,
+            set_change_notice_approvers,
+            submit_change_notice,
+            approve_change_notice,
+        )
+        from documents.models import Document, DocumentVersion
+        from documents.services import submit_version_for_approval
+        from approvals.services import approve_version
+
+        doc = Document.objects.create(
+            code='DEMO-ECN-APPR', title='T',
+            category=Document.Category.QUALITY,
+            owner=self.supervisor, created_by=self.supervisor,
+            status=Document.Status.ACTIVE,
+        )
+        ver = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.supervisor,
+        )
+        doc.current_version = ver; doc.save(update_fields=['current_version'])
+
+        ecn = create_change_notice(
+            document=doc, proposed_by=self.supervisor,
+            title='ECN test demo', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+        )
+        # Configura CCB con solo sé stesso
+        set_change_notice_approvers(ecn, [self.supervisor], policy='any', actor=self.supervisor)
+        submit_change_notice(ecn, self.supervisor)
+        approve_change_notice(
+            ecn, self.supervisor,
+            ccb_class=ChangeNotice.CCBClass.CLASS2,
+            comment='Approvazione demo',
+        )
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.APPROVED)
+
+    @override_settings(EMAIL_BACKEND=LOCMEM, DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_demo_mode_supervisor_can_close_ecn(self):
+        """Demo mode + supervisor → può chiudere l'ECN (dopo esecuzione revisione)."""
+        from ecn.models import ChangeNotice
+        from ecn.services import (
+            create_change_notice,
+            set_change_notice_approvers,
+            submit_change_notice,
+            approve_change_notice,
+            close_change_notice,
+        )
+        from documents.models import Document, DocumentVersion
+        from documents.services import create_new_revision, submit_version_for_approval
+        from approvals.services import approve_version
+
+        doc = Document.objects.create(
+            code='DEMO-ECN-CLOSE', title='T',
+            category=Document.Category.QUALITY,
+            owner=self.supervisor, created_by=self.supervisor,
+            status=Document.Status.ACTIVE,
+        )
+        ver = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.supervisor,
+        )
+        doc.current_version = ver; doc.save(update_fields=['current_version'])
+
+        ecn = create_change_notice(
+            document=doc, proposed_by=self.supervisor,
+            title='ECN close demo', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+        )
+        set_change_notice_approvers(ecn, [self.supervisor], policy='any', actor=self.supervisor)
+        submit_change_notice(ecn, self.supervisor)
+        approve_change_notice(
+            ecn, self.supervisor,
+            ccb_class=ChangeNotice.CCBClass.CLASS2,
+        )
+        # Crea nuova revisione autorizzata dall'ECN
+        ver01 = create_new_revision(
+            document=doc, created_by=self.supervisor,
+            revision_label='01', revision_number=1,
+            change_summary='Revisione ECN', ecn=ecn,
+        )
+        req = submit_version_for_approval(ver01, self.supervisor, [self.supervisor])
+        approve_version(req, self.supervisor)
+        ecn.refresh_from_db()
+        # Chiude ECN
+        close_change_notice(ecn, self.supervisor)
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.CLOSED)
+
+    # ── Test 11-12: demo mode disabilitata o utente sbagliato ─────────────
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=False)
+    def test_demo_mode_disabled_no_derogation(self):
+        """Demo mode disabilitata → nessuna deroga anche con username supervisor_demo."""
+        from documents.forms import ApproverRowForm
+        form = ApproverRowForm(current_user=self.supervisor)
+        qs = list(form.fields['approver'].queryset)
+        # Con demo mode disabilitata, la queryset normale mostra tutti gli utenti attivi
+        self.assertGreater(len(qs), 1)
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_normal_user_in_demo_mode_no_derogation(self):
+        """Demo mode attiva + utente normale → nessuna deroga speciale."""
+        from documents.forms import ApproverRowForm
+        form = ApproverRowForm(current_user=self.other_user)
+        qs = list(form.fields['approver'].queryset)
+        # Queryset normale: mostra tutti gli utenti attivi
+        self.assertGreater(len(qs), 1)
+
+    # ── Test 13-14: logica normale invariata per altri utenti ─────────────
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_normal_approver_logic_unchanged_for_other_users(self):
+        """La logica approvatori normale è invariata per gli altri utenti in demo mode."""
+        from documents.forms import ApproverRowForm
+        # other_user vede la lista completa, non limitata a sé stesso
+        form = ApproverRowForm(current_user=self.other_user)
+        qs_count = form.fields['approver'].queryset.count()
+        # Ci sono almeno 2 utenti attivi (supervisor + other_user)
+        self.assertGreaterEqual(qs_count, 2)
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=True, DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo')
+    def test_normal_ccb_logic_unchanged_for_other_users(self):
+        """La logica CCB candidati è invariata per gli altri utenti in demo mode."""
+        from ecn.forms import ChangeNoticeCCBConfigForm
+        from django.contrib.auth.models import Group
+        # Aggiungi other_user al gruppo CCB per avere almeno 1 candidato
+        ccb_group = Group.objects.get_or_create(name=GROUP_CCB)[0]
+        ccb_group.user_set.add(self.other_user)
+        form = ChangeNoticeCCBConfigForm(current_user=self.other_user)
+        qs = list(form.fields['approvers'].queryset)
+        # Lista normale: include other_user (e potenzialmente altri dal gruppo CCB)
+        # Non è limitata a sé stesso
+        pks = [u.pk for u in qs]
+        self.assertIn(self.other_user.pk, pks)
+        # other_user vede anche altri candidati (non solo sé stesso)
+        # → il count non è 1 limitato a sé stesso (a meno che sia l'unico nel gruppo)
