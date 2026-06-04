@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Istruttoria CCB — {{ ecn.code }} — Documentale{% endblock %}
+
+{% block content %}
+<p class="meta">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
+</p>
+<h1>Istruttoria CCB — {{ ecn.code }}</h1>
+<p class="meta">{{ ecn.title }}</p>
+
+{# Scheda proposta (sola lettura) #}
+<div class="card" style="margin-bottom:1rem">
+  <dl class="dl-grid">
+    <dt>Documento</dt>         <dd><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }} — {{ ecn.document.title }}</a></dd>
+    <dt>Rev. riferimento</dt>  <dd>Rev. {{ ecn.document_version.revision_label }}</dd>
+    <dt>Proponente</dt>        <dd>{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</dd>
+    <dt>Categoria motivazione</dt><dd>{{ ecn.get_motivation_display }}</dd>
+    {% if ecn.motivation_detail %}
+    <dt>Motivazione</dt>       <dd style="white-space:pre-wrap">{{ ecn.motivation_detail }}</dd>
+    {% endif %}
+    {% if ecn.description %}
+    <dt>Descrizione modifica</dt><dd style="white-space:pre-wrap">{{ ecn.description }}</dd>
+    {% endif %}
+    <dt>Stato</dt>             <dd><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></dd>
+    {% if ecn.ccb_coordinator %}
+    <dt>Resp. istruttoria</dt> <dd>{{ ecn.ccb_coordinator.get_full_name|default:ecn.ccb_coordinator.username }}</dd>
+    {% endif %}
+    <dt>Policy CCB</dt>        <dd>{{ ecn.get_ccb_policy_display }}</dd>
+  </dl>
+</div>
+
+{# Componenti CCB (sola lettura) #}
+{% if approvers %}
+<div class="card" style="margin-bottom:1rem">
+  <strong>Componenti CCB ({{ approvers|length }})</strong>
+  <ul style="margin:.5rem 0 0 1.2rem;padding:0">
+    {% for app in approvers %}
+    <li>{{ app.order }}. {{ app.user.get_full_name|default:app.user.username }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if not dossier_editable %}
+<div class="card" style="background:#e2e3e5;border-left:4px solid #adb5bd;margin-bottom:1rem;padding:.75rem 1rem">
+  <strong style="color:#495057">Sola lettura:</strong>
+  <span style="color:#495057">
+    Il dossier è in sola lettura nello stato attuale ({{ ecn.get_status_display }}).
+    {% if ecn.status == 'under_review' %}La votazione è in corso.{% endif %}
+  </span>
+</div>
+{% endif %}
+
+{% if dossier_editable %}
+<form method="post">
+  {% csrf_token %}
+
+  <div class="card">
+    <fieldset>
+      <legend>Classificazione variante <span style="color:#dc3545">*</span> (obbligatoria per l'invio)</legend>
+      <div style="margin-bottom:1rem">
+        <label for="id_ccb_class">{{ form.ccb_class.label }}</label>
+        {{ form.ccb_class }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_class.help_text }}</p>
+        {% if form.ccb_class.errors %}
+          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_class.errors.as_text }}</p>
+        {% endif %}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Analisi istruttoria</legend>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_requirements.label }} <span style="color:#dc3545">*</span></label>
+        {{ form.ccb_requirements }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_requirements.help_text }}</p>
+        {% if form.ccb_requirements.errors %}
+          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_requirements.errors.as_text }}</p>
+        {% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_technical_impact.label }} <span style="color:#dc3545">*</span></label>
+        {{ form.ccb_technical_impact }}
+        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_technical_impact.help_text }}</p>
+        {% if form.ccb_technical_impact.errors %}
+          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_technical_impact.errors.as_text }}</p>
+        {% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_cost_impact.label }}</label>
+        {{ form.ccb_cost_impact }}
+        {% if form.ccb_cost_impact.errors %}<p style="color:#dc3545;font-size:.85rem">{{ form.ccb_cost_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_time_impact.label }}</label>
+        {{ form.ccb_time_impact }}
+        {% if form.ccb_time_impact.errors %}<p style="color:#dc3545;font-size:.85rem">{{ form.ccb_time_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_quality_impact.label }}</label>
+        {{ form.ccb_quality_impact }}
+        {% if form.ccb_quality_impact.errors %}<p style="color:#dc3545;font-size:.85rem">{{ form.ccb_quality_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_other_impact.label }}</label>
+        {{ form.ccb_other_impact }}
+        {% if form.ccb_other_impact.errors %}<p style="color:#dc3545;font-size:.85rem">{{ form.ccb_other_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div style="margin-bottom:1rem">
+        <label>{{ form.ccb_notes.label }}</label>
+        {{ form.ccb_notes }}
+        {% if form.ccb_notes.errors %}<p style="color:#dc3545;font-size:.85rem">{{ form.ccb_notes.errors.as_text }}</p>{% endif %}
+      </div>
+    </fieldset>
+  </div>
+
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <button type="submit" name="dossier_action" value="save" class="btn btn-secondary">
+      Salva bozza istruttoria
+    </button>
+    {% if can_submit %}
+    <button type="submit" name="dossier_action" value="submit" class="btn btn-primary"
+            onclick="return confirm('Inviare il dossier alla CCB per avviare la votazione?')">
+      Invia alla CCB per approvazione
+    </button>
+    {% endif %}
+    <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary">Annulla</a>
+  </div>
+
+  <p class="meta" style="margin-top:.5rem">
+    <span style="color:#dc3545">*</span> Obbligatori prima dell'invio alla CCB.
+  </p>
+</form>
+
+{% else %}
+{# Visualizzazione read-only del dossier #}
+<div class="card">
+  <dl class="dl-grid">
+    {% if ecn.ccb_class %}
+    <dt>Classificazione</dt>   <dd>{{ ecn.get_ccb_class_display }}</dd>
+    {% endif %}
+    {% if ecn.ccb_requirements %}
+    <dt>Analisi requisiti</dt> <dd style="white-space:pre-wrap">{{ ecn.ccb_requirements }}</dd>
+    {% endif %}
+    {% if ecn.ccb_technical_impact %}
+    <dt>Impatto tecnico</dt>   <dd style="white-space:pre-wrap">{{ ecn.ccb_technical_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_cost_impact %}
+    <dt>Impatto costi</dt>     <dd style="white-space:pre-wrap">{{ ecn.ccb_cost_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_time_impact %}
+    <dt>Impatto tempi</dt>     <dd style="white-space:pre-wrap">{{ ecn.ccb_time_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_quality_impact %}
+    <dt>Impatto qualità</dt>   <dd style="white-space:pre-wrap">{{ ecn.ccb_quality_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_other_impact %}
+    <dt>Impatto altri doc.</dt><dd style="white-space:pre-wrap">{{ ecn.ccb_other_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_notes %}
+    <dt>Note CCB</dt>          <dd style="white-space:pre-wrap">{{ ecn.ccb_notes }}</dd>
+    {% endif %}
+  </dl>
+</div>
+{% endif %}
+
+{% endblock %}

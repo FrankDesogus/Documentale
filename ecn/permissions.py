@@ -187,6 +187,33 @@ def can_close_ecn(user, change_notice):
     return _is_quality_manager(user)
 
 
+def can_compile_dossier(user, change_notice):
+    """
+    Può compilare/aggiornare il dossier istruttorio CCB:
+      - superuser
+      - Quality Manager
+      - ccb_coordinator (responsabile istruttoria designato)
+
+    Consentito solo in stato DRAFT o CCB_PREPARATION.
+    Dopo l'invio alla CCB (UNDER_REVIEW+) il dossier è congelato.
+    """
+    if not user.is_authenticated:
+        return False
+    from ecn.models import ChangeNotice
+    if change_notice.status not in (
+        ChangeNotice.Status.DRAFT,
+        ChangeNotice.Status.CCB_PREPARATION,
+    ):
+        return False
+    if user.is_superuser:
+        return True
+    if _is_quality_manager(user):
+        return True
+    if change_notice.ccb_coordinator_id and change_notice.ccb_coordinator_id == user.pk:
+        return True
+    return False
+
+
 def can_edit_ecn(user, change_notice):
     """
     Può modificare i dati base (solo DRAFT):
@@ -212,7 +239,7 @@ def can_edit_ecn(user, change_notice):
 def can_reconfigure_ccb(user, change_notice):
     """
     Può modificare approvatori CCB e policy:
-      - DRAFT o UNDER_REVIEW senza decisioni
+      - DRAFT, CCB_PREPARATION o UNDER_REVIEW senza decisioni
       - Solo Quality Manager e superuser
     """
     if not user.is_authenticated:
@@ -220,7 +247,10 @@ def can_reconfigure_ccb(user, change_notice):
     if not _is_quality_manager(user):
         return False
     from ecn.models import ChangeNotice
-    if change_notice.status == ChangeNotice.Status.DRAFT:
+    if change_notice.status in (
+        ChangeNotice.Status.DRAFT,
+        ChangeNotice.Status.CCB_PREPARATION,
+    ):
         return True
     if change_notice.status == ChangeNotice.Status.UNDER_REVIEW:
         return not change_notice.decisions.exists()

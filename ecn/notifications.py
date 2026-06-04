@@ -6,20 +6,42 @@ notifiche di approvazione documenti).
 
 
 def notify_ecn_submitted(change_notice):
-    """Invia email a tutti gli approvatori quando un ECN è inviato alla CCB dal Manager."""
+    """
+    Invia email ai membri CCB quando un ECN è inviato per votazione.
+
+    Policy:
+    - ANY / ALL: notifica tutti i membri contemporaneamente.
+    - SEQUENTIAL: notifica soltanto il primo membro (order=1);
+      i successivi verranno notificati uno alla volta da notify_ecn_next_approver.
+    """
+    from ecn.models import ChangeNotice
+    approvers = list(change_notice.approvers.select_related('user').order_by('order', 'id'))
+    if not approvers:
+        return
+
+    if change_notice.ccb_policy == ChangeNotice.CCBPolicy.SEQUENTIAL:
+        # Solo il primo membro riceve la notifica ora
+        _notify_ccb_member(change_notice, approvers[0].user, is_first=True)
+    else:
+        # ANY / ALL: notifica tutti
+        for app in approvers:
+            _notify_ccb_member(change_notice, app.user, is_first=False)
+
+
+def _notify_ccb_member(change_notice, user, is_first=False):
+    """Invia email a un singolo membro CCB."""
     from notifications.services import _send_and_log
-    for app in change_notice.approvers.select_related('user').order_by('order', 'id'):
-        subject = f"[ECN] Richiesta di revisione CCB: {change_notice.code}"
-        body = (
-            f"Gentile {app.user.get_full_name() or app.user.username},\n\n"
-            f"l'ECN {change_notice.code} «{change_notice.title}» è stato inviato alla CCB "
-            f"per revisione. Sei stato designato come approvatore CCB.\n\n"
-            f"Documento: {change_notice.document.code} — {change_notice.document.title}\n"
-            f"Proponente: {change_notice.proposed_by.get_full_name() or change_notice.proposed_by.username}\n"
-            f"Motivazione: {change_notice.get_motivation_display()}\n\n"
-            f"Accedi al sistema per revisionare e decidere."
-        )
-        _send_and_log(app.user, subject, body)
+    subject = f"[ECN] Richiesta di decisione CCB: {change_notice.code}"
+    body = (
+        f"Gentile {user.get_full_name() or user.username},\n\n"
+        f"l'ECN {change_notice.code} «{change_notice.title}» è pronto per la tua decisione CCB.\n\n"
+        f"Documento: {change_notice.document.code} — {change_notice.document.title}\n"
+        f"Proponente: {change_notice.proposed_by.get_full_name() or change_notice.proposed_by.username}\n"
+        f"Motivazione: {change_notice.get_motivation_display()}\n"
+        f"Policy CCB: {change_notice.get_ccb_policy_display()}\n\n"
+        f"Accedi al sistema per leggere il dossier istruttorio e esprimere la tua decisione."
+    )
+    _send_and_log(user, subject, body)
 
 
 def notify_ecn_approved(change_notice):
@@ -52,17 +74,8 @@ def notify_ecn_rejected(change_notice):
 
 
 def notify_ecn_next_approver(change_notice, next_approver_user):
-    """Notifica il prossimo approvatore in una catena SEQUENTIAL."""
-    from notifications.services import _send_and_log
-    subject = f"[ECN] Attesa tua revisione: {change_notice.code}"
-    body = (
-        f"Gentile {next_approver_user.get_full_name() or next_approver_user.username},\n\n"
-        f"l'ECN {change_notice.code} «{change_notice.title}» è pronto per la tua revisione "
-        f"(l'approvazione precedente nella catena è completata).\n\n"
-        f"Documento: {change_notice.document.code} — {change_notice.document.title}\n\n"
-        f"Accedi al sistema per revisionare e decidere."
-    )
-    _send_and_log(next_approver_user, subject, body)
+    """Notifica il prossimo membro CCB in una catena SEQUENTIAL."""
+    _notify_ccb_member(change_notice, next_approver_user, is_first=False)
 
 
 def notify_ecn_closed(change_notice):

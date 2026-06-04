@@ -29,7 +29,7 @@
       <li>Eventuale commessa o progetto associato</li>
     </ul>
     <p style="color:#856404;margin:0;font-size:.9rem">
-      Quando sei pronto, configura gli approvatori CCB e la policy, poi invia.
+      Quando sei pronto, configura i componenti CCB, il responsabile istruttoria e la policy.
     </p>
   </div>
   {% else %}
@@ -44,12 +44,20 @@
   <div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
     <strong style="color:#004085">Prossima azione:</strong>
     <span style="color:#004085">
-      {% if can_submit %}
-        CCB configurata. Invia l'ECN alla CCB per avviare la revisione.
-      {% else %}
-        CCB configurata. In attesa dell'invio da parte del Responsabile Qualità.
-      {% endif %}
+      CCB configurata. Il responsabile istruttoria deve compilare il dossier, poi inviarlo alla CCB.
     </span>
+  </div>
+  {% endif %}
+{% elif ecn.status == 'ccb_preparation' %}
+  {% if can_compile_dossier %}
+  <div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#004085">Prossima azione:</strong>
+    <span style="color:#004085">Compila il dossier istruttorio, poi invia alla CCB per la votazione.</span>
+  </div>
+  {% else %}
+  <div class="card" style="background:#e2e3e5;border-left:4px solid #6c757d;margin-bottom:1rem;padding:.75rem 1rem">
+    <strong style="color:#383d41">Istruttoria in corso:</strong>
+    <span style="color:#383d41">Il responsabile istruttoria sta compilando il dossier CCB.</span>
   </div>
   {% endif %}
 {% elif ecn.status == 'under_review' %}
@@ -133,12 +141,21 @@
   </a>
   {% endif %}
 
+  {% if ecn.status == 'ccb_preparation' and can_configure_ccb %}
+  <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-secondary">Modifica CCB</a>
+  {% endif %}
+
   {% if ecn.status == 'under_review' and can_reconfigure and not has_decisions %}
   <a href="{% url 'ecn:ecn_configure_ccb' ecn.pk %}" class="btn btn-secondary">Modifica CCB</a>
   {% endif %}
 
   {% if ecn.status == 'under_review' and can_reopen %}
   <a href="{% url 'ecn:ecn_reopen_ccb' ecn.pk %}" class="btn btn-danger">Riapri configurazione CCB</a>
+  {% endif %}
+
+  {# Istruttoria CCB: visibile al coordinatore / QM in draft o ccb_preparation #}
+  {% if ecn.status == 'ccb_preparation' and can_compile_dossier %}
+  <a href="{% url 'ecn:ecn_ccb_dossier' ecn.pk %}" class="btn btn-primary">Istruttoria CCB</a>
   {% endif %}
 
   {% if ecn.status == 'draft' and can_submit and has_ccb_configured %}
@@ -152,7 +169,7 @@
   {% endif %}
 
   {% if ecn.status == 'under_review' and can_review %}
-  <a href="{% url 'ecn:ecn_review' ecn.pk %}" class="btn btn-primary">Revisione CCB</a>
+  <a href="{% url 'ecn:ecn_review' ecn.pk %}" class="btn btn-primary">Decisione CCB</a>
   {% endif %}
 
   {% if ecn.status == 'approved' and can_close %}
@@ -256,6 +273,10 @@
 <div class="card">
   <dl class="dl-grid" style="margin-bottom:.75rem">
     <dt>Politica</dt><dd>{{ ecn.get_ccb_policy_display }}</dd>
+    {% if ecn.ccb_coordinator %}
+    <dt>Resp. istruttoria</dt>
+    <dd>{{ ecn.ccb_coordinator.get_full_name|default:ecn.ccb_coordinator.username }}</dd>
+    {% endif %}
   </dl>
   {% if approvers %}
   <table style="width:100%;border-collapse:collapse">

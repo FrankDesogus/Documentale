@@ -82,6 +82,14 @@ class Command(BaseCommand):
         from auditlog.models import AuditLog
         from ecn.models import ChangeNotice
 
+        # Prima elimina gli ECN demo (PROTECT sui documenti)
+        ecn_deleted = ChangeNotice.objects.filter(
+            code__startswith='ECN-DEMO-'
+        ).delete()[0]
+        if ecn_deleted:
+            self.stdout.write(f'  >> {ecn_deleted} ECN demo eliminati.')
+
+        # Poi elimina i documenti demo
         deleted_total = 0
         for code in DEMO_CODES.values():
             try:
@@ -92,13 +100,6 @@ class Command(BaseCommand):
                 self.stdout.write(f'  >> Documento {code} eliminato.')
             except Document.DoesNotExist:
                 pass
-
-        # ECN demo (potrebbero non avere documento se creati standalone)
-        ecn_deleted = ChangeNotice.objects.filter(
-            code__startswith='ECN-DEMO-'
-        ).delete()[0]
-        if ecn_deleted:
-            self.stdout.write(f'  >> {ecn_deleted} ECN demo eliminati.')
 
         if deleted_total == 0 and ecn_deleted == 0:
             self.stdout.write('  Nessun dato demo da eliminare.')
@@ -365,7 +366,7 @@ class Command(BaseCommand):
         approve_version(req, supervisor, comment='Versione iniziale approvata.')
         doc.refresh_from_db()
 
-        # ECN in bozza pronto per la valutazione
+        # ECN con CCB configurata e istruttoria pronta per la dimostrazione
         ecn = create_change_notice(
             document=doc,
             proposed_by=supervisor,
@@ -378,9 +379,29 @@ class Command(BaseCommand):
             motivation_detail='Adeguamento ai nuovi requisiti normativi 2026.',
             code='ECN-DEMO-001',
         )
+        # Configura CCB (supervisor_demo: responsabile istruttoria + unico componente)
+        from ecn.services import configure_ccb, update_ccb_dossier
+        configure_ccb(
+            ecn, actor=supervisor,
+            users=[supervisor],
+            policy='any',
+            coordinator=supervisor,
+        )
+        # Pre-compila il dossier istruttorio per la demo
+        update_ccb_dossier(
+            ecn, actor=supervisor,
+            ccb_class='class2',
+            ccb_requirements='Conforme ai requisiti normativi vigenti.',
+            ccb_technical_impact='Impatto limitato alla sezione 4 del documento.',
+            ccb_cost_impact='Nessun impatto economico aggiuntivo.',
+            ccb_time_impact='Stimato 2 giorni lavorativi.',
+            ccb_quality_impact='Miglioramento della conformità normativa.',
+            ccb_other_impact='Nessun impatto su altri documenti correlati.',
+            ccb_notes='Variante di adeguamento normativo — pre-approvata internamente.',
+        )
         self._step(
-            f'{code}: documento approvato + ECN {ecn.code} in bozza '
-            '(pronto per configurare CCB e inviare).'
+            f'{code}: documento approvato + ECN {ecn.code} in istruttoria CCB '
+            '(dossier pre-compilato, pronto per l\'invio alla CCB).'
         )
 
     # ------------------------------------------------------------------

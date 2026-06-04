@@ -2780,7 +2780,8 @@ class DemoSupervisorEndToEndTests(TestCase):
         from ecn.models import ChangeNotice
         from ecn.services import (
             create_change_notice,
-            set_change_notice_approvers,
+            configure_ccb,
+            update_ccb_dossier,
             submit_change_notice,
             approve_change_notice,
             close_change_notice,
@@ -2823,43 +2824,55 @@ class DemoSupervisorEndToEndTests(TestCase):
             description='E2E test',
         )
 
-        # 5. Configura CCB con solo sé stesso e verifica
-        set_change_notice_approvers(ecn, [sup], policy='any', actor=sup)
+        # 5. Configura CCB: responsabile istruttoria = sup, unico componente = sup
+        configure_ccb(ecn, actor=sup, users=[sup], policy='any', coordinator=sup)
         ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.CCB_PREPARATION)
         ccb_approver_pks = list(ecn.approvers.values_list('user_id', flat=True))
         self.assertEqual(ccb_approver_pks, [sup.pk])
 
-        # 6. Invia ECN alla CCB
+        # 6. Compila il dossier istruttorio
+        update_ccb_dossier(
+            ecn, actor=sup,
+            ccb_class=ChangeNotice.CCBClass.CLASS2,
+            ccb_requirements='Analisi requisiti E2E.',
+            ccb_technical_impact='Impatto tecnico minore.',
+            ccb_cost_impact='Nessun costo aggiuntivo.',
+            ccb_notes='Test E2E completo.',
+        )
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.ccb_class, ChangeNotice.CCBClass.CLASS2)
+
+        # 7. Invia ECN alla CCB (CCB_PREPARATION → UNDER_REVIEW)
         submit_change_notice(ecn, sup)
         ecn.refresh_from_db()
         self.assertEqual(ecn.status, ChangeNotice.Status.UNDER_REVIEW)
 
-        # 7. Approva ECN
+        # 8. Vota: approva ECN (dossier già compilato, ccb_class già settato)
         approve_change_notice(
             ecn, sup,
-            ccb_class=ChangeNotice.CCBClass.CLASS2,
             comment='Approvazione E2E',
         )
         ecn.refresh_from_db()
         self.assertEqual(ecn.status, ChangeNotice.Status.APPROVED)
 
-        # 8. Crea nuova revisione autorizzata dall'ECN approvato
+        # 9. Crea nuova revisione autorizzata dall'ECN approvato
         v01 = create_new_revision(
             document=doc, created_by=sup,
             revision_label='01', revision_number=1,
             change_summary='Revisione da ECN', ecn=ecn,
         )
 
-        # 9. Invia nuova revisione in approvazione
+        # 10. Invia nuova revisione in approvazione
         req2 = submit_version_for_approval(v01, sup, [sup])
 
-        # 10. Approva nuova revisione
+        # 11. Approva nuova revisione
         approve_version(req2, sup, comment='Approvazione rev 01')
         v01.refresh_from_db()
         v00.refresh_from_db()
         doc.refresh_from_db()
 
-        # 11. Chiude ECN (executed_version è stato impostato al passo 8)
+        # 12. Chiude ECN (executed_version è stato impostato al passo 9)
         ecn.refresh_from_db()
         close_change_notice(ecn, sup, close_notes='ECN chiuso dal test E2E')
         ecn.refresh_from_db()

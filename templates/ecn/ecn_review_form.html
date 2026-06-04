@@ -1,14 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Revisione CCB — {{ ecn.code }} — Documentale{% endblock %}
+{% block title %}Decisione CCB — {{ ecn.code }} — Documentale{% endblock %}
 
 {% block content %}
 <p class="meta">
   <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
 </p>
-<h1>Revisione CCB — {{ ecn.code }}</h1>
+<h1>Decisione CCB — {{ ecn.code }}</h1>
 <p class="meta">{{ ecn.title }}</p>
 
+{# Dossier in sola lettura #}
 <div class="card" style="margin-bottom:1rem">
+  <h2 style="font-size:1rem;margin:0 0 .75rem">Dossier istruttorio (sola lettura)</h2>
   <dl class="dl-grid">
     <dt>Documento</dt>          <dd>{{ ecn.document.code }} — {{ ecn.document.title }}</dd>
     <dt>Rev. riferimento</dt>   <dd>Rev. {{ ecn.document_version.revision_label }}</dd>
@@ -20,9 +22,49 @@
     {% if ecn.description %}
     <dt>Descrizione modifica</dt><dd style="white-space:pre-wrap">{{ ecn.description }}</dd>
     {% endif %}
+    {% if ecn.ccb_class %}
+    <dt>Classificazione</dt>    <dd>{{ ecn.get_ccb_class_display }}</dd>
+    {% endif %}
+    {% if ecn.ccb_requirements %}
+    <dt>Analisi requisiti</dt>  <dd style="white-space:pre-wrap">{{ ecn.ccb_requirements }}</dd>
+    {% endif %}
+    {% if ecn.ccb_technical_impact %}
+    <dt>Impatto tecnico</dt>    <dd style="white-space:pre-wrap">{{ ecn.ccb_technical_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_cost_impact %}
+    <dt>Impatto costi</dt>      <dd style="white-space:pre-wrap">{{ ecn.ccb_cost_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_time_impact %}
+    <dt>Impatto tempi</dt>      <dd style="white-space:pre-wrap">{{ ecn.ccb_time_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_quality_impact %}
+    <dt>Impatto qualità</dt>    <dd style="white-space:pre-wrap">{{ ecn.ccb_quality_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_other_impact %}
+    <dt>Impatto altri doc.</dt> <dd style="white-space:pre-wrap">{{ ecn.ccb_other_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_notes %}
+    <dt>Note CCB</dt>           <dd style="white-space:pre-wrap">{{ ecn.ccb_notes }}</dd>
+    {% endif %}
   </dl>
 </div>
 
+{# Componenti CCB e policy #}
+{% if approvers %}
+<div class="card" style="margin-bottom:1rem">
+  <dl class="dl-grid" style="margin-bottom:.5rem">
+    <dt>Policy CCB</dt><dd>{{ ecn.get_ccb_policy_display }}</dd>
+  </dl>
+  <strong style="font-size:.9rem">Componenti CCB</strong>
+  <ul style="margin:.35rem 0 0 1.2rem;font-size:.9rem">
+    {% for app in approvers %}
+    <li>{{ app.order }}. {{ app.user.get_full_name|default:app.user.username }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{# Form decisione #}
 <form method="post">
   {% csrf_token %}
 
@@ -35,71 +77,29 @@
           {{ radio.tag }} {{ radio.choice_label }}
         </label>
         {% endfor %}
-        {% if form.action.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.action.errors.as_text }}</p>{% endif %}
+        {% if form.action.errors %}
+          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.action.errors.as_text }}</p>
+        {% endif %}
       </div>
     </fieldset>
 
     <fieldset>
-      <legend>Classificazione CCB</legend>
-      <div style="margin-bottom:1rem">
-        <label for="id_ccb_class">{{ form.ccb_class.label }}</label>
-        <select name="ccb_class" id="id_ccb_class" style="border:1px solid #ccc;border-radius:3px;padding:.4rem .6rem;font-size:.95rem;width:100%">
-          {% for val, label in form.ccb_class.field.choices %}
-          <option value="{{ val }}" {% if form.ccb_class.value == val %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_class.help_text }}</p>
-        {% if form.ccb_class.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_class.errors.as_text }}</p>{% endif %}
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Analisi di impatto</legend>
-      <div style="margin-bottom:1rem">
-        <label>{{ form.ccb_requirements.label }}</label>
-        {{ form.ccb_requirements }}
-        {% if form.ccb_requirements.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_requirements.errors.as_text }}</p>{% endif %}
-      </div>
-      <div style="margin-bottom:1rem">
-        <label>{{ form.ccb_technical_impact.label }}</label>
-        {{ form.ccb_technical_impact }}
-        {% if form.ccb_technical_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_technical_impact.errors.as_text }}</p>{% endif %}
-      </div>
-      <div style="margin-bottom:1rem">
-        <label>{{ form.ccb_cost_impact.label }}</label>
-        {{ form.ccb_cost_impact }}
-        {% if form.ccb_cost_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_cost_impact.errors.as_text }}</p>{% endif %}
-      </div>
-      <div style="margin-bottom:1rem">
-        <label>{{ form.ccb_time_impact.label }}</label>
-        {{ form.ccb_time_impact }}
-        {% if form.ccb_time_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_time_impact.errors.as_text }}</p>{% endif %}
-      </div>
-      <div style="margin-bottom:1rem">
-        <label>{{ form.ccb_quality_impact.label }}</label>
-        {{ form.ccb_quality_impact }}
-        {% if form.ccb_quality_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_quality_impact.errors.as_text }}</p>{% endif %}
-      </div>
-      <div style="margin-bottom:1rem">
-        <label>{{ form.ccb_other_impact.label }}</label>
-        {{ form.ccb_other_impact }}
-        {% if form.ccb_other_impact.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_other_impact.errors.as_text }}</p>{% endif %}
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Note CCB</legend>
+      <legend>Commento e motivazione</legend>
       <div style="margin-bottom:1rem">
         <label for="id_comment">{{ form.comment.label }}</label>
         {{ form.comment }}
         <p class="meta" style="margin:.2rem 0 0">{{ form.comment.help_text }}</p>
-        {% if form.comment.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.comment.errors.as_text }}</p>{% endif %}
+        {% if form.comment.errors %}
+          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.comment.errors.as_text }}</p>
+        {% endif %}
       </div>
       <div style="margin-bottom:1rem">
         <label for="id_ccb_notes">{{ form.ccb_notes.label }}</label>
         {{ form.ccb_notes }}
         <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_notes.help_text }}</p>
-        {% if form.ccb_notes.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_notes.errors.as_text }}</p>{% endif %}
+        {% if form.ccb_notes.errors %}
+          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_notes.errors.as_text }}</p>
+        {% endif %}
       </div>
     </fieldset>
   </div>

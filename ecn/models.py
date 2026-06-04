@@ -6,11 +6,12 @@ class ChangeNotice(models.Model):
     """Richiesta di modifica controllata (ECN / Variante) per un documento emesso."""
 
     class Status(models.TextChoices):
-        DRAFT        = 'draft',        'Bozza'
-        UNDER_REVIEW = 'under_review', 'In revisione CCB'
-        APPROVED     = 'approved',     'Approvata'
-        REJECTED     = 'rejected',     'Rifiutata'
-        CLOSED       = 'closed',       'Chiusa'
+        DRAFT           = 'draft',           'Bozza'
+        CCB_PREPARATION = 'ccb_preparation', 'Istruttoria CCB'
+        UNDER_REVIEW    = 'under_review',    'In revisione CCB'
+        APPROVED        = 'approved',        'Approvata'
+        REJECTED        = 'rejected',        'Rifiutata'
+        CLOSED          = 'closed',          'Chiusa'
 
     class Motivation(models.TextChoices):
         IMPROVEMENT    = 'improvement',    'Miglioramento tecnico'
@@ -124,8 +125,22 @@ class ChangeNotice(models.Model):
     )
 
     # ------------------------------------------------------------------
-    # Valutazione CCB
-    # Questi campi vengono compilati dal revisore CCB durante la review.
+    # Responsabile istruttoria CCB
+    # Compilazione del dossier prima dell'invio ai votanti.
+    # ------------------------------------------------------------------
+    ccb_coordinator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='coordinating_ecns',
+        verbose_name='Responsabile istruttoria CCB',
+        help_text='Utente incaricato di compilare il dossier istruttorio prima dell\'invio ai votanti CCB.',
+    )
+
+    # ------------------------------------------------------------------
+    # Dossier istruttorio CCB
+    # Compilato dal responsabile istruttoria prima dell'invio ai votanti.
     # ------------------------------------------------------------------
     ccb_class = models.CharField(
         max_length=10,
