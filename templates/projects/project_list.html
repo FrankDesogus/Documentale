@@ -2,12 +2,38 @@
 {% block title %}Progetti — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta" style="margin-bottom:.75rem">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+  <h1 style="margin:0">Progetti</h1>
   {% if can_create %}
-  <a href="{% url 'project_create' %}" class="btn btn-primary" style="float:right;margin-top:-.2rem">+ Nuovo progetto</a>
+  <a href="{% url 'project_create' %}" class="btn btn-primary" style="font-size:.88rem">+ Nuovo progetto</a>
   {% endif %}
-</p>
-<h1>Progetti</h1>
+</div>
+
+<form method="get" class="filter-bar">
+  <div class="filter-group">
+    <label>Ricerca</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Codice o nome…" style="min-width:200px">
+  </div>
+  <div class="filter-group">
+    <label>Stato</label>
+    <select name="status">
+      <option value="">— tutti —</option>
+      {% for val, label in status_choices %}
+      <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-actions">
+    <button type="submit" class="btn btn-primary" style="font-size:.88rem;padding:.35rem .8rem">🔍 Cerca</button>
+    {% if q or status_filter %}
+    <a href="{% url 'project_list' %}" class="btn btn-outline" style="font-size:.88rem;padding:.35rem .8rem">✕ Reset</a>
+    {% endif %}
+  </div>
+</form>
+
+{% if total_count is not None %}
+<p class="meta" style="margin-bottom:.75rem">{{ total_count }} progett{% if total_count == 1 %}o{% else %}i{% endif %}</p>
+{% endif %}
 
 {% if projects %}
 <table>
@@ -27,18 +53,27 @@
     <tr>
       <td><strong>{{ project.code }}</strong></td>
       <td>{{ project.name }}</td>
-      <td>{{ project.get_project_type_display }}</td>
+      <td class="meta">{{ project.get_project_type_display }}</td>
       <td><span class="badge badge-{{ project.status }}">{{ project.get_status_display }}</span></td>
-      <td>{{ project.folder|default:"—" }}</td>
-      <td>{{ project.manager.get_full_name|default:project.manager.username|default:"—" }}</td>
-      <td><a href="{% url 'project_detail' project.pk %}" class="btn btn-primary">Apri</a></td>
+      <td class="meta">
+        {% if project.folder %}<a href="{% url 'folder_detail' project.folder.pk %}" style="color:#1a3a5c">{{ project.folder.code }}</a>{% else %}—{% endif %}
+      </td>
+      <td class="meta">{% if project.manager %}{{ project.manager.get_full_name|default:project.manager.username }}{% else %}—{% endif %}</td>
+      <td><a href="{% url 'project_detail' project.pk %}" class="btn btn-primary" style="padding:.2rem .6rem;font-size:.85rem">Apri</a></td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+
+{% include "_pagination.html" with page_obj=page_obj total_count=total_count %}
+
 {% else %}
 <div class="card">
-  <p class="meta">Nessun progetto disponibile.</p>
+  {% if q or status_filter %}
+  <p class="state-empty">Nessun progetto trovato per i filtri selezionati. <a href="{% url 'project_list' %}">Mostra tutti</a></p>
+  {% else %}
+  <p class="state-empty">Nessun progetto disponibile.</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

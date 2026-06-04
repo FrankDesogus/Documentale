@@ -3,90 +3,108 @@
 {% block title %}Dashboard — Documentale{% endblock %}
 
 {% block content %}
-<h1>🏠 Dashboard</h1>
+<h1>Dashboard</h1>
 
-{% user_can_quality_workspace user as dash_can_quality %}
+<!-- ── Riquadri contatori ── -->
+<div class="dash-cards">
 
-<!-- ── Alert azioni in attesa ── -->
-{% if pending_count or pending_ccb_count or draft_count %}
-<div class="card" style="border-left:4px solid #1a3a5c;padding:.85rem 1.2rem;margin-bottom:1rem">
-  <strong>Azioni in attesa:</strong>
-  {% if pending_count %}
-    <a href="{% url 'approval_queue' %}" style="margin-left:.75rem">✅ {{ pending_count }} approvazione/i documento</a>
-  {% endif %}
+  <a href="{% url 'my_drafts' %}" class="dash-card accent-amber">
+    <div class="dc-count">{{ draft_count|default:"0" }}</div>
+    <div class="dc-label">Le mie bozze</div>
+    <div class="dc-sub">In lavorazione</div>
+  </a>
+
+  <a href="{% url 'approval_queue' %}" class="dash-card accent-blue">
+    <div class="dc-count">{{ pending_count|default:"0" }}</div>
+    <div class="dc-label">Da approvare</div>
+    <div class="dc-sub">Documenti in attesa</div>
+  </a>
+
+  <a href="{% url 'ecn:ecn_list' %}" class="dash-card accent-purple">
+    <div class="dc-count">{{ my_ecn_count|default:"0" }}</div>
+    <div class="dc-label">ECN aperte</div>
+    <div class="dc-sub">Proposte varianti</div>
+  </a>
+
+  <a href="{% url 'workspace_my_work' %}" class="dash-card accent-red">
+    {% with tot=pending_count|add:pending_ccb_count|add:draft_count %}
+    <div class="dc-count">{{ tot|default:"0" }}</div>
+    <div class="dc-label">Attività in attesa</div>
+    <div class="dc-sub">
+      {% if tot %}Richiede attenzione{% else %}Tutto in ordine{% endif %}
+    </div>
+    {% endwith %}
+  </a>
+
   {% if pending_ccb_count %}
-    <a href="{% url 'workspace_my_work' %}" style="margin-left:.75rem">🏛️ {{ pending_ccb_count }} decisione/i CCB</a>
+  <a href="{% url 'workspace_my_work' %}" class="dash-card accent-blue">
+    <div class="dc-count">{{ pending_ccb_count }}</div>
+    <div class="dc-label">Decisioni CCB</div>
+    <div class="dc-sub">In attesa del tuo voto</div>
+  </a>
   {% endif %}
-  {% if draft_count %}
-    <a href="{% url 'my_drafts' %}" style="margin-left:.75rem">📝 {{ draft_count }} bozza/e in lavorazione</a>
-  {% endif %}
+
+</div>
+
+<!-- ── Esplora archivio ── -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+  <h2 style="margin:0">Esplora archivio</h2>
+  <a href="{% url 'folder_list' %}" class="btn btn-outline" style="font-size:.85rem;padding:.3rem .75rem">Tutte le cartelle</a>
+</div>
+
+{% if explorer_folders %}
+<div class="folder-explorer" style="margin-bottom:2rem">
+  {% for folder in explorer_folders %}
+  <a href="{% url 'folder_detail' folder.pk %}" class="folder-explorer-item">
+    <span class="fi">📁</span>
+    <div>
+      <div class="fn">{{ folder.name }}</div>
+      <div class="fm">
+        {{ folder.code }}
+        {% with sc=folder.subfolders.count %}
+        {% if sc %} · {{ sc }} sottocartell{% if sc == 1 %}a{% else %}e{% endif %}{% endif %}
+        {% endwith %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <p class="meta">
+    Nessuna cartella disponibile. Contatta il Responsabile Qualità per ottenere l'accesso alle cartelle documentali.
+  </p>
 </div>
 {% endif %}
 
-<!-- ── Card principali ── -->
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:2rem">
-
+<!-- ── Link rapidi ── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.75rem">
   <a href="{% url 'document_list' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer">
-      <div style="font-size:2rem;margin-bottom:.5rem">📄</div>
-      <div style="font-weight:600;color:#1a3a5c">Documenti approvati</div>
-      <div class="meta">Versioni correnti approvate</div>
+    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
+      <div style="font-size:1.6rem;margin-bottom:.3rem">📄</div>
+      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">Documenti approvati</div>
     </div>
   </a>
-
-  <a href="{% url 'workspace_my_work' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer">
-      <div style="font-size:2rem;margin-bottom:.5rem">✏️</div>
-      <div style="font-weight:600;color:#1a3a5c">Il mio lavoro</div>
-      {% with tot=pending_count|add:pending_ccb_count|add:draft_count %}
-        {% if tot %}
-          <div class="meta" style="color:#856404;font-weight:600">{{ tot }} elemento/i in attesa</div>
-        {% else %}
-          <div class="meta">Tutto in ordine</div>
-        {% endif %}
-      {% endwith %}
+  <a href="{% url 'project_list' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
+      <div style="font-size:1.6rem;margin-bottom:.3rem">🗂️</div>
+      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">Progetti</div>
     </div>
   </a>
-
-  <a href="{% url 'ecn:ecn_my' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer">
-      <div style="font-size:2rem;margin-bottom:.5rem">🔄</div>
-      <div style="font-weight:600;color:#1a3a5c">Le mie ECN</div>
-      {% if my_ecn_count %}
-        <div class="meta">{{ my_ecn_count }} ECN attiv{% if my_ecn_count == 1 %}a{% else %}e{% endif %}</div>
-      {% else %}
-        <div class="meta">Nessuna ECN attiva</div>
-      {% endif %}
+  <a href="{% url 'ecn:ecn_list' %}" style="text-decoration:none">
+    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
+      <div style="font-size:1.6rem;margin-bottom:.3rem">🔄</div>
+      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">ECN / Varianti</div>
     </div>
   </a>
-
-  <a href="{% url 'folder_list' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer">
-      <div style="font-size:2rem;margin-bottom:.5rem">📁</div>
-      <div style="font-weight:600;color:#1a3a5c">Cartelle</div>
-      <div class="meta">Struttura documentale</div>
-    </div>
-  </a>
-
+  {% user_can_quality_workspace user as dash_can_quality %}
   {% if dash_can_quality %}
   <a href="{% url 'workspace_quality' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer">
-      <div style="font-size:2rem;margin-bottom:.5rem">⚙️</div>
-      <div style="font-weight:600;color:#1a3a5c">Workspace Qualità</div>
-      <div class="meta">ECN, CCB, approvazioni</div>
+    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
+      <div style="font-size:1.6rem;margin-bottom:.3rem">⚙️</div>
+      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">Workspace Qualità</div>
     </div>
   </a>
   {% endif %}
-
-  {% if user.is_staff %}
-  <a href="/admin/" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer">
-      <div style="font-size:2rem;margin-bottom:.5rem">🔧</div>
-      <div style="font-weight:600;color:#1a3a5c">Amministrazione</div>
-      <div class="meta">Django admin</div>
-    </div>
-  </a>
-  {% endif %}
-
 </div>
 {% endblock %}

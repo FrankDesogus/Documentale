@@ -2,25 +2,52 @@
 {% block title %}ECN / Varianti — Documentale{% endblock %}
 
 {% block content %}
-<h1>ECN / Varianti</h1>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+  <h1 style="margin:0">ECN / Varianti</h1>
+  <a href="{% url 'ecn:ecn_create' %}" class="btn btn-primary" style="font-size:.88rem">+ Nuova richiesta ECN</a>
+</div>
 
-<p>
-  <a href="{% url 'ecn:ecn_create' %}" class="btn btn-primary">+ Nuova richiesta ECN</a>
-</p>
-
-{# Filtro stato #}
-<form method="get" style="margin-bottom:1rem;display:flex;gap:.5rem;align-items:center">
-  <label for="status-filter" style="margin:0;font-weight:normal">Filtra per stato:</label>
-  <select id="status-filter" name="status" onchange="this.form.submit()" style="border:1px solid #ccc;border-radius:3px;padding:.3rem .5rem;font-size:.9rem">
-    <option value="">— tutti —</option>
-    {% for val, label in status_choices %}
-    <option value="{{ val }}" {% if val == current_status %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  {% if current_status %}
-  <a href="{% url 'ecn:ecn_list' %}" class="btn btn-secondary" style="padding:.3rem .7rem;font-size:.85rem">Rimuovi filtro</a>
-  {% endif %}
+<form method="get" class="filter-bar">
+  <div class="filter-group">
+    <label>Ricerca</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Codice, titolo, documento, proponente…" style="min-width:230px">
+  </div>
+  <div class="filter-group">
+    <label>Stato</label>
+    <select name="status">
+      <option value="">— tutti —</option>
+      {% for val, label in status_choices %}
+      <option value="{{ val }}" {% if current_status == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Motivazione</label>
+    <select name="motivation">
+      <option value="">— tutte —</option>
+      {% for val, label in motivation_choices %}
+      <option value="{{ val }}" {% if motivation_filter == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group" style="align-items:flex-end;justify-content:flex-end;padding-bottom:.1rem">
+    <label style="visibility:hidden">.</label>
+    <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal;cursor:pointer;font-size:.88rem">
+      <input type="checkbox" name="my_action" value="1" {% if my_action %}checked{% endif %} onchange="this.form.submit()">
+      Solo mie azioni
+    </label>
+  </div>
+  <div class="filter-actions">
+    <button type="submit" class="btn btn-primary" style="font-size:.88rem;padding:.35rem .8rem">🔍 Cerca</button>
+    {% if q or current_status or motivation_filter or my_action %}
+    <a href="{% url 'ecn:ecn_list' %}" class="btn btn-outline" style="font-size:.88rem;padding:.35rem .8rem">✕ Reset</a>
+    {% endif %}
+  </div>
 </form>
+
+{% if total_count is not None %}
+<p class="meta" style="margin-bottom:.75rem">{{ total_count }} ECN</p>
+{% endif %}
 
 {% if ecns %}
 <table>
@@ -31,23 +58,42 @@
       <th>Documento</th>
       <th>Stato</th>
       <th>Proponente</th>
-      <th>Data proposta</th>
+      <th>Data</th>
     </tr>
   </thead>
   <tbody>
     {% for ecn in ecns %}
     <tr>
-      <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a></td>
+      <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}" style="font-weight:600">{{ ecn.code }}</a></td>
       <td>{{ ecn.title }}</td>
-      <td><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a></td>
-      <td><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></td>
-      <td>{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
+      <td><a href="{% url 'document_detail' ecn.document_id %}" class="meta">{{ ecn.document.code }}</a></td>
+      <td>
+        <span class="badge badge-{{ ecn.status }}">
+          {% if ecn.status == 'ccb_preparation' %}Istruttoria CCB
+          {% elif ecn.status == 'under_review' %}In revisione CCB
+          {% elif ecn.status == 'draft' %}Bozza
+          {% elif ecn.status == 'approved' %}Approvata
+          {% elif ecn.status == 'rejected' %}Rifiutata
+          {% elif ecn.status == 'closed' %}Chiusa
+          {% else %}{{ ecn.get_status_display }}{% endif %}
+        </span>
+      </td>
+      <td class="meta">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</td>
       <td class="meta" style="white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+
+{% include "_pagination.html" with page_obj=page_obj total_count=total_count %}
+
 {% else %}
-<p class="meta">Nessun ECN trovato.</p>
+<div class="card">
+  {% if q or current_status or motivation_filter or my_action %}
+  <p class="state-empty">Nessun ECN trovato per i filtri selezionati. <a href="{% url 'ecn:ecn_list' %}">Mostra tutti</a></p>
+  {% else %}
+  <p class="state-empty">Nessun ECN disponibile.</p>
+  {% endif %}
+</div>
 {% endif %}
 {% endblock %}

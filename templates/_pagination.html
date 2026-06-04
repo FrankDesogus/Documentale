@@ -1,0 +1,33 @@
+{# Paginazione riutilizzabile. Usa: {% include "_pagination.html" with page_obj=page_obj %} #}
+{# Preserva i GET params esistenti (ricerca, filtri) via JS-free approach #}
+{% if page_obj.has_other_pages %}
+<div class="pagination">
+  {% if page_obj.has_previous %}
+    <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ page_obj.previous_page_number }}">‹</a>
+  {% else %}
+    <span class="disabled">‹</span>
+  {% endif %}
+
+  {% for num in page_obj.paginator.page_range %}
+    {% if page_obj.number == num %}
+      <span class="current">{{ num }}</span>
+    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+      <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ num }}">{{ num }}</a>
+    {% elif num == 1 or num == page_obj.paginator.num_pages %}
+      <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ num }}">{{ num }}</a>
+    {% elif num == page_obj.number|add:"-3" or num == page_obj.number|add:"3" %}
+      <span class="disabled">…</span>
+    {% endif %}
+  {% endfor %}
+
+  {% if page_obj.has_next %}
+    <a href="?{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ page_obj.next_page_number }}">›</a>
+  {% else %}
+    <span class="disabled">›</span>
+  {% endif %}
+
+  {% if total_count is not None %}
+  <span class="pagination-info">{{ total_count }} element{% if total_count == 1 %}o{% else %}i{% endif %}</span>
+  {% endif %}
+</div>
+{% endif %}

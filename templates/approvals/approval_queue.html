@@ -1,8 +1,43 @@
 {% extends "base.html" %}
-{% block title %}Da approvare — Documentale{% endblock %}
+{% block title %}Approvazioni — Documentale{% endblock %}
 
 {% block content %}
-<h1>Richieste di approvazione assegnate</h1>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+  <h1 style="margin:0">Richieste di approvazione</h1>
+</div>
+
+<form method="get" class="filter-bar">
+  <div class="filter-group">
+    <label>Ricerca</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Codice documento, richiedente…" style="min-width:210px">
+  </div>
+  <div class="filter-group">
+    <label>Stato</label>
+    <select name="status">
+      {% for val, label in status_choices %}
+      <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Vista</label>
+    <select name="mine">
+      <option value="" {% if mine_filter == '' %}selected{% endif %}>Tutte le mie</option>
+      <option value="to_approve" {% if mine_filter == 'to_approve' %}selected{% endif %}>Da approvare da me</option>
+      <option value="created" {% if mine_filter == 'created' %}selected{% endif %}>Create da me</option>
+    </select>
+  </div>
+  <div class="filter-actions">
+    <button type="submit" class="btn btn-primary" style="font-size:.88rem;padding:.35rem .8rem">🔍 Cerca</button>
+    {% if q or status_filter != 'PENDING' or mine_filter %}
+    <a href="{% url 'approval_queue' %}" class="btn btn-outline" style="font-size:.88rem;padding:.35rem .8rem">✕ Reset</a>
+    {% endif %}
+  </div>
+</form>
+
+{% if total_count is not None %}
+<p class="meta" style="margin-bottom:.75rem">{{ total_count }} richiesta/e</p>
+{% endif %}
 
 {% if approval_requests %}
 <table>
@@ -13,6 +48,7 @@
       <th>Richiedente</th>
       <th>Richiesta il</th>
       <th>Scadenza</th>
+      <th>Stato</th>
       <th></th>
     </tr>
   </thead>
@@ -20,27 +56,51 @@
     {% for ar in approval_requests %}
     <tr>
       <td>
-        <strong>{{ ar.document_version.document.code }}</strong><br>
-        <span class="meta">{{ ar.document_version.document.title }}</span>
+        <a href="{% url 'document_detail' ar.document_version.document.pk %}" style="font-weight:600">
+          {{ ar.document_version.document.code }}
+        </a><br>
+        <span class="meta" style="font-size:.82rem">{{ ar.document_version.document.title }}</span>
       </td>
       <td>Rev. {{ ar.document_version.revision_label }}</td>
-      <td>{{ ar.requested_by.get_full_name|default:ar.requested_by.username }}</td>
-      <td class="meta">{{ ar.requested_at|date:"d/m/Y" }}</td>
+      <td class="meta">{{ ar.requested_by.get_full_name|default:ar.requested_by.username }}</td>
+      <td class="meta" style="white-space:nowrap">{{ ar.requested_at|date:"d/m/Y" }}</td>
       <td>
         {% if ar.due_date %}
-          <span {% if ar.due_date < today %}style="color:#721c24;font-weight:600"{% endif %}>
+          <span {% if today and ar.due_date < today %}style="color:#721c24;font-weight:600"{% endif %}>
             {{ ar.due_date|date:"d/m/Y" }}
           </span>
         {% else %}—{% endif %}
       </td>
-      <td><a href="{% url 'approval_detail' ar.pk %}" class="btn btn-primary">Esamina</a></td>
+      <td>
+        <span class="badge badge-{{ ar.status }}">
+          {% if ar.status == 'PENDING' %}In attesa
+          {% elif ar.status == 'APPROVED' %}Approvata
+          {% elif ar.status == 'REJECTED' %}Rifiutata
+          {% elif ar.status == 'CANCELLED' %}Annullata
+          {% else %}{{ ar.get_status_display }}{% endif %}
+        </span>
+      </td>
+      <td>
+        {% if ar.status == 'PENDING' %}
+        <a href="{% url 'approval_detail' ar.pk %}" class="btn btn-primary" style="padding:.2rem .6rem;font-size:.85rem">Esamina</a>
+        {% else %}
+        <a href="{% url 'approval_detail' ar.pk %}" class="btn btn-outline" style="padding:.2rem .6rem;font-size:.85rem">Dettaglio</a>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+
+{% include "_pagination.html" with page_obj=page_obj total_count=total_count %}
+
 {% else %}
 <div class="card">
-  <p class="meta">Nessuna richiesta di approvazione pendente assegnata.</p>
+  {% if q or status_filter or mine_filter %}
+  <p class="state-empty">Nessuna richiesta trovata per i filtri selezionati. <a href="{% url 'approval_queue' %}">Mostra tutte</a></p>
+  {% else %}
+  <p class="state-empty">Nessuna richiesta di approvazione.</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

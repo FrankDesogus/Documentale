@@ -128,7 +128,7 @@ def nav_pending_ccb(user):
 
 @register.simple_tag
 def nav_my_ecn_open(user):
-    """Numero di ECN aperti (draft/under_review/approved) proposti dall'utente."""
+    """Numero di ECN aperti (draft/ccb_preparation/under_review/approved) proposti dall'utente."""
     if not user or not user.is_authenticated:
         return 0
     try:
@@ -138,6 +138,7 @@ def nav_my_ecn_open(user):
             Q(proposed_by=user) | Q(created_by=user),
             status__in=[
                 ChangeNotice.Status.DRAFT,
+                ChangeNotice.Status.CCB_PREPARATION,
                 ChangeNotice.Status.UNDER_REVIEW,
                 ChangeNotice.Status.APPROVED,
             ],

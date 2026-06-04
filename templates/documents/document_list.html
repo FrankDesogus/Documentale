@@ -2,7 +2,41 @@
 {% block title %}Documenti — Documentale{% endblock %}
 
 {% block content %}
-<h1>Documenti approvati</h1>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+  <h1 style="margin:0">Documenti</h1>
+  {% if total_count is not None %}
+  <span class="meta">{{ total_count }} document{% if total_count == 1 %}o{% else %}i{% endif %}</span>
+  {% endif %}
+</div>
+
+{# Barra filtri #}
+<form method="get" class="filter-bar">
+  <div class="filter-group">
+    <label>Ricerca</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Codice, titolo, tipo…" style="min-width:200px">
+  </div>
+  {% if filter_folders %}
+  <div class="filter-group">
+    <label>Cartella</label>
+    <select name="folder">
+      <option value="">— tutte —</option>
+      {% for f in filter_folders %}
+      <option value="{{ f.pk }}" {% if folder_id == f.pk|stringformat:"s" %}selected{% endif %}>{{ f.code }} — {{ f.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="filter-group">
+    <label>Tipo</label>
+    <input type="text" name="doc_type" value="{{ doc_type }}" placeholder="Es. Procedura…" style="min-width:130px">
+  </div>
+  <div class="filter-actions">
+    <button type="submit" class="btn btn-primary" style="font-size:.88rem;padding:.35rem .8rem">🔍 Cerca</button>
+    {% if q or folder_id or doc_type %}
+    <a href="{% url 'document_list' %}" class="btn btn-outline" style="font-size:.88rem;padding:.35rem .8rem">✕ Reset</a>
+    {% endif %}
+  </div>
+</form>
 
 {% if documents %}
 <table>
@@ -10,11 +44,10 @@
     <tr>
       <th>Codice</th>
       <th>Titolo</th>
-      <th>Categoria</th>
       <th>Tipo</th>
-      <th>Revisione corrente</th>
+      <th>Revisione</th>
       <th>Approvata il</th>
-      <th>Stato</th>
+      <th>Cartella</th>
       <th></th>
     </tr>
   </thead>
@@ -23,24 +56,30 @@
     <tr>
       <td><strong>{{ doc.code }}</strong></td>
       <td>{{ doc.title }}</td>
-      <td>{{ doc.get_category_display }}</td>
-      <td>{{ doc.document_type|default:"—" }}</td>
+      <td class="meta">{{ doc.document_type|default:"—" }}</td>
       <td>Rev. {{ doc.current_version.revision_label }}</td>
-      <td>{{ doc.current_version.approved_at|date:"d/m/Y"|default:"—" }}</td>
-      <td><span class="badge badge-{{ doc.current_version.status }}">{{ doc.current_version.get_status_display }}</span></td>
-      <td>
+      <td class="meta" style="white-space:nowrap">{{ doc.current_version.approved_at|date:"d/m/Y"|default:"—" }}</td>
+      <td class="meta">{{ doc.project_folder.code|default:"—" }}</td>
+      <td style="white-space:nowrap">
         {% if doc.current_version.file %}
-        <a href="{% url 'version_download' doc.current_version.pk %}" class="btn btn-secondary" style="margin-right:.4rem">Scarica</a>
+        <a href="{% url 'version_download' doc.current_version.pk %}" class="btn btn-outline" style="padding:.2rem .55rem;font-size:.82rem;margin-right:.3rem">⬇ Scarica</a>
         {% endif %}
-        <a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary">Apri</a>
+        <a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary" style="padding:.2rem .6rem;font-size:.85rem">Apri</a>
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+
+{% include "_pagination.html" with page_obj=page_obj total_count=total_count %}
+
 {% else %}
 <div class="card">
-  <p class="meta">Nessun documento approvato disponibile.</p>
+  {% if q or folder_id or doc_type %}
+  <p class="state-empty">Nessun documento trovato per i filtri selezionati. <a href="{% url 'document_list' %}">Mostra tutti</a></p>
+  {% else %}
+  <p class="state-empty">Nessun documento approvato disponibile.</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
