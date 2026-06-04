@@ -76,21 +76,40 @@ def is_ecn_proposer(user):
 # Folder-aware helpers
 # ---------------------------------------------------------------------------
 
-def _has_folder_membership(user, folder_id):
-    """True se l'utente ha qualsiasi membership nella cartella indicata."""
-    from projects.models import ProjectFolderMembership
-    return ProjectFolderMembership.objects.filter(
-        user=user, folder_id=folder_id
-    ).exists()
+def _resolve_folder_perm(user, folder_id_or_obj, permission_code: str) -> bool:
+    """
+    Risolve un permesso cartella tramite il resolver modulare con fallback legacy.
+    Accetta sia un ID cartella (int) sia un oggetto ProjectFolder.
+    Una query aggiuntiva se viene passato un ID invece dell'oggetto.
+    """
+    from projects.resolver import has_folder_permission
+    if folder_id_or_obj is None:
+        return False
+    if isinstance(folder_id_or_obj, int):
+        from projects.models import ProjectFolder
+        try:
+            folder = ProjectFolder.objects.get(pk=folder_id_or_obj)
+        except ProjectFolder.DoesNotExist:
+            return False
+    else:
+        folder = folder_id_or_obj
+    return has_folder_permission(user, folder, permission_code, include_legacy_fallback=True)
 
 
-def _has_folder_write(user, folder_id):
-    """True se l'utente ha ruolo author o manager nella cartella."""
-    from projects.models import ProjectFolderMembership
-    from projects.permissions import WRITE_ROLES
-    return ProjectFolderMembership.objects.filter(
-        user=user, folder_id=folder_id, role__in=WRITE_ROLES
-    ).exists()
+def _has_folder_membership(user, folder_id_or_obj) -> bool:
+    """
+    True se l'utente ha read_published nella cartella.
+    Usa il resolver modulare con fallback legacy (ProjectFolderMembership).
+    """
+    return _resolve_folder_perm(user, folder_id_or_obj, 'read_published')
+
+
+def _has_folder_write(user, folder_id_or_obj) -> bool:
+    """
+    True se l'utente ha create_draft nella cartella.
+    Usa il resolver modulare con fallback legacy (ProjectFolderMembership WRITE_ROLES).
+    """
+    return _resolve_folder_perm(user, folder_id_or_obj, 'create_draft')
 
 
 def _user_is_draft_author(user, document):
@@ -197,13 +216,14 @@ def can_view_version(user, version):
             return _has_folder_membership(user, version.document.project_folder_id)
         return True
 
-    # ── Versioni storiche (SUPERSEDED): solo utenti con diritto di audit ─────
+    # ── Versioni storiche (SUPERSEDED): solo utenti con view_history ────────
     if version.status == DocumentVersion.Status.SUPERSEDED:
         if _in_group(user, GROUP_AUDITORS, GROUP_MANAGERS, GROUP_QUALITY_MANAGER):
             return True
         if version.document.project_folder_id:
-            from projects.permissions import get_folder_role, AUDIT_ROLES
-            return get_folder_role(user, version.document.project_folder_id) in AUDIT_ROLES
+            return _resolve_folder_perm(
+                user, version.document.project_folder_id, 'view_history'
+            )
         return False
 
     return False
@@ -252,9 +272,8 @@ def can_submit_for_approval(user, version):
         return True
     doc = version.document
     if doc.project_folder_id:
-        if _has_folder_write(user, doc.project_folder_id):
-            return True
-        return False
+        # Richiede submit_for_approval (author/manager nel fallback legacy)
+        return _resolve_folder_perm(user, doc.project_folder_id, 'submit_for_approval')
     if _in_group(user, GROUP_AUTHORS) and version.created_by_id == user.pk:
         return True
     return False
@@ -287,8 +306,7 @@ def can_view_audit(user, folder=None):
     if _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS, GROUP_QUALITY_MANAGER):
         return True
     if folder is not None:
-        from projects.permissions import get_folder_role, AUDIT_ROLES
-        return get_folder_role(user, folder) in AUDIT_ROLES
+        return _resolve_folder_perm(user, folder, 'view_history')
     return False
 
 
@@ -332,13 +350,14 @@ def can_download_version_file(user, version):
             return _has_folder_membership(user, version.document.project_folder_id)
         return True
 
-    # Versioni storiche (SUPERSEDED): solo chi può fare audit
+    # Versioni storiche (SUPERSEDED): solo chi ha view_history
     if version.status == DocumentVersion.Status.SUPERSEDED:
         if _in_group(user, GROUP_AUDITORS, GROUP_MANAGERS, GROUP_QUALITY_MANAGER):
             return True
         if version.document.project_folder_id:
-            from projects.permissions import get_folder_role, AUDIT_ROLES
-            return get_folder_role(user, version.document.project_folder_id) in AUDIT_ROLES
+            return _resolve_folder_perm(
+                user, version.document.project_folder_id, 'view_history'
+            )
         return False
 
     return False

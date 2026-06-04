@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from documents.permissions import can_download_version_file
 
@@ -1931,3 +1932,517 @@ class ApprovalAttachmentPrivacyTests(TestCase):
     def test_stranger_cannot_download(self):
         att = self._make_attachment()
         self.assertFalse(self._can_download(self.stranger, att))
+
+
+# ===========================================================================
+# Step G — Integrazione resolver nei permessi documentali
+# ===========================================================================
+
+def _make_folder(code='GF-001', owner=None):
+    from projects.models import ProjectFolder
+    from projects.services import set_folder_path
+    f = ProjectFolder.objects.create(
+        code=code, name=code,
+        folder_kind=ProjectFolder.FolderKind.GENERIC,
+        status=ProjectFolder.Status.ACTIVE,
+        owner=owner,
+    )
+    set_folder_path(f)
+    return f
+
+
+def _make_published_doc(code, folder=None, owner=None):
+    """Crea un documento con versione corrente approvata."""
+    doc = Document.objects.create(
+        code=code, title=f'Doc {code}',
+        category=Document.Category.QUALITY,
+        project_folder=folder,
+        owner=owner, created_by=owner,
+        status=Document.Status.ACTIVE,
+    )
+    ver = DocumentVersion.objects.create(
+        document=doc, revision_label='00', revision_number=0,
+        status=DocumentVersion.Status.APPROVED, is_current=True,
+        created_by=owner,
+    )
+    doc.current_version = ver
+    doc.save(update_fields=['current_version'])
+    return doc, ver
+
+
+def _make_draft_doc(code, folder=None, author=None):
+    """Crea un documento con sola bozza (mai pubblicato)."""
+    doc = Document.objects.create(
+        code=code, title=f'Draft {code}',
+        category=Document.Category.QUALITY,
+        project_folder=folder,
+        owner=author, created_by=author,
+    )
+    DocumentVersion.objects.create(
+        document=doc, revision_label='00', revision_number=0,
+        status=DocumentVersion.Status.DRAFT, is_current=False,
+        created_by=author,
+    )
+    return doc
+
+
+def _grant(folder, user=None, group=None, perm='read_published', effect='allow', inherit=False):
+    from projects.models import FolderPermissionGrant
+    return FolderPermissionGrant.objects.create(
+        folder=folder, user=user, group=group,
+        permission_code=perm, effect=effect,
+        inherit_to_children=inherit,
+    )
+
+
+class StepGDocumentListTests(TestCase):
+    """
+    Verifica che document_list usi il resolver (read_published) con fallback legacy.
+    document_list filtra via get_visible_folder_ids, già aggiornato nello Step F.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user('gls_owner', password='pw')
+        self.user = User.objects.create_user('gls_user', password='pw')
+        self.staff = User.objects.create_user('gls_staff', password='pw', is_staff=True)
+        self.folder = _make_folder(code='GLS-FOLD', owner=self.owner)
+
+    def _login(self, username):
+        self.client.login(username=username, password='pw')
+
+    # 1. Solo grant modulare read_published: documento visibile
+    def test_modular_read_published_shows_doc_in_list(self):
+        doc, _ = _make_published_doc('GLS-DOC-001', self.folder, self.owner)
+        _grant(self.folder, user=self.user, perm='read_published')
+        self._login('gls_user')
+        resp = self.client.get(reverse('document_list'))
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('GLS-DOC-001', codes)
+
+    # 2. Membership legacy reader: documento visibile
+    def test_legacy_reader_membership_shows_doc_in_list(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GLS-DOC-002', self.folder, self.owner)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        self._login('gls_user')
+        resp = self.client.get(reverse('document_list'))
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('GLS-DOC-002', codes)
+
+    # 3. Deny modulare nasconde documento nonostante membership legacy
+    def test_deny_grant_hides_doc_despite_legacy_membership(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GLS-DOC-003', self.folder, self.owner)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        _grant(self.folder, user=self.user, perm='read_published', effect='deny')
+        self._login('gls_user')
+        resp = self.client.get(reverse('document_list'))
+        codes = [d.code for d in resp.context['documents']]
+        self.assertNotIn('GLS-DOC-003', codes)
+
+    # 4. Draft-only altrui non appare nella lista
+    def test_draft_only_document_not_in_list(self):
+        _make_draft_doc('GLS-DRAFT-001', self.folder, author=self.owner)
+        _grant(self.folder, user=self.user, perm='read_published')
+        self._login('gls_user')
+        resp = self.client.get(reverse('document_list'))
+        codes = [d.code for d in resp.context['documents']]
+        self.assertNotIn('GLS-DRAFT-001', codes)
+
+    # 5. La propria bozza privata non appare in document_list (è in my_drafts)
+    def test_own_draft_not_in_document_list(self):
+        _make_draft_doc('GLS-MYDRAFT', self.folder, author=self.user)
+        # Nemmeno con read_published la bozza appare in document_list
+        _grant(self.folder, user=self.user, perm='read_published')
+        self._login('gls_user')
+        resp = self.client.get(reverse('document_list'))
+        codes = [d.code for d in resp.context['documents']]
+        self.assertNotIn('GLS-MYDRAFT', codes)
+
+    # 6. Revisione storica (SUPERSEDED) non compare come documento separato
+    def test_superseded_version_not_in_document_list(self):
+        doc, ver = _make_published_doc('GLS-DOC-SUP', self.folder, self.owner)
+        # Crea una seconda versione approvata: la prima diventa SUPERSEDED
+        ver.is_current = False
+        ver.status = DocumentVersion.Status.SUPERSEDED
+        ver.save(update_fields=['is_current', 'status'])
+        ver2 = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.APPROVED, is_current=True,
+            created_by=self.owner,
+        )
+        doc.current_version = ver2
+        doc.save(update_fields=['current_version'])
+        _grant(self.folder, user=self.user, perm='read_published')
+        self._login('gls_user')
+        resp = self.client.get(reverse('document_list'))
+        # Solo il documento GLS-DOC-SUP deve apparire (una volta sola)
+        codes = [d.code for d in resp.context['documents']]
+        self.assertEqual(codes.count('GLS-DOC-SUP'), 1)
+
+    # 7. Staff senza grant non vede documenti automaticamente
+    def test_staff_without_grant_sees_no_folder_docs(self):
+        _make_published_doc('GLS-DOC-STAFF', self.folder, self.owner)
+        self._login('gls_staff')
+        resp = self.client.get(reverse('document_list'))
+        codes = [d.code for d in resp.context['documents']]
+        self.assertNotIn('GLS-DOC-STAFF', codes)
+
+
+class StepGDocumentDetailTests(TestCase):
+    """Verifica che document_detail rispetti i permessi modulari."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('gdd_owner', password='pw')
+        self.user = User.objects.create_user('gdd_user', password='pw')
+        self.author = User.objects.create_user('gdd_author', password='pw')
+        self.superuser = User.objects.create_user('gdd_super', password='pw', is_superuser=True)
+        self.folder = _make_folder(code='GDD-FOLD', owner=self.owner)
+
+    def _login(self, username):
+        self.client.login(username=username, password='pw')
+
+    # 8. Grant read_published consente accesso al dettaglio documento pubblicato
+    def test_read_published_grant_allows_detail(self):
+        doc, _ = _make_published_doc('GDD-DOC-001', self.folder, self.owner)
+        _grant(self.folder, user=self.user, perm='read_published')
+        self._login('gdd_user')
+        resp = self.client.get(reverse('document_detail', args=[doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    # 9. Deny modulare blocca dettaglio anche con membership legacy
+    def test_deny_grant_blocks_detail_despite_membership(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GDD-DOC-002', self.folder, self.owner)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        _grant(self.folder, user=self.user, perm='read_published', effect='deny')
+        self._login('gdd_user')
+        resp = self.client.get(reverse('document_detail', args=[doc.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+    # 10. Draft-only altrui → 404
+    def test_draft_only_other_user_gets_404(self):
+        doc = _make_draft_doc('GDD-DRAFT-001', self.folder, author=self.owner)
+        _grant(self.folder, user=self.user, perm='read_published')
+        self._login('gdd_user')
+        resp = self.client.get(reverse('document_detail', args=[doc.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+    # 11. Autore apre propria bozza privata
+    def test_author_can_view_own_draft(self):
+        doc = _make_draft_doc('GDD-MYDRAFT', self.folder, author=self.author)
+        self._login('gdd_author')
+        resp = self.client.get(reverse('document_detail', args=[doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    # 12. Superuser apre bozza privata altrui
+    def test_superuser_can_view_any_draft(self):
+        doc = _make_draft_doc('GDD-SUPERDRAFT', self.folder, author=self.author)
+        self._login('gdd_super')
+        resp = self.client.get(reverse('document_detail', args=[doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    # 13. Utente con solo read_published non vede revisione privata nuova in corso
+    def test_reader_does_not_see_private_new_revision(self):
+        doc, ver = _make_published_doc('GDD-DOC-003', self.folder, self.owner)
+        # Crea una seconda revisione in bozza (privata)
+        draft_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=self.owner,
+        )
+        _grant(self.folder, user=self.user, perm='read_published')
+        from documents.permissions import can_view_version
+        self.assertFalse(can_view_version(self.user, draft_ver))
+
+    # 14. Autore vede propria revisione privata in bozza
+    def test_author_sees_own_draft_version(self):
+        doc, _ = _make_published_doc('GDD-DOC-004', self.folder, self.owner)
+        draft_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=self.author,
+        )
+        from documents.permissions import can_view_version
+        self.assertTrue(can_view_version(self.author, draft_ver))
+
+    # 15. grant view_history consente storico nel document_detail
+    def test_view_history_grant_shows_storico(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GDD-DOC-005', self.folder, self.owner)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='auditor'
+        )
+        self._login('gdd_user')
+        resp = self.client.get(reverse('document_detail', args=[doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['show_history'])
+
+    # 16. Assenza view_history nasconde storico (reader non ha view_history nel fallback)
+    def test_reader_without_view_history_hides_storico(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GDD-DOC-006', self.folder, self.owner)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        self._login('gdd_user')
+        resp = self.client.get(reverse('document_detail', args=[doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context['show_history'])
+
+
+class StepGDownloadTests(TestCase):
+    """Verifica can_download_version_file con resolver modulare."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('gdl_owner', password='pw')
+        self.user = User.objects.create_user('gdl_user', password='pw')
+        self.author = User.objects.create_user('gdl_author', password='pw')
+        self.staff = User.objects.create_user('gdl_staff', password='pw', is_staff=True)
+        self.folder = _make_folder(code='GDL-FOLD', owner=self.owner)
+
+    def _make_ver_with_fid(self, doc, status=DocumentVersion.Status.APPROVED,
+                           is_current=True, created_by=None):
+        """Crea versione con file_id fittizio per testare solo il permesso."""
+        ver = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=status, is_current=is_current,
+            created_by=created_by or self.owner,
+        )
+        ver.file_id = 999  # fittizio: testa il permesso, non l'esistenza del file
+        return ver
+
+    # 17. grant read_published consente download versione corrente approvata
+    def test_read_published_allows_download_current(self):
+        doc, ver = _make_published_doc('GDL-DOC-001', self.folder, self.owner)
+        ver.file_id = 999
+        _grant(self.folder, user=self.user, perm='read_published')
+        self.assertTrue(can_download_version_file(self.user, ver))
+
+    # 18. Deny modulare blocca download corrente nonostante membership
+    def test_deny_blocks_download_current(self):
+        from projects.models import ProjectFolderMembership
+        doc, ver = _make_published_doc('GDL-DOC-002', self.folder, self.owner)
+        ver.file_id = 999
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        _grant(self.folder, user=self.user, perm='read_published', effect='deny')
+        self.assertFalse(can_download_version_file(self.user, ver))
+
+    # 19. Versione storica richiede view_history (auditor legacy ce l'ha)
+    def test_superseded_requires_view_history(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GDL-DOC-003', self.folder, self.owner)
+        sup_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.SUPERSEDED, is_current=False,
+            created_by=self.owner,
+        )
+        sup_ver.file_id = 999
+        # Reader non ha view_history → False
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='reader'
+        )
+        self.assertFalse(can_download_version_file(self.user, sup_ver))
+
+    def test_superseded_with_view_history_grant_allowed(self):
+        doc, _ = _make_published_doc('GDL-DOC-004', self.folder, self.owner)
+        sup_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.SUPERSEDED, is_current=False,
+            created_by=self.owner,
+        )
+        sup_ver.file_id = 999
+        # Grant esplicito view_history → True
+        _grant(self.folder, user=self.user, perm='view_history')
+        self.assertTrue(can_download_version_file(self.user, sup_ver))
+
+    # 20. Draft scaricabile solo dall'autore
+    def test_draft_downloadable_by_author_only(self):
+        doc = _make_draft_doc('GDL-DRAFT', self.folder, author=self.author)
+        ver = doc.versions.first()
+        ver.file_id = 999
+        self.assertTrue(can_download_version_file(self.author, ver))
+        self.assertFalse(can_download_version_file(self.user, ver))
+
+    # 21. Draft privata negata ad altro utente (anche con read_published)
+    def test_draft_denied_to_other_even_with_read_published(self):
+        doc = _make_draft_doc('GDL-DRAFT-2', self.folder, author=self.author)
+        ver = doc.versions.first()
+        ver.file_id = 999
+        _grant(self.folder, user=self.user, perm='read_published')
+        self.assertFalse(can_download_version_file(self.user, ver))
+
+    # 22. In_approval scaricabile dall'approvatore assegnato
+    def test_in_approval_downloadable_by_assigned_approver(self):
+        from approvals.models import ApprovalRequest, ApprovalRequestApprover
+
+        doc, _ = _make_published_doc('GDL-DOC-INA', self.folder, self.owner)
+        in_appr_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.IN_APPROVAL, is_current=False,
+            created_by=self.owner,
+        )
+        in_appr_ver.file_id = 999
+        # Crea ApprovalRequest con l'utente come approvatore
+        ar = ApprovalRequest.objects.create(
+            document_version=in_appr_ver,
+            requested_by=self.owner,
+            status=ApprovalRequest.Status.PENDING,
+        )
+        ApprovalRequestApprover.objects.create(
+            approval_request=ar,
+            approver=self.user,
+            order=1,
+        )
+        self.assertTrue(can_download_version_file(self.user, in_appr_ver))
+
+    # 23. In_approval negata a utente casuale
+    def test_in_approval_denied_to_random_user(self):
+        doc, _ = _make_published_doc('GDL-DOC-INA-2', self.folder, self.owner)
+        in_appr_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.IN_APPROVAL, is_current=False,
+            created_by=self.owner,
+        )
+        in_appr_ver.file_id = 999
+        self.assertFalse(can_download_version_file(self.user, in_appr_ver))
+
+    # 24. Staff non-superuser non scarica automaticamente
+    def test_staff_cannot_download_automatically(self):
+        doc, ver = _make_published_doc('GDL-DOC-STAFF', self.folder, self.owner)
+        ver.file_id = 999
+        self.assertFalse(can_download_version_file(self.staff, ver))
+
+
+class StepGCreationTests(TestCase):
+    """Verifica can_create_revision e can_submit_for_approval con resolver."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('gcr_owner', password='pw')
+        self.user = User.objects.create_user('gcr_user', password='pw')
+        self.staff = User.objects.create_user('gcr_staff', password='pw', is_staff=True)
+        self.folder = _make_folder(code='GCR-FOLD', owner=self.owner)
+
+    # 25. grant create_draft consente creazione revisione
+    def test_create_draft_grant_allows_revision(self):
+        doc, _ = _make_published_doc('GCR-DOC-001', self.folder, self.owner)
+        _grant(self.folder, user=self.user, perm='create_draft')
+        from documents.permissions import can_create_revision
+        self.assertTrue(can_create_revision(self.user, doc))
+
+    # 26. Deny create_draft blocca author legacy
+    def test_deny_create_draft_blocks_author_legacy(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GCR-DOC-002', self.folder, self.owner)
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='author'
+        )
+        _grant(self.folder, user=self.user, perm='create_draft', effect='deny')
+        from documents.permissions import can_create_revision
+        self.assertFalse(can_create_revision(self.user, doc))
+
+    # 27. Grant create_draft ereditato da parent abilita child (via resolver)
+    def test_inherited_create_draft_enables_child(self):
+        from projects.models import ProjectFolder
+        from projects.services import set_folder_path
+        child = ProjectFolder.objects.create(
+            code='GCR-CH', name='Child',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            parent=self.folder,
+        )
+        set_folder_path(child)
+        doc, _ = _make_published_doc('GCR-DOC-003', child, self.owner)
+        _grant(self.folder, user=self.user, perm='create_draft', inherit=True)
+        from documents.permissions import can_create_revision
+        self.assertTrue(can_create_revision(self.user, doc))
+
+    # 28. grant submit_for_approval consente invio in approvazione
+    def test_submit_for_approval_grant_allows_submit(self):
+        doc, _ = _make_published_doc('GCR-DOC-004', self.folder, self.owner)
+        draft_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=self.user,
+        )
+        _grant(self.folder, user=self.user, perm='submit_for_approval')
+        from documents.permissions import can_submit_for_approval
+        self.assertTrue(can_submit_for_approval(self.user, draft_ver))
+
+    # 29. Deny submit_for_approval blocca author legacy
+    def test_deny_submit_blocks_author_legacy(self):
+        from projects.models import ProjectFolderMembership
+        doc, _ = _make_published_doc('GCR-DOC-005', self.folder, self.owner)
+        draft_ver = DocumentVersion.objects.create(
+            document=doc, revision_label='01', revision_number=1,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=self.user,
+        )
+        ProjectFolderMembership.objects.create(
+            folder=self.folder, user=self.user, role='author'
+        )
+        _grant(self.folder, user=self.user, perm='submit_for_approval', effect='deny')
+        from documents.permissions import can_submit_for_approval
+        self.assertFalse(can_submit_for_approval(self.user, draft_ver))
+
+    # 30. Staff senza grant non può creare
+    def test_staff_without_grant_cannot_create(self):
+        doc, _ = _make_published_doc('GCR-DOC-006', self.folder, self.owner)
+        from documents.permissions import can_create_revision
+        self.assertFalse(can_create_revision(self.staff, doc))
+
+
+class StepGPerformanceTests(TestCase):
+    """Verifica che document_list non generi query N+1."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('gperf_owner', password='pw')
+        self.user = User.objects.create_user('gperf_user', password='pw')
+
+    def test_document_list_no_n1_queries(self):
+        """
+        document_list usa get_visible_folder_ids (bulk API) → nessuna query N+1
+        al variare del numero di cartelle/documenti.
+        """
+        from projects.models import ProjectFolder
+        from projects.services import set_folder_path
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+
+        folders = []
+        for i in range(5):
+            f = ProjectFolder.objects.create(
+                code=f'GPERF-F{i}', name=f'Folder {i}',
+                folder_kind=ProjectFolder.FolderKind.GENERIC,
+                status=ProjectFolder.Status.ACTIVE, owner=self.owner,
+            )
+            set_folder_path(f)
+            folders.append(f)
+            _make_published_doc(f'GPERF-DOC-{i}', f, self.owner)
+            _grant(f, user=self.user, perm='read_published')
+
+        self.client.login(username='gperf_user', password='pw')
+
+        with CaptureQueriesContext(connection) as ctx:
+            resp = self.client.get(reverse('document_list'))
+
+        self.assertEqual(resp.status_code, 200)
+        docs_shown = len(resp.context['documents'])
+        self.assertGreaterEqual(docs_shown, 5)
+
+        # Numero di query fisso indipendentemente dal numero di cartelle.
+        # La soglia è generosa (≤40) per includere session, autenticazione,
+        # template e template tags. L'importante è che NON cresca con N cartelle
+        # (assenza N+1: la bulk API carica tutti i grant in 1 query).
+        self.assertLessEqual(
+            len(ctx), 40,
+            f"document_list ha eseguito {len(ctx)} query per {len(folders)} cartelle"
+        )
