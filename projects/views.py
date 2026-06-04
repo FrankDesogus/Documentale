@@ -20,6 +20,8 @@ def _can_create_folder(user):
 
 @login_required
 def folder_list(request):
+    from django.core.paginator import Paginator
+
     user = request.user
     qs = ProjectFolder.objects.filter(
         status=ProjectFolder.Status.ACTIVE,
@@ -27,17 +29,29 @@ def folder_list(request):
     ).prefetch_related('subfolders').order_by('code')
 
     # is_staff NON concede visibilità globale cartelle (MB1)
+    nav_ids_set = set()
     if not user.is_superuser:
         from documents.permissions import is_document_manager, is_document_auditor
         if not (is_document_manager(user) or is_document_auditor(user)):
             from projects.permissions import get_visible_folder_ids, get_navigation_folder_ids
             visible_ids = set(get_visible_folder_ids(user))
-            nav_ids = get_navigation_folder_ids(user)
-            qs = qs.filter(pk__in=visible_ids | nav_ids)
+            nav_ids_set = get_navigation_folder_ids(user)
+            qs = qs.filter(pk__in=visible_ids | nav_ids_set)
+
+    # Ricerca
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
+
+    paginator = Paginator(qs, 24)
+    page_obj = paginator.get_page(request.GET.get('page', 1))
 
     return render(request, 'projects/folder_list.html', {
-        'folders': qs,
+        'folders': page_obj,
+        'page_obj': page_obj,
+        'q': q,
         'can_create': _can_create_folder(user),
+        'total_count': paginator.count,
     })
 
 
@@ -175,6 +189,8 @@ def _can_manage_project(user):
 
 @login_required
 def project_list(request):
+    from django.core.paginator import Paginator
+
     qs = Project.objects.select_related('folder', 'manager').order_by('code')
 
     if not _can_manage_project(request.user):
@@ -184,9 +200,36 @@ def project_list(request):
             Q(folder__isnull=False) & Q(folder_id__in=visible_ids)
         )
 
+    # Ricerca e filtri
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(code__icontains=q) | Q(name__icontains=q) | Q(description__icontains=q)
+        )
+
+    status_filter = request.GET.get('status', '').strip()
+    if status_filter and status_filter in [s.value for s in Project.Status]:
+        qs = qs.filter(status=status_filter)
+
+    folder_id = request.GET.get('folder', '').strip()
+    if folder_id:
+        try:
+            qs = qs.filter(folder_id=int(folder_id))
+        except (ValueError, TypeError):
+            pass
+
+    paginator = Paginator(qs, 20)
+    page_obj = paginator.get_page(request.GET.get('page', 1))
+
     return render(request, 'projects/project_list.html', {
-        'projects': qs,
+        'projects': page_obj,
+        'page_obj': page_obj,
+        'q': q,
+        'status_filter': status_filter,
+        'folder_id': folder_id,
+        'status_choices': Project.Status.choices,
         'can_create': _can_manage_project(request.user),
+        'total_count': paginator.count,
     })
 
 

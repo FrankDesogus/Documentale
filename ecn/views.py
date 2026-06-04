@@ -67,15 +67,82 @@ def ecn_list(request):
             'document', 'proposed_by', 'document_version',
         ).distinct().order_by('-proposed_at')
 
-    # Filtro stato opzionale via GET
+    # ── Ricerca e filtri (post-authorization) ──
+    from django.core.paginator import Paginator
+
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(code__icontains=q)
+            | Q(title__icontains=q)
+            | Q(description__icontains=q)
+            | Q(motivation_detail__icontains=q)
+            | Q(document__code__icontains=q)
+            | Q(document__title__icontains=q)
+            | Q(proposed_by__username__icontains=q)
+            | Q(proposed_by__first_name__icontains=q)
+            | Q(proposed_by__last_name__icontains=q)
+        )
+
     status_filter = request.GET.get('status', '')
     if status_filter and status_filter in [s.value for s in ChangeNotice.Status]:
         qs = qs.filter(status=status_filter)
 
+    motivation_filter = request.GET.get('motivation', '')
+    if motivation_filter:
+        qs = qs.filter(motivation=motivation_filter)
+
+    proposer_filter = request.GET.get('proposer', '').strip()
+    if proposer_filter:
+        try:
+            qs = qs.filter(proposed_by_id=int(proposer_filter))
+        except (ValueError, TypeError):
+            pass
+
+    coordinator_filter = request.GET.get('coordinator', '').strip()
+    if coordinator_filter:
+        try:
+            qs = qs.filter(ccb_coordinator_id=int(coordinator_filter))
+        except (ValueError, TypeError):
+            pass
+
+    ccb_member_filter = request.GET.get('ccb_member', '').strip()
+    if ccb_member_filter:
+        try:
+            qs = qs.filter(approvers__user_id=int(ccb_member_filter))
+        except (ValueError, TypeError):
+            pass
+
+    # "Solo le ECN che richiedono una mia azione"
+    my_action = request.GET.get('my_action', '')
+    if my_action:
+        decided_ids = set(
+            ChangeNoticeDecision.objects.filter(user=user).values_list('approver_id', flat=True)
+        )
+        my_action_ecn_ids = list(
+            ChangeNoticeApprover.objects
+            .filter(user=user, change_notice__status=ChangeNotice.Status.UNDER_REVIEW)
+            .exclude(pk__in=decided_ids)
+            .values_list('change_notice_id', flat=True)
+        )
+        qs = qs.filter(pk__in=my_action_ecn_ids)
+
+    paginator = Paginator(qs.distinct(), 20)
+    page_obj = paginator.get_page(request.GET.get('page', 1))
+
     return render(request, 'ecn/ecn_list.html', {
-        'ecns': qs,
+        'ecns': page_obj,
+        'page_obj': page_obj,
+        'q': q,
         'status_choices': ChangeNotice.Status.choices,
         'current_status': status_filter,
+        'motivation_choices': ChangeNotice.Motivation.choices,
+        'motivation_filter': motivation_filter,
+        'proposer_filter': proposer_filter,
+        'coordinator_filter': coordinator_filter,
+        'ccb_member_filter': ccb_member_filter,
+        'my_action': my_action,
+        'total_count': paginator.count,
     })
 
 

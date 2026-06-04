@@ -41,15 +41,19 @@ def dashboard(request):
         status__in=[DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED],
     ).count()
 
-    # ECN personali (proposti o creati dall'utente) ancora aperti
-    from ecn.models import ChangeNotice
+    # ECN personali aperti (incluso ccb_preparation)
+    from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeDecision
     my_ecn_count = ChangeNotice.objects.filter(
         Q(proposed_by=user) | Q(created_by=user),
-        status__in=[ChangeNotice.Status.DRAFT, ChangeNotice.Status.UNDER_REVIEW, ChangeNotice.Status.APPROVED],
+        status__in=[
+            ChangeNotice.Status.DRAFT,
+            ChangeNotice.Status.CCB_PREPARATION,
+            ChangeNotice.Status.UNDER_REVIEW,
+            ChangeNotice.Status.APPROVED,
+        ],
     ).distinct().count()
 
-    # Decisioni CCB in attesa (solo se l'utente è un approvatore assegnato)
-    from ecn.models import ChangeNoticeApprover, ChangeNoticeDecision
+    # Decisioni CCB in attesa
     decided_ids = set(
         ChangeNoticeDecision.objects.filter(user=user).values_list('approver_id', flat=True)
     )
@@ -60,11 +64,29 @@ def dashboard(request):
         .count()
     )
 
+    # Cartelle radice visibili per l'explorer (solo primo livello)
+    from projects.models import ProjectFolder
+    folders_qs = ProjectFolder.objects.filter(
+        status=ProjectFolder.Status.ACTIVE,
+        parent__isnull=True,
+    ).prefetch_related('subfolders').order_by('code')
+
+    if not user.is_superuser:
+        from documents.permissions import is_document_manager, is_document_auditor
+        if not (is_document_manager(user) or is_document_auditor(user)):
+            from projects.permissions import get_visible_folder_ids, get_navigation_folder_ids
+            visible_ids = set(get_visible_folder_ids(user))
+            nav_ids = get_navigation_folder_ids(user)
+            folders_qs = folders_qs.filter(pk__in=visible_ids | nav_ids)
+
+    explorer_folders = list(folders_qs[:12])  # max 12 cartelle in dashboard
+
     return render(request, 'dashboard.html', {
         'pending_count': pending_count,
         'draft_count': draft_count,
         'my_ecn_count': my_ecn_count,
         'pending_ccb_count': pending_ccb_count,
+        'explorer_folders': explorer_folders,
     })
 
 
@@ -176,13 +198,17 @@ def workspace_quality(request):
 
 @login_required
 def document_list(request):
+    from django.core.paginator import Paginator
+    from projects.models import ProjectFolder
+
     user = request.user
+    # Queryset base autorizzato
     qs = Document.objects.filter(
         status=Document.Status.ACTIVE,
         current_version__isnull=False,
         current_version__status=DocumentVersion.Status.APPROVED,
         current_version__is_current=True,
-    ).select_related('current_version', 'owner').order_by('code')
+    ).select_related('current_version', 'owner', 'project_folder').order_by('code')
 
     # is_staff NON concede visibilità globale (MB1)
     if not (user.is_superuser or is_document_auditor(user) or is_document_manager(user)):
@@ -192,7 +218,53 @@ def document_list(request):
             Q(project_folder__isnull=True) | Q(project_folder_id__in=visible_ids)
         )
 
-    return render(request, 'documents/document_list.html', {'documents': qs})
+    # ── Ricerca e filtri (POST-authorization) ──
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(code__icontains=q)
+            | Q(title__icontains=q)
+            | Q(document_type__icontains=q)
+            | Q(description__icontains=q)
+        )
+
+    folder_id = request.GET.get('folder', '')
+    if folder_id:
+        try:
+            qs = qs.filter(project_folder_id=int(folder_id))
+        except (ValueError, TypeError):
+            pass
+
+    doc_type = request.GET.get('doc_type', '').strip()
+    if doc_type:
+        qs = qs.filter(document_type__icontains=doc_type)
+
+    # Cartelle visibili per il filtro (solo quelle dell'utente)
+    if user.is_superuser or is_document_manager(user) or is_document_auditor(user):
+        filter_folders = ProjectFolder.objects.filter(
+            status=ProjectFolder.Status.ACTIVE
+        ).order_by('code')
+    else:
+        from projects.permissions import get_visible_folder_ids
+        vis = get_visible_folder_ids(user)
+        filter_folders = ProjectFolder.objects.filter(
+            pk__in=vis, status=ProjectFolder.Status.ACTIVE
+        ).order_by('code')
+
+    # ── Paginazione ──
+    paginator = Paginator(qs, 20)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'documents/document_list.html', {
+        'documents': page_obj,
+        'page_obj': page_obj,
+        'q': q,
+        'folder_id': folder_id,
+        'doc_type': doc_type,
+        'filter_folders': filter_folders,
+        'total_count': paginator.count,
+    })
 
 
 @login_required

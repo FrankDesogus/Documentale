@@ -53,14 +53,59 @@ def download_approval_attachment(request, attachment_id):
 
 @login_required
 def approval_queue(request):
-    requests = ApprovalRequest.objects.filter(
-        status=ApprovalRequest.Status.PENDING,
-        approvers__approver=request.user,
+    from django.core.paginator import Paginator
+    from django.db.models import Q
+    from django.utils import timezone
+
+    user = request.user
+
+    # ── Queryset autorizzato: richieste assegnate a me + create da me ──
+    qs = ApprovalRequest.objects.filter(
+        Q(approvers__approver=user) | Q(requested_by=user)
     ).select_related(
         'document_version__document', 'requested_by'
-    ).order_by('due_date', '-requested_at')
+    ).distinct()
+
+    # ── Filtri GET ──
+    status_filter = request.GET.get('status', 'PENDING')
+    if status_filter and status_filter in [s.value for s in ApprovalRequest.Status]:
+        qs = qs.filter(status=status_filter)
+    elif status_filter == '':
+        pass  # tutti gli stati
+    else:
+        status_filter = 'PENDING'
+        qs = qs.filter(status=ApprovalRequest.Status.PENDING)
+
+    mine_filter = request.GET.get('mine', '')
+    if mine_filter == 'to_approve':
+        qs = qs.filter(approvers__approver=user)
+    elif mine_filter == 'created':
+        qs = qs.filter(requested_by=user)
+
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(document_version__document__code__icontains=q)
+            | Q(document_version__document__title__icontains=q)
+            | Q(requested_by__username__icontains=q)
+            | Q(requested_by__first_name__icontains=q)
+            | Q(requested_by__last_name__icontains=q)
+        )
+
+    qs = qs.order_by('due_date', '-requested_at')
+
+    paginator = Paginator(qs, 20)
+    page_obj = paginator.get_page(request.GET.get('page', 1))
+
     return render(request, 'approvals/approval_queue.html', {
-        'approval_requests': requests,
+        'approval_requests': page_obj,
+        'page_obj': page_obj,
+        'q': q,
+        'status_filter': status_filter,
+        'mine_filter': mine_filter,
+        'status_choices': [('', 'Tutti')] + list(ApprovalRequest.Status.choices),
+        'today': timezone.now().date(),
+        'total_count': paginator.count,
     })
 
 
