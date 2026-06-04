@@ -3961,8 +3961,15 @@ class ProjectDetailSearchTests(TestCase):
         page = r.context['doc_page_obj']
         self.assertEqual(page.paginator.count, 0)
 
-    def test_other_users_draft_excluded(self):
+    def test_other_users_draft_excluded_for_reader(self):
+        """Un reader non vede la bozza di un altro utente nel project_detail."""
         from documents.models import Document, DocumentVersion
+        # Crea reader con accesso al progetto via membership
+        reader = User.objects.create_user('pds_reader', password='pw')
+        ProjectFolderMembership.objects.create(
+            folder=self.project.root_folder, user=reader,
+            role=ProjectFolderMembership.Role.READER,
+        )
         doc_draft = Document.objects.create(
             code='PDS-PRIVATE', title='Bozza privata',
             category=Document.Category.QUALITY,
@@ -3975,7 +3982,9 @@ class ProjectDetailSearchTests(TestCase):
             status=DocumentVersion.Status.DRAFT, is_current=False,
             created_by=self.other_user,
         )
-        r = self._get(q='PDS-PRIVATE')
+        self.client.login(username='pds_reader', password='pw')
+        r = self.client.get(reverse('project_detail', args=[self.project.pk]), {'q': 'PDS-PRIVATE'})
+        self.assertEqual(r.status_code, 200)
         codes = [doc.code for doc in r.context['doc_page_obj']]
         self.assertNotIn('PDS-PRIVATE', codes)
 
