@@ -2727,3 +2727,249 @@ class DemoSupervisorTests(TestCase):
         self.assertIn(self.other_user.pk, pks)
         # other_user vede anche altri candidati (non solo sé stesso)
         # → il count non è 1 limitato a sé stesso (a meno che sia l'unico nel gruppo)
+
+
+# ===========================================================================
+# STEP H2 — DemoSupervisorEndToEndTests
+# Flusso completo singolo utente supervisor_demo
+# ===========================================================================
+
+@override_settings(
+    DOCUMENTALE_DEMO_MODE=True,
+    DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    EMAIL_BACKEND=LOCMEM,
+)
+class DemoSupervisorEndToEndTests(TestCase):
+    """
+    Flusso completo supervisor_demo con un unico account:
+    bozza → approvazione → ECN → nuova revisione → approvazione → chiusura ECN.
+    """
+
+    def setUp(self):
+        from projects.models import ProjectFolder
+        from projects.services import set_folder_path
+
+        self.supervisor = User.objects.create_user(
+            username='supervisor_demo',
+            password='demo1234',
+            is_superuser=True,
+            is_staff=True,
+        )
+        self.other = User.objects.create_user('e2e_other', password='pw')
+
+        self.folder = ProjectFolder.objects.create(
+            code='E2E-FOLD', name='E2E Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.supervisor,
+        )
+        set_folder_path(self.folder)
+
+    # ── Flusso completo ──────────────────────────────────────────────────────
+
+    def test_full_single_user_workflow(self):
+        """
+        supervisor_demo esegue l'intero ciclo di vita documentale da solo:
+        crea bozza → approva → crea ECN → configura CCB (solo sé) → invia →
+        approva ECN → crea revisione → approva revisione → chiude ECN.
+        """
+        from documents.models import Document, DocumentVersion
+        from documents.services import create_new_revision, submit_version_for_approval
+        from approvals.services import approve_version
+        from auditlog.models import AuditLog
+        from ecn.models import ChangeNotice
+        from ecn.services import (
+            create_change_notice,
+            set_change_notice_approvers,
+            submit_change_notice,
+            approve_change_notice,
+            close_change_notice,
+        )
+
+        sup = self.supervisor
+
+        # 1. Crea documento e bozza Rev.00
+        doc = Document.objects.create(
+            code='E2E-DOC-001',
+            title='Documento end-to-end',
+            category=Document.Category.QUALITY,
+            project_folder=self.folder,
+            owner=sup,
+            created_by=sup,
+        )
+        v00 = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=sup, change_summary='Prima emissione.',
+        )
+
+        # 2. Invia in approvazione con sé stesso come unico approvatore
+        req = submit_version_for_approval(v00, sup, [sup])
+
+        # 3. Approva propria versione
+        approve_version(req, sup, comment='Autoapprovazione demo')
+        v00.refresh_from_db()
+        doc.refresh_from_db()
+
+        self.assertEqual(v00.status, DocumentVersion.Status.APPROVED)
+        self.assertTrue(v00.is_current)
+        self.assertEqual(doc.current_version, v00)
+
+        # 4. Crea ECN sul documento approvato
+        ecn = create_change_notice(
+            document=doc, proposed_by=sup,
+            title='Aggiornamento sezione 3',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            description='E2E test',
+        )
+
+        # 5. Configura CCB con solo sé stesso e verifica
+        set_change_notice_approvers(ecn, [sup], policy='any', actor=sup)
+        ecn.refresh_from_db()
+        ccb_approver_pks = list(ecn.approvers.values_list('user_id', flat=True))
+        self.assertEqual(ccb_approver_pks, [sup.pk])
+
+        # 6. Invia ECN alla CCB
+        submit_change_notice(ecn, sup)
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.UNDER_REVIEW)
+
+        # 7. Approva ECN
+        approve_change_notice(
+            ecn, sup,
+            ccb_class=ChangeNotice.CCBClass.CLASS2,
+            comment='Approvazione E2E',
+        )
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.APPROVED)
+
+        # 8. Crea nuova revisione autorizzata dall'ECN approvato
+        v01 = create_new_revision(
+            document=doc, created_by=sup,
+            revision_label='01', revision_number=1,
+            change_summary='Revisione da ECN', ecn=ecn,
+        )
+
+        # 9. Invia nuova revisione in approvazione
+        req2 = submit_version_for_approval(v01, sup, [sup])
+
+        # 10. Approva nuova revisione
+        approve_version(req2, sup, comment='Approvazione rev 01')
+        v01.refresh_from_db()
+        v00.refresh_from_db()
+        doc.refresh_from_db()
+
+        # 11. Chiude ECN (executed_version è stato impostato al passo 8)
+        ecn.refresh_from_db()
+        close_change_notice(ecn, sup, close_notes='ECN chiuso dal test E2E')
+        ecn.refresh_from_db()
+
+        # ── Verifiche finali ──────────────────────────────────────────────
+
+        # Documento finale approvato con nuova revisione corrente
+        self.assertEqual(v01.status, DocumentVersion.Status.APPROVED)
+        self.assertTrue(v01.is_current)
+        self.assertEqual(doc.current_version, v01)
+
+        # Revisione precedente superseded
+        self.assertEqual(v00.status, DocumentVersion.Status.SUPERSEDED)
+        self.assertFalse(v00.is_current)
+
+        # ECN chiusa
+        self.assertEqual(ecn.status, ChangeNotice.Status.CLOSED)
+        self.assertEqual(ecn.executed_version, v01)
+
+        # CCB contenente solo supervisor_demo (dopo la chiusura la lista è invariata)
+        all_ccb_pks = list(ecn.approvers.values_list('user_id', flat=True))
+        self.assertIn(sup.pk, all_ccb_pks)
+        for pk in all_ccb_pks:
+            self.assertEqual(pk, sup.pk)
+
+        # AuditLog generati per il documento
+        audit_count = AuditLog.objects.filter(changes__document_id=doc.pk).count()
+        self.assertGreater(audit_count, 0)
+
+    # ── Test di sicurezza POST ────────────────────────────────────────────────
+
+    def test_post_other_approver_rejected_by_formset(self):
+        """
+        Demo mode attiva: POST con un user PK estraneo nel formset approvatori
+        viene respinta perché il PK non è nel queryset limitato al supervisore.
+        """
+        from documents.forms import ApproverFormSet
+
+        data = {
+            'form-TOTAL_FORMS': '1',
+            'form-INITIAL_FORMS': '0',
+            'form-MIN_NUM_FORMS': '0',
+            'form-MAX_NUM_FORMS': '1000',
+            'form-0-approver': str(self.other.pk),
+        }
+        formset = ApproverFormSet(data, prefix='form', current_user=self.supervisor)
+        self.assertFalse(formset.is_valid())
+
+    def test_post_other_ccb_candidate_rejected_by_form(self):
+        """
+        Demo mode attiva: POST con un user PK estraneo nel form CCB viene
+        respinta perché il PK non è nel queryset limitato al supervisore.
+        """
+        from ecn.forms import ChangeNoticeCCBConfigForm
+
+        form = ChangeNoticeCCBConfigForm(
+            data={
+                'ccb_policy': 'any',
+                'approvers': [str(self.other.pk)],
+            },
+            current_user=self.supervisor,
+        )
+        self.assertFalse(form.is_valid())
+
+    def test_demo_mode_off_approver_list_not_limited(self):
+        """
+        Demo mode disattivata: la lista approvatori documentali non è
+        artificialmente limitata anche se esiste l'utente supervisor_demo.
+        """
+        from documents.forms import ApproverRowForm
+        with self.settings(DOCUMENTALE_DEMO_MODE=False):
+            form = ApproverRowForm(current_user=self.supervisor)
+        qs = list(form.fields['approver'].queryset)
+        self.assertGreater(len(qs), 1)
+
+    def test_demo_mode_off_ccb_list_not_limited(self):
+        """
+        Demo mode disattivata: la lista candidati CCB non è artificialmente
+        limitata anche se esiste l'utente supervisor_demo.
+        """
+        from ecn.forms import ChangeNoticeCCBConfigForm
+        from django.contrib.auth.models import Group
+        Group.objects.get_or_create(name=GROUP_CCB)[0].user_set.add(self.supervisor, self.other)
+        with self.settings(DOCUMENTALE_DEMO_MODE=False):
+            form = ChangeNoticeCCBConfigForm(current_user=self.supervisor)
+        qs = list(form.fields['approvers'].queryset)
+        self.assertGreater(len(qs), 1)
+
+    def test_normal_user_in_demo_mode_approver_list_unrestricted(self):
+        """
+        Utente normale in demo mode: vede la lista completa approvatori,
+        nessuna deroga speciale.
+        """
+        from documents.forms import ApproverRowForm
+        form = ApproverRowForm(current_user=self.other)
+        qs = list(form.fields['approver'].queryset)
+        # Almeno supervisor + other devono essere presenti
+        self.assertGreaterEqual(len(qs), 2)
+
+    def test_normal_user_in_demo_mode_ccb_list_unrestricted(self):
+        """
+        Utente normale in demo mode: vede la lista completa candidati CCB,
+        nessuna deroga speciale.
+        """
+        from ecn.forms import ChangeNoticeCCBConfigForm
+        from django.contrib.auth.models import Group
+        Group.objects.get_or_create(name=GROUP_CCB)[0].user_set.add(self.supervisor, self.other)
+        form = ChangeNoticeCCBConfigForm(current_user=self.other)
+        qs = list(form.fields['approvers'].queryset)
+        # Entrambi i candidati devono essere presenti
+        pks = [u.pk for u in qs]
+        self.assertIn(self.supervisor.pk, pks)
+        self.assertIn(self.other.pk, pks)
