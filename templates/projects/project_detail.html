@@ -12,9 +12,7 @@
   &nbsp;/&nbsp;<span style="color:#1a3a5c;font-weight:600">🗂️ {{ project.code }}</span>
 </p>
 
-<h1>{{ project.code }} — {{ project.name }}
-  <span class="badge badge-{{ project.status }}" style="font-size:.75rem;vertical-align:middle;margin-left:.4rem">{{ project.get_status_display }}</span>
-</h1>
+<h1>{{ project.code }} — {{ project.name }}</h1>
 
 {# Scheda progetto #}
 <div class="card" style="margin-bottom:1.25rem">
@@ -39,6 +37,9 @@
   <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="btn btn-secondary" style="font-size:.88rem">← Cartella padre</a>
   {% else %}
   <a href="{% url 'project_list' %}" class="btn btn-secondary" style="font-size:.88rem">← Progetti</a>
+  {% endif %}
+  {% if can_manage %}
+  <a href="{% url 'project_edit' project.pk %}" class="btn btn-secondary" style="font-size:.88rem">Modifica progetto</a>
   {% endif %}
   {% if can_create_doc %}
   <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary" style="font-size:.88rem">+ Nuovo documento</a>
@@ -66,29 +67,77 @@
 </div>
 {% endif %}
 
-{# Documenti nella root folder #}
+{# Ricerca documenti progetto #}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;margin-top:1rem">
   <h2 style="margin:0">Documenti</h2>
   {% if can_create_doc %}
   <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Nuovo</a>
   {% endif %}
 </div>
-{% if documents %}
+
+{% if project.root_folder %}
+<form method="get" class="filter-bar" style="margin-bottom:1rem">
+  <div class="filter-group">
+    <label>Cerca</label>
+    <input type="text" name="q" value="{{ doc_q }}" placeholder="Codice, titolo, tipo…" style="min-width:180px">
+  </div>
+  {% if doc_type_choices %}
+  <div class="filter-group">
+    <label>Tipo documento</label>
+    <select name="document_type">
+      <option value="">— tutti —</option>
+      {% for dt in doc_type_choices %}
+      <option value="{{ dt }}" {% if doc_type_filter == dt %}selected{% endif %}>{{ dt }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  {% if project_folder_choices|length > 1 %}
+  <div class="filter-group">
+    <label>Cartella</label>
+    <select name="folder">
+      <option value="">— tutte —</option>
+      {% for pf in project_folder_choices %}
+      <option value="{{ pf.pk }}" {% if doc_folder_filter == pf.pk|stringformat:"s" %}selected{% endif %}>{{ pf.code }} – {{ pf.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="filter-actions">
+    <button type="submit" class="btn btn-primary" style="font-size:.88rem;padding:.35rem .8rem">🔍 Cerca</button>
+    {% if doc_q or doc_type_filter or doc_folder_filter %}
+    <a href="{% url 'project_detail' project.pk %}" class="btn btn-outline" style="font-size:.88rem;padding:.35rem .8rem">✕ Reset</a>
+    {% endif %}
+  </div>
+</form>
+
+{% if doc_page_obj %}
+<p class="meta" style="margin-bottom:.5rem">{{ doc_page_obj.paginator.count }} document{% if doc_page_obj.paginator.count == 1 %}o{% else %}i{% endif %}{% if doc_q or doc_type_filter or doc_folder_filter %} (filtrati){% endif %}</p>
 <table>
   <thead>
     <tr>
       <th>Codice</th>
       <th>Titolo</th>
+      <th>Cartella</th>
+      <th>Tipo</th>
       <th>Revisione</th>
       <th>Stato</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
-    {% for doc in documents %}
+    {% for doc in doc_page_obj %}
     <tr>
       <td><strong>{{ doc.code }}</strong></td>
       <td>{{ doc.title }}</td>
+      <td class="meta" style="font-size:.8rem">
+        {% if doc.project_folder and doc.project_folder.pk != project.root_folder.pk %}
+        {{ doc.project_folder.name }}
+        {% else %}
+        <span style="color:#aaa">root</span>
+        {% endif %}
+      </td>
+      <td class="meta" style="font-size:.8rem">{{ doc.document_type|default:"—" }}</td>
       <td>{% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
       <td>
         {% if doc.current_version %}
@@ -102,15 +151,22 @@
     {% endfor %}
   </tbody>
 </table>
+{% include "_pagination.html" with page_obj=doc_page_obj %}
 {% else %}
 <div class="card">
   <p class="meta">
-    {% if project.root_folder %}
-    Nessun documento nella root folder del progetto.
+    {% if doc_q or doc_type_filter or doc_folder_filter %}
+    Nessun documento trovato per i filtri selezionati. <a href="{% url 'project_detail' project.pk %}">Mostra tutti</a>
     {% else %}
-    Nessuna root folder associata a questo progetto.
+    Nessun documento nel progetto.
     {% endif %}
   </p>
+</div>
+{% endif %}
+
+{% else %}
+<div class="card">
+  <p class="meta">Nessuna root folder associata a questo progetto.</p>
 </div>
 {% endif %}
 

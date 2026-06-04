@@ -45,6 +45,78 @@
 </div>
 {% endif %}
 
+{% if not is_navigation_only %}
+{# Barra di ricerca contestuale #}
+<form method="get" class="filter-bar" style="margin-bottom:1rem">
+  <div class="filter-group">
+    <label>Cerca</label>
+    <input type="text" name="q" value="{{ search_q }}" placeholder="Codice, nome, titolo…" style="min-width:200px">
+  </div>
+  <div class="filter-group" style="align-items:center;gap:.4rem;display:flex">
+    <input type="checkbox" name="recursive" value="1" id="id_recursive" {% if recursive %}checked{% endif %}>
+    <label for="id_recursive" style="margin:0;font-weight:normal;cursor:pointer">Cerca anche nelle sottocartelle</label>
+  </div>
+  <div class="filter-actions">
+    <button type="submit" class="btn btn-primary" style="font-size:.88rem;padding:.35rem .8rem">🔍 Cerca</button>
+    {% if search_q %}
+    <a href="{% url 'folder_detail' folder.pk %}" class="btn btn-outline" style="font-size:.88rem;padding:.35rem .8rem">✕ Azzera filtri</a>
+    {% endif %}
+  </div>
+</form>
+{% endif %}
+
+{% if search_q and not is_navigation_only %}
+{# Risultati ricerca #}
+<h2 style="margin-bottom:.5rem">Risultati ricerca{% if recursive %} (ricorsiva){% endif %} per "{{ search_q }}"</h2>
+{% if search_results %}
+<p class="meta" style="margin-bottom:.5rem">{{ search_page_obj.paginator.count }} risultat{% if search_page_obj.paginator.count == 1 %}o{% else %}i{% endif %}</p>
+<table>
+  <thead>
+    <tr><th>Tipo</th><th>Codice</th><th>Nome / Titolo</th><th>Dettagli</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for kind, item in search_results %}
+    <tr>
+      <td>
+        {% if kind == 'folder' %}📁 Cartella
+        {% elif kind == 'project' %}🗂️ Progetto
+        {% elif kind == 'document' %}📄 Documento
+        {% endif %}
+      </td>
+      <td><strong>{{ item.code }}</strong></td>
+      <td>
+        {% if kind == 'document' %}{{ item.title }}
+        {% else %}{{ item.name }}
+        {% endif %}
+      </td>
+      <td class="meta" style="font-size:.8rem">
+        {% if kind == 'document' and item.project_folder %}{{ item.project_folder.name }}
+        {% elif kind == 'folder' %}{{ item.get_folder_kind_display }}
+        {% elif kind == 'project' and item.root_folder and item.root_folder.parent %}{{ item.root_folder.parent.name }}
+        {% endif %}
+      </td>
+      <td>
+        {% if kind == 'folder' %}
+        <a href="{% url 'folder_detail' item.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.82rem">Apri</a>
+        {% elif kind == 'project' %}
+        <a href="{% url 'project_detail' item.pk %}" class="btn btn-primary" style="padding:.15rem .5rem;font-size:.82rem">Apri</a>
+        {% elif kind == 'document' %}
+        <a href="{% url 'document_detail' item.pk %}" class="btn btn-primary" style="padding:.15rem .5rem;font-size:.82rem">Apri</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% include "_pagination.html" with page_obj=search_page_obj %}
+{% else %}
+<div class="card">
+  <p class="meta">Nessun risultato per "{{ search_q }}"{% if not recursive %}. Prova con "Cerca anche nelle sottocartelle".{% else %}.{% endif %}</p>
+</div>
+{% endif %}
+
+{% else %}
+
 {# Explorer unificato: progetti + sottocartelle ordinarie insieme #}
 {% if explorer_items %}
 <h2 style="margin-bottom:.5rem">Contenuto</h2>
@@ -61,7 +133,6 @@
         <div style="font-size:.88rem;color:#333;margin-bottom:.25rem;word-break:break-word">{{ item.name }}</div>
         <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
           <span class="badge" style="background:#e8eef5;color:#1a3a5c;font-size:.7rem">Progetto</span>
-          <span class="badge badge-{{ item.status }}" style="font-size:.7rem">{{ item.get_status_display }}</span>
         </div>
         {% if item.manager %}
         <div class="meta" style="font-size:.75rem;margin-top:.2rem">{{ item.manager.get_full_name|default:item.manager.username }}</div>
@@ -155,4 +226,5 @@
 </div>
 {% endif %}
 {% endif %}{# /not is_navigation_only #}
+{% endif %}{# /search_or_explorer #}
 {% endblock %}

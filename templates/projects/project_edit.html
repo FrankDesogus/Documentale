@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Modifica {{ project.code }} — Documentale{% endblock %}
+
+{% block content %}
+
+{# Breadcrumb #}
+<p class="meta" style="margin-bottom:.5rem">
+  <a href="{% url 'folder_list' %}">Archivio</a>
+  {% if project.root_folder and project.root_folder.parent %}
+  &nbsp;/&nbsp;<a href="{% url 'folder_detail' project.root_folder.parent.pk %}">{{ project.root_folder.parent.name }}</a>
+  {% endif %}
+  &nbsp;/&nbsp;<a href="{% url 'project_detail' project.pk %}">{{ project.code }}</a>
+  &nbsp;/&nbsp;<strong>Modifica progetto</strong>
+</p>
+
+<h1>Modifica progetto — {{ project.code }}</h1>
+
+{% if messages %}
+{% for msg in messages %}
+<div class="card" style="background:{% if msg.tags == 'error' %}#fde8e8;border-left:4px solid #dc3545{% else %}#e8f5e9;border-left:4px solid #28a745{% endif %};margin-bottom:1rem;padding:.75rem 1rem">
+  <p style="margin:0">{{ msg }}</p>
+</div>
+{% endfor %}
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card" style="margin-bottom:1rem">
+
+    {# Campi in sola lettura #}
+    <div style="margin-bottom:1.1rem">
+      <label style="color:#6c757d">Codice progetto</label>
+      <div style="padding:.45rem .75rem;background:#f8f9fa;border:1px solid #dee2e6;border-radius:.3rem;color:#6c757d;font-size:.95rem">{{ project.code }}</div>
+      <div class="meta" style="margin-top:.2rem;font-size:.8rem">Il codice progetto non è modificabile dopo la creazione.</div>
+    </div>
+
+    {% if project.root_folder and project.root_folder.parent %}
+    <div style="margin-bottom:1.1rem">
+      <label style="color:#6c757d">Cartella padre</label>
+      <div style="padding:.45rem .75rem;background:#f8f9fa;border:1px solid #dee2e6;border-radius:.3rem;color:#6c757d;font-size:.95rem">
+        <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" style="color:#1a3a5c">{{ project.root_folder.parent.code }} – {{ project.root_folder.parent.name }}</a>
+      </div>
+    </div>
+    {% endif %}
+
+    {# Nome #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.name.id_for_label }}">{{ form.name.label }} <span style="color:#dc3545">*</span></label>
+      {{ form.name }}
+      {% for error in form.name.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    {# Descrizione #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% for error in form.description.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    {# Responsabile #}
+    <div style="margin-bottom:1.1rem">
+      <label for="{{ form.manager.id_for_label }}">{{ form.manager.label }}</label>
+      {{ form.manager }}
+      {% for error in form.manager.errors %}
+      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+  </div>
+
+  <button type="submit" class="btn btn-primary">Salva modifiche</button>
+  <a href="{% url 'project_detail' project.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+</form>
+{% endblock %}

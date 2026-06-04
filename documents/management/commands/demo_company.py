@@ -462,7 +462,6 @@ class Command(BaseCommand):
             name='Amplificatore RF Demo',
             description='Progetto demo: sviluppo amplificatore RF per presentazioni.',
             project_type='engineering',
-            status='active',
             manager=supervisor,
             created_by=supervisor,
         )
@@ -489,18 +488,19 @@ class Command(BaseCommand):
             defaults={'role': 'manager', 'created_by': supervisor},
         )
 
-        # Documento demo nella root folder del progetto
-        doc_code = f'{PRJ_CODE}-SPEC-001'
-        if not Document.objects.filter(code=doc_code).exists():
-            from documents.services import submit_version_for_approval
-            from approvals.services import approve_version
+        # Documento demo nelle sottocartelle del progetto
+        from documents.services import submit_version_for_approval
+        from approvals.services import approve_version
 
+        def _make_approved_doc(code, title, doc_type, folder):
+            if Document.objects.filter(code=code).exists():
+                return Document.objects.get(code=code)
             doc = Document.objects.create(
-                code=doc_code,
-                title='Specifiche tecniche amplificatore RF — Demo',
+                code=code,
+                title=title,
                 category=Document.Category.QUALITY,
-                document_type='Specifica',
-                project_folder=folder_spec,
+                document_type=doc_type,
+                project_folder=folder,
                 owner=supervisor,
                 created_by=supervisor,
                 status=Document.Status.ACTIVE,
@@ -515,9 +515,23 @@ class Command(BaseCommand):
                 change_summary='Prima emissione demo.',
             )
             req = submit_version_for_approval(ver, supervisor, [supervisor])
-            approve_version(req, supervisor, comment='Demo: specifica approvata.')
+            approve_version(req, supervisor, comment='Demo: approvazione automatica.')
             doc.refresh_from_db()
-            self._step(f'{doc_code}: documento demo progetto creato e approvato.')
+            self._step(f'{code}: documento demo creato e approvato.')
+            return doc
+
+        _make_approved_doc(
+            f'{PRJ_CODE}-SPEC-001',
+            'Specifiche tecniche amplificatore RF — Demo',
+            'Specifica',
+            folder_spec,
+        )
+        _make_approved_doc(
+            f'{PRJ_CODE}-TEST-001',
+            'Piano di collaudo amplificatore RF — Demo',
+            'Piano di collaudo',
+            folder_coll,
+        )
 
         return prj
 

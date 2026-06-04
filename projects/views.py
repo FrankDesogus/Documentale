@@ -150,34 +150,163 @@ def folder_detail(request, folder_id):
         else:
             explorer_items.append(('folder', sub))
 
-    # Documenti visibili nella cartella
+    # Documenti visibili nella cartella (usati in modalità explorer e come base per ricerca)
     from django.db.models import Exists, OuterRef
-    from documents.models import DocumentVersion as _DocVer
+    from documents.models import DocumentVersion as _DocVer, Document as _Doc
     base_docs = folder.documents.select_related('current_version', 'owner').order_by('code')
     if user.is_superuser:
-        documents = base_docs
+        visible_docs_qs = base_docs
     else:
         own_draft_qs = _DocVer.objects.filter(
             document=OuterRef('pk'),
             created_by=user,
             status__in=[_DocVer.Status.DRAFT, _DocVer.Status.REJECTED, _DocVer.Status.IN_APPROVAL],
         )
-        documents = base_docs.filter(
+        visible_docs_qs = base_docs.filter(
             Q(current_version__isnull=False,
               current_version__status=_DocVer.Status.APPROVED)
             | Q(Exists(own_draft_qs))
         )
 
+    # ── Ricerca contestuale ──────────────────────────────────────────────────
+    from django.core.paginator import Paginator as _Paginator
+    search_q = request.GET.get('q', '').strip()
+    recursive = request.GET.get('recursive', '') == '1'
+    search_results = None
+    search_page_obj = None
+
+    if search_q:
+        from projects.services import get_folder_descendants
+        from projects.permissions import get_visible_folder_ids, get_navigation_folder_ids
+
+        # Cartelle accessibili all'utente (per filtrare rami negati)
+        if user.is_superuser:
+            from projects.permissions import _is_privileged
+            accessible_folder_ids = None  # nessuna restrizione
+        else:
+            accessible_folder_ids = set(get_visible_folder_ids(user)) | get_navigation_folder_ids(user)
+
+        def _folder_accessible(f):
+            if accessible_folder_ids is None:
+                return True
+            return f.pk in accessible_folder_ids
+
+        results = []
+
+        if recursive:
+            # Scope: questa cartella + tutti i discendenti accessibili
+            scope_folders_qs = get_folder_descendants(folder)
+            # Includi anche la cartella corrente nei documenti
+            all_scope_ids = [folder.pk] + list(scope_folders_qs.values_list('pk', flat=True))
+            if accessible_folder_ids is not None:
+                all_scope_ids = [pk for pk in all_scope_ids if pk in accessible_folder_ids or pk == folder.pk]
+
+            # Documenti nelle sottocartelle discendenti (esclusa la root che ha già visible_docs_qs)
+            if user.is_superuser:
+                own_draft_sub = None
+                docs_qs = _Doc.objects.filter(
+                    project_folder_id__in=all_scope_ids
+                ).select_related('current_version', 'owner', 'project_folder').order_by('code')
+            else:
+                from django.db.models import Exists as _Exists, OuterRef as _OR
+                own_draft_sub = _DocVer.objects.filter(
+                    document=_OR('pk'), created_by=user,
+                    status__in=[_DocVer.Status.DRAFT, _DocVer.Status.REJECTED, _DocVer.Status.IN_APPROVAL],
+                )
+                docs_qs = _Doc.objects.filter(
+                    project_folder_id__in=all_scope_ids
+                ).filter(
+                    Q(current_version__isnull=False, current_version__status=_DocVer.Status.APPROVED)
+                    | Q(_Exists(own_draft_sub))
+                ).select_related('current_version', 'owner', 'project_folder').order_by('code')
+
+            # Applica filtro testuale ai documenti
+            docs_qs = docs_qs.filter(
+                Q(code__icontains=search_q)
+                | Q(title__icontains=search_q)
+                | Q(description__icontains=search_q)
+                | Q(document_type__icontains=search_q)
+            )
+            for doc in docs_qs:
+                results.append(('document', doc))
+
+            # Sottocartelle discendenti che matchano
+            desc_qs = scope_folders_qs.filter(
+                folder_kind=ProjectFolder.FolderKind.GENERIC
+            ).filter(
+                Q(code__icontains=search_q) | Q(name__icontains=search_q) | Q(description__icontains=search_q)
+            ).order_by('code')
+            if accessible_folder_ids is not None:
+                desc_qs = desc_qs.filter(pk__in=accessible_folder_ids)
+            for sub in desc_qs:
+                results.append(('folder', sub))
+
+            # Progetti discendenti
+            if can_view_projs:
+                proj_root_qs = scope_folders_qs.filter(folder_kind=ProjectFolder.FolderKind.PROJECT)
+                if accessible_folder_ids is not None:
+                    proj_root_qs = proj_root_qs.filter(pk__in=accessible_folder_ids)
+                proj_ids = list(proj_root_qs.values_list('pk', flat=True))
+                if proj_ids:
+                    projs_qs = Project.objects.filter(
+                        root_folder__in=proj_ids
+                    ).filter(
+                        Q(code__icontains=search_q) | Q(name__icontains=search_q) | Q(description__icontains=search_q)
+                    ).select_related('root_folder', 'manager').order_by('code')
+                    for proj in projs_qs:
+                        results.append(('project', proj))
+
+        else:
+            # Scope: solo contenuto immediato della cartella
+
+            # Documenti immediati con filtro testuale
+            doc_results = visible_docs_qs.filter(
+                Q(code__icontains=search_q)
+                | Q(title__icontains=search_q)
+                | Q(description__icontains=search_q)
+                | Q(document_type__icontains=search_q)
+            )
+            for doc in doc_results:
+                results.append(('document', doc))
+
+            # Sottocartelle ordinarie immediate
+            sub_results = subfolders.filter(
+                Q(code__icontains=search_q) | Q(name__icontains=search_q) | Q(description__icontains=search_q)
+            )
+            for sub in sub_results:
+                results.append(('folder', sub))
+
+            # Progetti figli immediati
+            if can_view_projs and project_root_ids:
+                proj_results = [
+                    p for p in child_projects_raw
+                    if search_q.lower() in p.code.lower()
+                    or search_q.lower() in p.name.lower()
+                    or search_q.lower() in (p.description or '').lower()
+                ]
+                for proj in proj_results:
+                    results.append(('project', proj))
+
+        # Paginazione risultati ricerca
+        search_paginator = _Paginator(results, 20)
+        search_page_obj = search_paginator.get_page(request.GET.get('page', 1))
+        search_results = search_page_obj
+
     return render(request, 'projects/folder_detail.html', {
         'folder': folder,
         'explorer_items': explorer_items,
         'subfolders': subfolders,
-        'documents': documents,
+        'documents': visible_docs_qs,
         'folder_projects': child_projects_raw,  # backward compat per sezione ECN ecc.
         'can_create': _can_create_folder(user),
         'can_manage': can_manage_folder(user, folder),
         'can_create_project': _can_manage_project(user),
         'is_navigation_only': False,
+        # ricerca
+        'search_q': search_q,
+        'recursive': recursive,
+        'search_results': search_results,
+        'search_page_obj': search_page_obj,
     })
 
 
@@ -255,10 +384,6 @@ def project_list(request):
             Q(code__icontains=q) | Q(name__icontains=q) | Q(description__icontains=q)
         )
 
-    status_filter = request.GET.get('status', '').strip()
-    if status_filter and status_filter in [s.value for s in Project.Status]:
-        qs = qs.filter(status=status_filter)
-
     folder_id = request.GET.get('folder', '').strip()
     if folder_id:
         try:
@@ -273,9 +398,7 @@ def project_list(request):
         'projects': page_obj,
         'page_obj': page_obj,
         'q': q,
-        'status_filter': status_filter,
         'folder_id': folder_id,
-        'status_choices': Project.Status.choices,
         'can_create': _can_manage_project(request.user),
         'total_count': paginator.count,
     })
@@ -302,13 +425,77 @@ def project_detail(request, project_id):
         else:
             raise PermissionDenied
 
+    # ── Ricerca documenti nel progetto ──────────────────────────────────────
+    from django.core.paginator import Paginator as _Paginator
+    from documents.models import DocumentVersion as _DocVer, Document as _Doc
+
+    doc_q = request.GET.get('q', '').strip()
+    doc_type_filter = request.GET.get('document_type', '').strip()
+    doc_folder_filter = request.GET.get('folder', '').strip()
+
     documents = []
     subfolders = []
+    project_folder_choices = []
     if project.root_folder:
-        documents = project.root_folder.documents.select_related(
-            'current_version', 'owner'
-        ).order_by('code')
         subfolders = project.root_folder.subfolders.order_by('code')
+
+        # Tutte le cartelle del progetto (root + discendenti via path)
+        from projects.services import get_folder_descendants
+        project_folders_qs = ProjectFolder.objects.filter(
+            pk=project.root_folder.pk
+        ) | get_folder_descendants(project.root_folder)
+        project_folder_ids = list(project_folders_qs.values_list('pk', flat=True))
+
+        # Documenti autorizzati nelle cartelle del progetto
+        base_docs = _Doc.objects.filter(
+            project_folder_id__in=project_folder_ids
+        ).select_related('current_version', 'owner', 'project_folder').order_by('code')
+
+        if not _can_manage_project(request.user):
+            from django.db.models import Exists, OuterRef
+            own_draft_qs = _DocVer.objects.filter(
+                document=OuterRef('pk'),
+                created_by=request.user,
+                status__in=[_DocVer.Status.DRAFT, _DocVer.Status.REJECTED, _DocVer.Status.IN_APPROVAL],
+            )
+            base_docs = base_docs.filter(
+                Q(current_version__isnull=False,
+                  current_version__status=_DocVer.Status.APPROVED)
+                | Q(Exists(own_draft_qs))
+            )
+
+        # Filtri ricerca
+        if doc_q:
+            base_docs = base_docs.filter(
+                Q(code__icontains=doc_q)
+                | Q(title__icontains=doc_q)
+                | Q(description__icontains=doc_q)
+                | Q(document_type__icontains=doc_q)
+            )
+        if doc_type_filter:
+            base_docs = base_docs.filter(document_type=doc_type_filter)
+        if doc_folder_filter:
+            try:
+                _fid = int(doc_folder_filter)
+                if _fid in project_folder_ids:
+                    base_docs = base_docs.filter(project_folder_id=_fid)
+            except (ValueError, TypeError):
+                pass
+
+        doc_paginator = _Paginator(base_docs, 20)
+        documents = doc_paginator.get_page(request.GET.get('page', 1))
+
+        # Choices cartelle per il filtro (solo cartelle del progetto)
+        project_folder_choices = list(
+            ProjectFolder.objects.filter(pk__in=project_folder_ids).order_by('code')
+        )
+
+        # Tipi documento distinti nelle cartelle del progetto
+    doc_type_choices = list(
+        _Doc.objects.filter(
+            project_folder_id__in=project_folder_ids if project.root_folder else []
+        ).exclude(document_type='').values_list('document_type', flat=True).distinct().order_by('document_type')
+    ) if project.root_folder else []
 
     revisions = project.revisions.order_by('-revision_number')
 
@@ -327,7 +514,6 @@ def project_detail(request, project_id):
     audit_logs = None
     if show_audit:
         from auditlog.models import AuditLog
-        from django.db.models import Q
         from documents.models import Document as _Doc
         from projects.services import get_project_document_folders
         _folders = get_project_document_folders(project)
@@ -364,6 +550,51 @@ def project_detail(request, project_id):
         'show_audit': show_audit,
         'audit_logs': audit_logs,
         'project_ecns': project_ecns,
+        # ricerca documenti
+        'doc_q': doc_q,
+        'doc_type_filter': doc_type_filter,
+        'doc_folder_filter': doc_folder_filter,
+        'doc_type_choices': doc_type_choices,
+        'project_folder_choices': project_folder_choices,
+        'doc_page_obj': documents if project.root_folder else None,
+    })
+
+
+@login_required
+def project_edit(request, project_id):
+    from projects.forms import ProjectUpdateForm
+    from projects.services import update_project_metadata
+
+    project = get_object_or_404(
+        Project.objects.select_related('root_folder', 'root_folder__parent', 'manager'),
+        pk=project_id,
+    )
+
+    if not _can_manage_project(request.user):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        form = ProjectUpdateForm(request.POST, instance=project)
+        if form.is_valid():
+            d = form.cleaned_data
+            try:
+                update_project_metadata(
+                    project=project,
+                    name=d['name'],
+                    description=d.get('description', ''),
+                    manager=d.get('manager'),
+                    updated_by=request.user,
+                )
+                messages.success(request, f'Progetto "{project.name}" aggiornato.')
+                return redirect('project_detail', project_id=project.pk)
+            except Exception as exc:
+                messages.error(request, f'Errore: {exc}')
+    else:
+        form = ProjectUpdateForm(instance=project)
+
+    return render(request, 'projects/project_edit.html', {
+        'form': form,
+        'project': project,
     })
 
 

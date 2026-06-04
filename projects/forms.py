@@ -23,14 +23,14 @@ class ProjectFolderForm(forms.ModelForm):
         self.fields['parent'].required = False
 
 
-class ProjectForm(forms.ModelForm):
+class ProjectUpdateForm(forms.ModelForm):
     """
-    Form per la modifica di un progetto esistente.
-    NON include root_folder (non modificabile manualmente).
+    Form per la modifica dei metadati di un progetto esistente.
+    Codice, root folder e parent non sono modificabili.
     """
     class Meta:
         model = Project
-        fields = ['code', 'name', 'description', 'status', 'project_type', 'manager']
+        fields = ['name', 'description', 'manager']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),
         }
@@ -42,6 +42,11 @@ class ProjectForm(forms.ModelForm):
         ).order_by('last_name', 'first_name', 'username')
         self.fields['manager'].required = False
         self.fields['manager'].empty_label = '— nessuno —'
+
+
+# Mantenuto per compatibilità: usato dai test legacy che importano ProjectForm
+class ProjectForm(ProjectUpdateForm):
+    pass
 
 
 class ProjectCreateForm(forms.Form):

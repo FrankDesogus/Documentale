@@ -163,6 +163,56 @@ def get_project_document_folders(project):
 
 
 @transaction.atomic
+def update_project_metadata(
+    *,
+    project,
+    name: str,
+    description: str = '',
+    manager=None,
+    updated_by=None,
+) -> 'Project':
+    """
+    Aggiorna atomicamente i metadati modificabili di un progetto.
+
+    Sincronizza anche il nome della root folder col nome del progetto.
+    Codice progetto e root folder non vengono mai modificati.
+    """
+    from .models import Project, ProjectFolder
+
+    name = name.strip()
+    if not name:
+        raise ValidationError("Il nome del progetto è obbligatorio.")
+
+    project.name = name
+    project.description = description
+    project.manager = manager
+    project.save(update_fields=['name', 'description', 'manager', 'updated_at'])
+
+    if project.root_folder_id:
+        ProjectFolder.objects.filter(pk=project.root_folder_id).update(name=name)
+
+    try:
+        from auditlog.models import AuditLog
+        AuditLog.objects.create(
+            user=updated_by,
+            action='update_project_metadata',
+            app_label='projects',
+            model_name='project',
+            object_id=str(project.pk),
+            object_repr=str(project)[:255],
+            changes={
+                'project_id': project.pk,
+                'project_code': project.code,
+                'name': name,
+            },
+        )
+    except Exception:
+        pass
+
+    return project
+
+
+@transaction.atomic
 def create_project_with_root_folder(
     *,
     parent_folder,
@@ -170,7 +220,6 @@ def create_project_with_root_folder(
     name: str,
     description: str = '',
     project_type: str = 'other',
-    status: str = 'draft',
     manager=None,
     created_by=None,
 ) -> 'Project':
@@ -223,7 +272,6 @@ def create_project_with_root_folder(
         name=name,
         description=description,
         project_type=project_type,
-        status=status,
         manager=manager,
         created_by=created_by,
         root_folder=root_folder,

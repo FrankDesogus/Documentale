@@ -153,7 +153,6 @@ class Command(BaseCommand):
                 code='PRJ-DEMO-001',
                 name='Progetto Demo Documentale',
                 project_type='internal',
-                status='active',
                 manager=autore,
                 created_by=autore,
             )
