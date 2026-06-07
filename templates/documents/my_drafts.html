@@ -2,49 +2,72 @@
 {% block title %}Mie bozze — Documentale{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
-  <h1 style="margin:0">Mie bozze</h1>
-  <a href="{% url 'document_new' %}" class="btn btn-primary">+ Nuovo documento</a>
+<div class="page-header">
+  <div class="flex items-start justify-between gap-4 flex-wrap">
+    <div>
+      <h1>Il mio lavoro</h1>
+      <p class="page-header-sub">Bozze e revisioni rifiutate in lavorazione</p>
+    </div>
+    <a href="{% url 'document_new' %}" class="btn-primary">+ Nuovo documento</a>
+  </div>
 </div>
 
 {% if versions %}
-<table>
-  <thead>
-    <tr>
-      <th>Documento</th>
-      <th>Revisione</th>
-      <th>Stato</th>
-      <th>Sommario modifiche</th>
-      <th>Creata il</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for v in versions %}
-    <tr>
-      <td>
-        <strong>{{ v.document.code }}</strong><br>
-        <span class="meta">{{ v.document.title }}</span>
-      </td>
-      <td>Rev. {{ v.revision_label }}</td>
-      <td><span class="badge badge-{{ v.status }}">{{ v.get_status_display }}</span></td>
-      <td>{{ v.change_summary|default:"—"|truncatechars:80 }}</td>
-      <td class="meta">{{ v.created_at|date:"d/m/Y" }}</td>
-      <td>
-        <a href="{% url 'version_edit' v.pk %}" class="btn btn-secondary" style="margin-right:.4rem">Modifica</a>
-        {% if v.file %}
-        <a href="{% url 'version_download' v.pk %}" class="btn btn-secondary" style="margin-right:.4rem">Scarica</a>
-        {% endif %}
-        <a href="{% url 'version_submit' v.pk %}" class="btn btn-success">Invia in approvazione</a>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Documento</th>
+        <th>Revisione</th>
+        <th>Stato</th>
+        <th>Sommario modifiche</th>
+        <th>Creata il</th>
+        <th class="w-56"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in versions %}
+      <tr>
+        <td>
+          <span class="font-semibold text-brand-800 font-mono">{{ v.document.code }}</span>
+          <div class="text-xs text-gray-500 mt-0.5">{{ v.document.title }}</div>
+        </td>
+        <td class="whitespace-nowrap">Rev. {{ v.revision_label }}</td>
+        <td>
+          {% if v.status == 'draft' %}
+          <span class="badge-status-draft">{{ v.get_status_display }}</span>
+          {% elif v.status == 'rejected' %}
+          <span class="badge-status-rejected">{{ v.get_status_display }}</span>
+          {% else %}
+          <span class="badge-status-draft">{{ v.get_status_display }}</span>
+          {% endif %}
+        </td>
+        <td class="meta">{{ v.change_summary|default:"—"|truncatechars:80 }}</td>
+        <td class="meta whitespace-nowrap">{{ v.created_at|date:"d/m/Y" }}</td>
+        <td>
+          <div class="flex items-center gap-1 flex-wrap">
+            <a href="{% url 'version_edit' v.pk %}" class="btn-secondary btn-sm">Modifica</a>
+            {% if v.file %}
+            <a href="{% url 'version_download' v.pk %}" class="btn-secondary btn-sm">Scarica</a>
+            {% endif %}
+            <a href="{% url 'version_submit' v.pk %}" class="btn-success btn-sm">Invia approvazione</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
 <div class="card">
-  <p class="meta">Nessuna bozza o revisione rifiutata in lavorazione.</p>
-  <a href="{% url 'document_new' %}" class="btn btn-primary" style="margin-top:.5rem">Crea il primo documento</a>
+  <div class="empty-state">
+    <div class="empty-state-icon">✏️</div>
+    <div class="empty-state-title">Nessuna bozza in lavorazione</div>
+    <div class="empty-state-desc">Non hai bozze o revisioni rifiutate da gestire.</div>
+    <div class="mt-4">
+      <a href="{% url 'document_new' %}" class="btn-primary">Crea il primo documento</a>
+    </div>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

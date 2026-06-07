@@ -2,49 +2,62 @@
 {% block title %}Baseline {{ revision.revision_label }} — {{ project.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'project_detail' project.pk %}">← {{ project.code }} – {{ project.name }}</a></p>
-<h1>Baseline {{ revision.revision_label }} — {{ revision.title }}</h1>
-<p class="meta">Questa baseline conserva le revisioni documento incluse al momento dell'emissione.</p>
+<nav class="breadcrumb">
+  <a href="{% url 'project_detail' project.pk %}">{{ project.code }} – {{ project.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Baseline {{ revision.revision_label }}</span>
+</nav>
 
-<div class="card" style="margin-bottom:1.5rem">
-  <dl class="dl-horizontal">
+<div class="flex items-start justify-between gap-4 flex-wrap mb-6">
+  <div>
+    <div class="flex items-center gap-3 mb-1 flex-wrap">
+      <span class="text-2xl font-bold text-brand-900 font-mono">{{ revision.revision_label }}</span>
+      {% if revision.status == 'draft' %}<span class="badge-status-draft">Bozza</span>
+      {% elif revision.status == 'issued' %}<span class="badge-status-approved">Emessa</span>
+      {% elif revision.status == 'superseded' %}<span class="badge-status-superseded">Superata</span>
+      {% elif revision.status == 'archived' %}<span class="badge-status-archived">Archiviata</span>
+      {% endif %}
+      {% if revision.is_current %}<span class="badge badge-project">Corrente</span>{% endif %}
+    </div>
+    <h1 class="text-xl font-semibold text-gray-800">{{ revision.title }}</h1>
+    <p class="meta mt-1">Questa baseline conserva le revisioni documento incluse al momento dell'emissione.</p>
+  </div>
+
+  {% if can_issue %}
+  <form method="post" action="{% url 'project_revision_issue' revision.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn-primary"
+      onclick="return confirm('Emettere la baseline {{ revision.revision_label }}? Le baseline precedenti correnti verranno marcate come superate.')">
+      Emetti baseline
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<!-- Dettagli -->
+<div class="form-section mb-6">
+  <div class="form-section-title">Dettagli baseline</div>
+  <dl class="dl-grid">
     <dt>Progetto</dt>
-    <dd><a href="{% url 'project_detail' project.pk %}">{{ project.code }} – {{ project.name }}</a></dd>
-
+    <dd><a href="{% url 'project_detail' project.pk %}" class="text-brand-600 hover:underline">{{ project.code }} – {{ project.name }}</a></dd>
     <dt>Etichetta</dt>
-    <dd>{{ revision.revision_label }}</dd>
-
+    <dd class="font-mono font-semibold">{{ revision.revision_label }}</dd>
     <dt>Numero</dt>
     <dd>{{ revision.revision_number }}</dd>
-
-    <dt>Stato</dt>
-    <dd>
-      {% if revision.status == 'draft' %}<span class="badge badge-draft">Bozza</span>
-      {% elif revision.status == 'issued' %}<span class="badge badge-active">Emessa</span>
-      {% elif revision.status == 'superseded' %}<span class="badge badge-archived">Superata</span>
-      {% elif revision.status == 'archived' %}<span class="badge badge-archived">Archiviata</span>
-      {% endif %}
-      {% if revision.is_current %}<span class="badge badge-active" style="margin-left:.4rem">Corrente</span>{% endif %}
-    </dd>
-
     {% if revision.description %}
     <dt>Descrizione</dt>
     <dd>{{ revision.description }}</dd>
     {% endif %}
-
     <dt>Creata da</dt>
     <dd>{{ revision.created_by.get_full_name|default:revision.created_by.username|default:"—" }} il {{ revision.created_at|date:"d/m/Y H:i" }}</dd>
-
     {% if revision.issued_at %}
     <dt>Emessa da</dt>
     <dd>{{ revision.issued_by.get_full_name|default:revision.issued_by.username|default:"—" }} il {{ revision.issued_at|date:"d/m/Y H:i" }}</dd>
     {% endif %}
-
     {% if revision.replaces_revision %}
     <dt>Sostituisce</dt>
-    <dd><a href="{% url 'project_revision_detail' revision.replaces_revision.pk %}">{{ revision.replaces_revision }}</a></dd>
+    <dd><a href="{% url 'project_revision_detail' revision.replaces_revision.pk %}" class="text-brand-600 hover:underline">{{ revision.replaces_revision }}</a></dd>
     {% endif %}
-
     {% if revision.notes %}
     <dt>Note</dt>
     <dd>{{ revision.notes }}</dd>
@@ -52,48 +65,61 @@
   </dl>
 </div>
 
-{% if can_issue %}
-<form method="post" action="{% url 'project_revision_issue' revision.pk %}" style="margin-bottom:1.5rem">
-  {% csrf_token %}
-  <button type="submit" class="btn btn-primary"
-    onclick="return confirm('Emettere la baseline {{ revision.revision_label }}? Le baseline precedenti correnti verranno marcate come superate.')">
-    Emetti baseline
-  </button>
-</form>
-{% endif %}
-
-<h2>Documenti ({{ items|length }})</h2>
+<!-- Documenti -->
+<div class="flex items-center justify-between mb-3">
+  <h2 class="section-title mb-0">Documenti ({{ items|length }})</h2>
+</div>
 
 {% if items %}
-<table>
-  <thead>
-    <tr>
-      <th>#</th>
-      <th>Codice</th>
-      <th>Titolo documento</th>
-      <th>Revisione</th>
-      <th>Stato revisione</th>
-      <th>Descrizione voce</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for item in items %}
-    <tr>
-      <td>{{ item.item_number }}</td>
-      <td>
-        <a href="{% url 'document_detail' item.document_version.document.pk %}">
-          {{ item.document_version.document.code }}
-        </a>
-      </td>
-      <td>{{ item.document_version.document.title }}</td>
-      <td>{{ item.document_version.revision_label }}</td>
-      <td>{{ item.document_version.get_status_display }}</td>
-      <td>{{ item.description }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th class="w-12">#</th>
+        <th>Codice</th>
+        <th>Titolo documento</th>
+        <th>Revisione</th>
+        <th>Stato revisione</th>
+        <th>Descrizione voce</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td class="meta">{{ item.item_number }}</td>
+        <td>
+          <a href="{% url 'document_detail' item.document_version.document.pk %}" class="font-mono font-semibold text-brand-800 hover:underline">
+            {{ item.document_version.document.code }}
+          </a>
+        </td>
+        <td>{{ item.document_version.document.title }}</td>
+        <td class="font-mono">{{ item.document_version.revision_label }}</td>
+        <td>
+          {% with s=item.document_version.status %}
+          {% if s == 'approved' %}<span class="badge-status-approved">{{ item.document_version.get_status_display }}</span>
+          {% elif s == 'draft' %}<span class="badge-status-draft">{{ item.document_version.get_status_display }}</span>
+          {% elif s == 'in_approval' %}<span class="badge-status-in_approval">{{ item.document_version.get_status_display }}</span>
+          {% elif s == 'superseded' %}<span class="badge-status-superseded">{{ item.document_version.get_status_display }}</span>
+          {% else %}<span class="meta">{{ item.document_version.get_status_display }}</span>
+          {% endif %}
+          {% endwith %}
+        </td>
+        <td class="meta">{{ item.description }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
-<p class="meta">Questa baseline non contiene documenti. Probabilmente è stata creata quando non erano presenti documenti approvati nella cartella del progetto.</p>
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-state-icon">📄</div>
+    <div class="empty-state-title">Baseline vuota</div>
+    <div class="empty-state-desc">
+      Questa baseline non contiene documenti. Probabilmente è stata creata quando non erano presenti
+      documenti approvati nella cartella del progetto.
+    </div>
+  </div>
+</div>
 {% endif %}
 {% endblock %}

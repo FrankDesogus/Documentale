@@ -2,36 +2,48 @@
 {% block title %}Nuova baseline — {{ project.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'project_detail' project.pk %}">← {{ project.code }} – {{ project.name }}</a></p>
-<h1>Nuova baseline per {{ project.code }}</h1>
+<nav class="breadcrumb">
+  <a href="{% url 'project_detail' project.pk %}">{{ project.code }} – {{ project.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuova baseline</span>
+</nav>
+
+<div class="page-header">
+  <h1>Nuova baseline</h1>
+  <p class="page-header-sub">{{ project.code }} — {{ project.name }}</p>
+</div>
+
+<div class="alert-info mb-4">
+  La baseline verrà popolata con le revisioni approvate correnti dei documenti presenti
+  nella cartella del progetto e nelle sue sottocartelle.
+</div>
 
 <form method="post">
   {% csrf_token %}
-  <div class="card">
+
+  <div class="form-section">
+    <div class="form-section-title">Dati baseline</div>
 
     {% for field in form %}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ field.id_for_label }}">
+    <div class="form-group {% if forloop.last %}mb-0{% endif %}">
+      <label class="form-label" for="{{ field.id_for_label }}">
         {{ field.label }}
-        {% if field.field.required %}<span style="color:#dc3545"> *</span>{% endif %}
+        {% if field.field.required %}<span class="text-red-500"> *</span>{% endif %}
       </label>
       {{ field }}
       {% if field.help_text %}
-      <div class="meta" style="margin-top:.2rem">{{ field.help_text }}</div>
+      <p class="form-help">{{ field.help_text }}</p>
       {% endif %}
       {% for error in field.errors %}
-      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      <p class="form-error">{{ error }}</p>
       {% endfor %}
     </div>
     {% endfor %}
-
-    <p class="meta" style="margin-top:.5rem">
-      La baseline verrà popolata con le revisioni approvate correnti dei documenti presenti
-      nella cartella del progetto e nelle sue sottocartelle.
-    </p>
   </div>
 
-  <button type="submit" class="btn btn-primary">Crea baseline</button>
-  <a href="{% url 'project_detail' project.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Crea baseline</button>
+    <a href="{% url 'project_detail' project.pk %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 {% endblock %}

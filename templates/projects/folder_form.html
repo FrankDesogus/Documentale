@@ -2,33 +2,33 @@
 {% block title %}{% if parent_folder %}Nuova sottocartella — {{ parent_folder.name }}{% else %}Nuova cartella{% endif %} — Documentale{% endblock %}
 
 {% block content %}
-
-{# Breadcrumb #}
-<p class="meta">
+<nav class="breadcrumb">
   <a href="{% url 'folder_list' %}">Cartelle</a>
   {% if parent_folder %}
-  &nbsp;/&nbsp;<a href="{% url 'folder_detail' parent_folder.pk %}">{{ parent_folder.name }}</a>
-  &nbsp;/&nbsp;<strong>Nuova sottocartella</strong>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'folder_detail' parent_folder.pk %}">{{ parent_folder.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuova sottocartella</span>
   {% else %}
-  &nbsp;/&nbsp;<strong>Nuova cartella</strong>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuova cartella</span>
   {% endif %}
-</p>
+</nav>
 
-<h1>
+<div class="page-header">
+  <h1>{% if parent_folder %}Nuova sottocartella{% else %}Nuova cartella{% endif %}</h1>
   {% if parent_folder %}
-    Nuova sottocartella
-  {% else %}
-    Nuova cartella
+  <p class="page-header-sub">Sotto: {{ parent_folder.code }} — {{ parent_folder.name }}</p>
   {% endif %}
-</h1>
+</div>
 
 {% if parent_folder %}
-<div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
-  <strong style="color:#004085">Cartella padre:</strong>
-  <span style="color:#004085">
+<div class="next-action-box mb-4">
+  <div class="next-action-box-title">Cartella padre</div>
+  <div class="next-action-box-text">
     Stai creando una sottocartella dentro
-    <a href="{% url 'folder_detail' parent_folder.pk %}" style="color:#004085;font-weight:600">{{ parent_folder.code }} — {{ parent_folder.name }}</a>.
-  </span>
+    <a href="{% url 'folder_detail' parent_folder.pk %}" class="font-semibold underline">{{ parent_folder.code }} — {{ parent_folder.name }}</a>.
+  </div>
 </div>
 {% endif %}
 
@@ -38,64 +38,72 @@
   <input type="hidden" name="_parent_prefill" value="{{ parent_folder.pk }}">
   {% endif %}
 
-  <div class="card">
+  <!-- Identificazione -->
+  <div class="form-section">
+    <div class="form-section-title">Cartella</div>
 
-    <div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;margin-bottom:1.25rem">
-      <div>
-        <label for="{{ form.code.id_for_label }}">{{ form.code.label }}</label>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.code.id_for_label }}">{{ form.code.label }}</label>
         {{ form.code }}
         {% for error in form.code.errors %}
-        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
-      <div>
-        <label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+      <div class="form-group mb-0 sm:col-span-2">
+        <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
         {{ form.name }}
         {% for error in form.name.errors %}
-        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
     </div>
+  </div>
 
-    <div style="margin-bottom:1.25rem">
-      <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+  <!-- Descrizione e metadati -->
+  <div class="form-section">
+    <div class="form-section-title">Dettagli</div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
       {{ form.description }}
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:.5rem">
-      <div>
-        <label for="{{ form.folder_kind.id_for_label }}">{{ form.folder_kind.label }}</label>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.folder_kind.id_for_label }}">{{ form.folder_kind.label }}</label>
         {{ form.folder_kind }}
         {% for error in form.folder_kind.errors %}
-        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
-      <div>
-        <label for="{{ form.parent.id_for_label }}">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.parent.id_for_label }}">
           {{ form.parent.label }}
-          {% if parent_folder %}<span class="meta" style="font-weight:400"> (precompilato)</span>{% endif %}
+          {% if parent_folder %}<span class="text-gray-400 font-normal text-xs"> (precompilato)</span>{% endif %}
         </label>
         {{ form.parent }}
         {% for error in form.parent.errors %}
-        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
-      <div>
-        <label for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
         {{ form.status }}
         {% for error in form.status.errors %}
-        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
     </div>
-
   </div>
 
-  <button type="submit" class="btn btn-primary">Crea cartella</button>
-  {% if parent_folder %}
-  <a href="{% url 'folder_detail' parent_folder.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
-  {% else %}
-  <a href="{% url 'folder_list' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
-  {% endif %}
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Crea cartella</button>
+    {% if parent_folder %}
+    <a href="{% url 'folder_detail' parent_folder.pk %}" class="btn-secondary">Annulla</a>
+    {% else %}
+    <a href="{% url 'folder_list' %}" class="btn-secondary">Annulla</a>
+    {% endif %}
+  </div>
 </form>
 {% endblock %}

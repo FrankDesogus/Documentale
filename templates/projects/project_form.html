@@ -2,26 +2,28 @@
 {% block title %}Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %} — Documentale{% endblock %}
 
 {% block content %}
-
-{# Breadcrumb #}
-<p class="meta">
+<nav class="breadcrumb">
   {% if prefill_folder %}
   <a href="{% url 'folder_list' %}">Archivio</a>
-  &nbsp;/&nbsp;<a href="{% url 'folder_detail' prefill_folder.pk %}">{{ prefill_folder.name }}</a>
-  &nbsp;/&nbsp;<strong>Nuovo progetto</strong>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'folder_detail' prefill_folder.pk %}">{{ prefill_folder.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuovo progetto</span>
   {% else %}
-  <a href="{% url 'project_list' %}">← Progetti</a>
+  <a href="{% url 'project_list' %}">Progetti</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuovo progetto</span>
   {% endif %}
-</p>
+</nav>
 
-<h1>Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %}</h1>
+<div class="page-header">
+  <h1>Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %}</h1>
+</div>
 
-<div class="card" style="background:#e8eef5;border-left:4px solid #1a3a5c;margin-bottom:1rem;padding:.75rem 1rem">
-  <strong style="color:#1a3a5c">Come funziona:</strong>
-  <span style="color:#333;font-size:.92rem">
-    Il progetto riceverà automaticamente una <strong>cartella radice dedicata</strong>
-    con lo stesso codice. La cartella sarà creata come sottocartella della cartella padre selezionata.
-  </span>
+<div class="alert-info mb-4">
+  <strong>Come funziona:</strong>
+  Il progetto riceverà automaticamente una <strong>cartella radice dedicata</strong>
+  con lo stesso codice. La cartella sarà creata come sottocartella della cartella padre selezionata.
 </div>
 
 <form method="post">
@@ -30,70 +32,73 @@
   <input type="hidden" name="_parent_prefill" value="{{ prefill_folder.pk }}">
   {% endif %}
 
-  <div class="card">
-
-    {# Cartella padre #}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ form.parent_folder.id_for_label }}">
-        {{ form.parent_folder.label }} <span style="color:#dc3545">*</span>
+  <!-- Collocazione -->
+  <div class="form-section">
+    <div class="form-section-title">Collocazione</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.parent_folder.id_for_label }}">
+        {{ form.parent_folder.label }} <span class="text-red-500">*</span>
       </label>
       {{ form.parent_folder }}
       {% if form.parent_folder.help_text %}
-      <div class="meta" style="margin-top:.2rem">{{ form.parent_folder.help_text }}</div>
+      <p class="form-help">{{ form.parent_folder.help_text }}</p>
       {% endif %}
       {% for error in form.parent_folder.errors %}
-      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      <p class="form-error">{{ error }}</p>
       {% endfor %}
     </div>
+  </div>
 
-    {# Codice #}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ form.code.id_for_label }}">
-        {{ form.code.label }} <span style="color:#dc3545">*</span>
+  <!-- Dati progetto -->
+  <div class="form-section">
+    <div class="form-section-title">Progetto</div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.code.id_for_label }}">
+        {{ form.code.label }} <span class="text-red-500">*</span>
       </label>
       {{ form.code }}
       {% if form.code.help_text %}
-      <div class="meta" style="margin-top:.2rem">{{ form.code.help_text }}</div>
+      <p class="form-help">{{ form.code.help_text }}</p>
       {% endif %}
       {% for error in form.code.errors %}
-      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      <p class="form-error">{{ error }}</p>
       {% endfor %}
     </div>
 
-    {# Nome #}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ form.name.id_for_label }}">{{ form.name.label }} <span style="color:#dc3545">*</span></label>
+    <div class="form-group">
+      <label class="form-label" for="{{ form.name.id_for_label }}">
+        {{ form.name.label }} <span class="text-red-500">*</span>
+      </label>
       {{ form.name }}
       {% for error in form.name.errors %}
-      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      <p class="form-error">{{ error }}</p>
       {% endfor %}
     </div>
 
-    {# Descrizione #}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+    <div class="form-group">
+      <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
       {{ form.description }}
     </div>
 
-    {# Tipo #}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ form.project_type.id_for_label }}">{{ form.project_type.label }}</label>
+    <div class="form-group">
+      <label class="form-label" for="{{ form.project_type.id_for_label }}">{{ form.project_type.label }}</label>
       {{ form.project_type }}
     </div>
 
-    {# Responsabile #}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ form.manager.id_for_label }}">{{ form.manager.label }}</label>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.manager.id_for_label }}">{{ form.manager.label }}</label>
       {{ form.manager }}
     </div>
-
   </div>
 
-  <button type="submit" class="btn btn-primary">Crea progetto</button>
-  {% if prefill_folder %}
-  <a href="{% url 'folder_detail' prefill_folder.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
-  {% else %}
-  <a href="{% url 'project_list' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
-  {% endif %}
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Crea progetto</button>
+    {% if prefill_folder %}
+    <a href="{% url 'folder_detail' prefill_folder.pk %}" class="btn-secondary">Annulla</a>
+    {% else %}
+    <a href="{% url 'project_list' %}" class="btn-secondary">Annulla</a>
+    {% endif %}
+  </div>
 </form>
 {% endblock %}
