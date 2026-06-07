@@ -118,10 +118,16 @@ def create_new_revision(
             )
         except Exception:
             pass
-        # Notifica esecuzione ECN
+        # Notifica esecuzione ECN (email)
         try:
             from ecn.notifications import notify_ecn_executed
             notify_ecn_executed(ecn)
+        except Exception:
+            pass
+        # Notifica in-app esecuzione ECN
+        try:
+            from notifications.inbox import notify_ecn_executed_inapp
+            notify_ecn_executed_inapp(ecn)
         except Exception:
             pass
 
@@ -189,10 +195,20 @@ def submit_version_for_approval(version, requested_by, approvers, due_date=None,
         )
         if first_slot:
             send_approval_request_email(approval_request, first_slot.approver)
+            try:
+                from notifications.inbox import notify_approval_requested
+                notify_approval_requested(approval_request, first_slot.approver)
+            except Exception:
+                pass
     else:
         # ANY / ALL: notifica tutti gli approvatori
         for approver in approvers:
             send_approval_request_email(approval_request, approver)
+            try:
+                from notifications.inbox import notify_approval_requested
+                notify_approval_requested(approval_request, approver)
+            except Exception:
+                pass
 
     return approval_request
 

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Notifiche{% endblock %}
+{% block content %}
+<div style="max-width:800px;">
+  <h1>Notifiche</h1>
+
+  <!-- Filtri lettura -->
+  <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem; align-items:center;">
+    <div style="display:flex; gap:.3rem;">
+      <a href="?filter=all&category={{ filter_cat }}"
+         class="btn {% if filter_read == 'all' %}btn-primary{% else %}btn-outline{% endif %}"
+         style="font-size:.85rem; padding:.3rem .8rem;">
+        Tutte
+      </a>
+      <a href="?filter=unread&category={{ filter_cat }}"
+         class="btn {% if filter_read == 'unread' %}btn-primary{% else %}btn-outline{% endif %}"
+         style="font-size:.85rem; padding:.3rem .8rem;">
+        Non lette{% if unread_count > 0 %} ({{ unread_count }}){% endif %}
+      </a>
+    </div>
+    <div style="display:flex; gap:.3rem;">
+      <a href="?filter={{ filter_read }}&category="
+         class="btn {% if not filter_cat %}btn-secondary{% else %}btn-outline{% endif %}"
+         style="font-size:.85rem; padding:.3rem .8rem;">
+        Tutte le categorie
+      </a>
+      <a href="?filter={{ filter_read }}&category=action_required"
+         class="btn {% if filter_cat == 'action_required' %}btn-secondary{% else %}btn-outline{% endif %}"
+         style="font-size:.85rem; padding:.3rem .8rem; border-color:#b7770d; color:{% if filter_cat == 'action_required' %}#fff{% else %}#b7770d{% endif %}; background:{% if filter_cat == 'action_required' %}#b7770d{% else %}transparent{% endif %};">
+        Azioni richieste
+      </a>
+      <a href="?filter={{ filter_read }}&category=information"
+         class="btn {% if filter_cat == 'information' %}btn-secondary{% else %}btn-outline{% endif %}"
+         style="font-size:.85rem; padding:.3rem .8rem; border-color:#004085; color:{% if filter_cat == 'information' %}#fff{% else %}#004085{% endif %}; background:{% if filter_cat == 'information' %}#004085{% else %}transparent{% endif %};">
+        Informazioni
+      </a>
+    </div>
+  </div>
+
+  <!-- Segna tutte come lette -->
+  {% if unread_count > 0 %}
+  <form method="post" action="{% url 'notifications:mark_all_read' %}" style="margin-bottom:.75rem;">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button type="submit" class="btn btn-outline" style="font-size:.85rem; padding:.3rem .8rem;">
+      Segna tutte come lette ({{ unread_count }})
+    </button>
+  </form>
+  {% endif %}
+
+  <!-- Lista notifiche -->
+  {% if page_obj.object_list %}
+  <div style="display:flex; flex-direction:column; gap:.4rem;">
+    {% for notification in page_obj %}
+    <div class="card" style="padding:.75rem 1rem; {% if not notification.is_read %}border-left:3px solid #1a3a5c;{% else %}border-left:3px solid transparent; opacity:.8;{% endif %} margin-bottom:0;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">
+        <div style="flex:1; min-width:0;">
+          {% if notification.category == 'action_required' %}
+          <span class="badge" style="background:#fff3cd; color:#856404; margin-bottom:.3rem;">Azione richiesta</span>
+          {% else %}
+          <span class="badge" style="background:#cce5ff; color:#004085; margin-bottom:.3rem;">Info</span>
+          {% endif %}
+          {% if not notification.is_read %}<strong>{% endif %}
+          {{ notification.title }}
+          {% if not notification.is_read %}</strong>{% endif %}
+          {% if notification.message %}
+          <br><small class="meta">{{ notification.message }}</small>
+          {% endif %}
+        </div>
+        <div style="text-align:right; flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; gap:.3rem;">
+          <small class="meta">{{ notification.created_at|timesince }} fa</small>
+          <div style="display:flex; gap:.3rem; flex-wrap:wrap; justify-content:flex-end;">
+            {% if not notification.is_read %}
+            <form method="post" action="{% url 'notifications:mark_read' notification.pk %}" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" class="btn btn-outline" style="font-size:.78rem; padding:.2rem .55rem;">
+                Segna letta
+              </button>
+            </form>
+            {% endif %}
+            {% if notification.target_url %}
+            <a href="{{ notification.target_url }}" class="btn btn-primary" style="font-size:.78rem; padding:.2rem .55rem;">
+              Apri
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Paginazione -->
+  {% if page_obj.has_other_pages %}
+  <nav class="pagination" style="margin-top:1rem;">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}&filter={{ filter_read }}&category={{ filter_cat }}">&laquo;</a>
+    {% else %}
+    <span class="disabled">&laquo;</span>
+    {% endif %}
+    <span class="current">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}&filter={{ filter_read }}&category={{ filter_cat }}">&raquo;</a>
+    {% else %}
+    <span class="disabled">&raquo;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <div class="card" style="text-align:center; padding:2rem 1rem; color:#888;">
+    <div style="font-size:2em; margin-bottom:.5rem;">🔕</div>
+    Nessuna notifica.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

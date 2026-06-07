@@ -244,6 +244,18 @@
   <div class="main-area">
     <div class="topbar">
       {% if user.is_authenticated %}
+        <!-- Campanella notifiche -->
+        <a href="{% url 'notifications:list' %}" title="Notifiche" style="position:relative; color:#a8c4d8; text-decoration:none; font-size:1.15em; line-height:1;">
+          🔔
+          {% if unread_notifications_count > 0 %}
+          <span style="
+            position:absolute; top:-5px; right:-7px;
+            background:#dc3545; color:#fff; border-radius:50%;
+            font-size:.6em; font-weight:700; padding:1px 4px;
+            min-width:16px; text-align:center; line-height:1.4;
+          ">{{ unread_notifications_count }}</span>
+          {% endif %}
+        </a>
         <span style="color:#7aadcc">{{ user.get_full_name|default:user.username }}</span>
         <form method="post" action="{% url 'logout' %}" style="display:inline;margin:0">
           {% csrf_token %}

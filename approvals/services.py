@@ -126,6 +126,11 @@ def approve_version(approval_request, approved_by, comment=""):
     if is_final:
         from notifications.services import send_version_approved_email
         send_version_approved_email(approval_request)
+        try:
+            from notifications.inbox import notify_version_approved
+            notify_version_approved(approval_request)
+        except Exception:
+            pass
     elif policy == Policy.SEQUENTIAL:
         # SEQUENTIAL e non finale: notifica il prossimo approvatore pending
         next_slot = (
@@ -137,6 +142,11 @@ def approve_version(approval_request, approved_by, comment=""):
         if next_slot:
             from notifications.services import send_approval_request_email
             send_approval_request_email(approval_request, next_slot.approver)
+            try:
+                from notifications.inbox import notify_approval_requested
+                notify_approval_requested(approval_request, next_slot.approver)
+            except Exception:
+                pass
 
     return approval_request
 
@@ -280,5 +290,10 @@ def reject_version(approval_request, rejected_by, rejection_reason, comment=""):
     # Notifica fuori dalla transazione: un errore email non deve annullare il rifiuto.
     from notifications.services import send_version_rejected_email
     send_version_rejected_email(approval_request, rejection_reason)
+    try:
+        from notifications.inbox import notify_version_rejected
+        notify_version_rejected(approval_request)
+    except Exception:
+        pass
 
     return approval_request

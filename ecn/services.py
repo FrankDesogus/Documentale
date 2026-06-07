@@ -88,6 +88,11 @@ def create_change_notice(
     )
 
     _notify_silently('notify_ecn_created', ecn)
+    try:
+        from notifications.inbox import notify_ecn_created_inapp
+        notify_ecn_created_inapp(ecn)
+    except Exception:
+        pass
 
     return ecn
 
@@ -361,6 +366,22 @@ def submit_change_notice(change_notice, user):
 
     _notify_silently('notify_ecn_submitted', change_notice)
 
+    # Notifiche in-app ai membri CCB
+    try:
+        from notifications.inbox import notify_ccb_vote_required
+        from ecn.models import ChangeNotice as _CN
+        ccb_policy = change_notice.ccb_policy
+        approvers_qs = change_notice.approvers.order_by('order')
+        if ccb_policy == _CN.CCBPolicy.SEQUENTIAL:
+            first_app = approvers_qs.first()
+            if first_app:
+                notify_ccb_vote_required(change_notice, first_app.user)
+        else:
+            for app in approvers_qs:
+                notify_ccb_vote_required(change_notice, app.user)
+    except Exception:
+        pass
+
     return change_notice
 
 
@@ -482,6 +503,11 @@ def approve_change_notice(
                 new_status=change_notice.status,
             )
             _notify_silently('notify_ecn_approved', change_notice)
+            try:
+                from notifications.inbox import notify_ecn_outcome_inapp
+                notify_ecn_outcome_inapp(change_notice, approved=True)
+            except Exception:
+                pass
 
         else:
             # Per SEQUENTIAL: notifica il prossimo approvatore
@@ -579,6 +605,11 @@ def reject_change_notice(change_notice, user, reason, comment=None):
     )
     # notify_ecn_rejected invia email a tutti i destinatari rilevanti
     _notify_silently('notify_ecn_rejected', change_notice)
+    try:
+        from notifications.inbox import notify_ecn_outcome_inapp
+        notify_ecn_outcome_inapp(change_notice, approved=False)
+    except Exception:
+        pass
 
     # Notifica anche i membri CCB del voto individuale (informativo)
     try:
@@ -637,6 +668,11 @@ def close_change_notice(change_notice, user, close_notes=''):
         new_status=change_notice.status,
     )
     _notify_silently('notify_ecn_closed', change_notice)
+    try:
+        from notifications.inbox import notify_ecn_closed_inapp
+        notify_ecn_closed_inapp(change_notice)
+    except Exception:
+        pass
 
     return change_notice
 
@@ -719,6 +755,11 @@ def configure_ccb(change_notice, actor, users, policy=None, coordinator=None):
     new_coordinator = change_notice.ccb_coordinator
     if new_coordinator and (old_coordinator is None or old_coordinator.pk != new_coordinator.pk):
         _notify_silently('notify_ecn_coordinator_assigned', change_notice)
+        try:
+            from notifications.inbox import notify_ccb_dossier_assigned
+            notify_ccb_dossier_assigned(change_notice)
+        except Exception:
+            pass
 
     return change_notice
 

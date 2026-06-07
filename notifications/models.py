@@ -1,5 +1,45 @@
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
+
+
+class Notification(models.Model):
+    CATEGORY_ACTION = 'action_required'
+    CATEGORY_INFO = 'information'
+    CATEGORY_CHOICES = [
+        (CATEGORY_ACTION, 'Azione richiesta'),
+        (CATEGORY_INFO, 'Informazione'),
+    ]
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='app_notifications',
+    )
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    notification_type = models.CharField(max_length=60)
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True)
+    target_url = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['recipient', 'read_at']),
+            models.Index(fields=['recipient', 'created_at']),
+        ]
+
+    @property
+    def is_read(self):
+        return self.read_at is not None
+
+    def mark_as_read(self):
+        if not self.read_at:
+            self.read_at = timezone.now()
+            self.save(update_fields=['read_at'])
 
 
 class NotificationLog(models.Model):
