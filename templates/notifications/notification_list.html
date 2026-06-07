@@ -1,37 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Notifiche{% endblock %}
-{% block content %}
-<div style="max-width:800px;">
-  <h1>Notifiche</h1>
 
-  <!-- Filtri lettura -->
-  <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem; align-items:center;">
-    <div style="display:flex; gap:.3rem;">
+{% block content %}
+<div class="max-w-3xl">
+  <h1 class="text-2xl font-bold text-brand-900 mb-4">Notifiche</h1>
+
+  <!-- Filtri lettura / categoria -->
+  <div class="flex flex-wrap gap-2 mb-3 items-center">
+    <div class="flex gap-1">
       <a href="?filter=all&category={{ filter_cat }}"
-         class="btn {% if filter_read == 'all' %}btn-primary{% else %}btn-outline{% endif %}"
-         style="font-size:.85rem; padding:.3rem .8rem;">
+         class="{% if filter_read == 'all' %}btn-primary btn-sm{% else %}btn-secondary btn-sm{% endif %}">
         Tutte
       </a>
       <a href="?filter=unread&category={{ filter_cat }}"
-         class="btn {% if filter_read == 'unread' %}btn-primary{% else %}btn-outline{% endif %}"
-         style="font-size:.85rem; padding:.3rem .8rem;">
+         class="{% if filter_read == 'unread' %}btn-primary btn-sm{% else %}btn-secondary btn-sm{% endif %}">
         Non lette{% if unread_count > 0 %} ({{ unread_count }}){% endif %}
       </a>
     </div>
-    <div style="display:flex; gap:.3rem;">
+    <div class="flex gap-1">
       <a href="?filter={{ filter_read }}&category="
-         class="btn {% if not filter_cat %}btn-secondary{% else %}btn-outline{% endif %}"
-         style="font-size:.85rem; padding:.3rem .8rem;">
+         class="{% if not filter_cat %}btn-primary btn-sm{% else %}btn-secondary btn-sm{% endif %}">
         Tutte le categorie
       </a>
       <a href="?filter={{ filter_read }}&category=action_required"
-         class="btn {% if filter_cat == 'action_required' %}btn-secondary{% else %}btn-outline{% endif %}"
-         style="font-size:.85rem; padding:.3rem .8rem; border-color:#b7770d; color:{% if filter_cat == 'action_required' %}#fff{% else %}#b7770d{% endif %}; background:{% if filter_cat == 'action_required' %}#b7770d{% else %}transparent{% endif %};">
+         class="{% if filter_cat == 'action_required' %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 transition-colors{% else %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-amber-500 text-amber-700 bg-white hover:bg-amber-50 transition-colors{% endif %}">
         Azioni richieste
       </a>
       <a href="?filter={{ filter_read }}&category=information"
-         class="btn {% if filter_cat == 'information' %}btn-secondary{% else %}btn-outline{% endif %}"
-         style="font-size:.85rem; padding:.3rem .8rem; border-color:#004085; color:{% if filter_cat == 'information' %}#fff{% else %}#004085{% endif %}; background:{% if filter_cat == 'information' %}#004085{% else %}transparent{% endif %};">
+         class="{% if filter_cat == 'information' %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-800 transition-colors{% else %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-brand-500 text-brand-700 bg-white hover:bg-brand-50 transition-colors{% endif %}">
         Informazioni
       </a>
     </div>
@@ -39,10 +35,10 @@
 
   <!-- Segna tutte come lette -->
   {% if unread_count > 0 %}
-  <form method="post" action="{% url 'notifications:mark_all_read' %}" style="margin-bottom:.75rem;">
+  <form method="post" action="{% url 'notifications:mark_all_read' %}" class="mb-3">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ request.get_full_path }}">
-    <button type="submit" class="btn btn-outline" style="font-size:.85rem; padding:.3rem .8rem;">
+    <button type="submit" class="btn-secondary btn-sm">
       Segna tutte come lette ({{ unread_count }})
     </button>
   </form>
@@ -50,39 +46,35 @@
 
   <!-- Lista notifiche -->
   {% if page_obj.object_list %}
-  <div style="display:flex; flex-direction:column; gap:.4rem;">
+  <div class="flex flex-col gap-2">
     {% for notification in page_obj %}
-    <div class="card" style="padding:.75rem 1rem; {% if not notification.is_read %}border-left:3px solid #1a3a5c;{% else %}border-left:3px solid transparent; opacity:.8;{% endif %} margin-bottom:0;">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">
-        <div style="flex:1; min-width:0;">
+    <div class="bg-white rounded-lg border {% if not notification.is_read %}border-l-4 border-l-brand-600 border-gray-200{% else %}border-gray-100 opacity-80{% endif %} px-4 py-3 shadow-sm">
+      <div class="flex justify-between items-start gap-4">
+        <div class="flex-1 min-w-0">
           {% if notification.category == 'action_required' %}
-          <span class="badge" style="background:#fff3cd; color:#856404; margin-bottom:.3rem;">Azione richiesta</span>
+          <span class="badge-status-in_approval mb-1 inline-block">Azione richiesta</span>
           {% else %}
-          <span class="badge" style="background:#cce5ff; color:#004085; margin-bottom:.3rem;">Info</span>
+          <span class="badge-status-draft mb-1 inline-block">Info</span>
           {% endif %}
-          {% if not notification.is_read %}<strong>{% endif %}
-          {{ notification.title }}
-          {% if not notification.is_read %}</strong>{% endif %}
+          <div class="text-sm {% if not notification.is_read %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}">
+            {{ notification.title }}
+          </div>
           {% if notification.message %}
-          <br><small class="meta">{{ notification.message }}</small>
+          <div class="text-xs text-gray-500 mt-0.5">{{ notification.message }}</div>
           {% endif %}
         </div>
-        <div style="text-align:right; flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; gap:.3rem;">
-          <small class="meta">{{ notification.created_at|timesince }} fa</small>
-          <div style="display:flex; gap:.3rem; flex-wrap:wrap; justify-content:flex-end;">
+        <div class="text-right flex-shrink-0 flex flex-col items-end gap-1.5">
+          <span class="text-xs text-gray-400">{{ notification.created_at|timesince }} fa</span>
+          <div class="flex gap-1.5 flex-wrap justify-end">
             {% if not notification.is_read %}
-            <form method="post" action="{% url 'notifications:mark_read' notification.pk %}" style="margin:0;">
+            <form method="post" action="{% url 'notifications:mark_read' notification.pk %}" class="m-0">
               {% csrf_token %}
               <input type="hidden" name="next" value="{{ request.get_full_path }}">
-              <button type="submit" class="btn btn-outline" style="font-size:.78rem; padding:.2rem .55rem;">
-                Segna letta
-              </button>
+              <button type="submit" class="btn-secondary btn-sm">Segna letta</button>
             </form>
             {% endif %}
             {% if notification.target_url %}
-            <a href="{{ notification.target_url }}" class="btn btn-primary" style="font-size:.78rem; padding:.2rem .55rem;">
-              Apri
-            </a>
+            <a href="{{ notification.target_url }}" class="btn-primary btn-sm">Apri</a>
             {% endif %}
           </div>
         </div>
@@ -93,7 +85,7 @@
 
   <!-- Paginazione -->
   {% if page_obj.has_other_pages %}
-  <nav class="pagination" style="margin-top:1rem;">
+  <nav class="pagination mt-4">
     {% if page_obj.has_previous %}
     <a href="?page={{ page_obj.previous_page_number }}&filter={{ filter_read }}&category={{ filter_cat }}">&laquo;</a>
     {% else %}
@@ -109,9 +101,12 @@
   {% endif %}
 
   {% else %}
-  <div class="card" style="text-align:center; padding:2rem 1rem; color:#888;">
-    <div style="font-size:2em; margin-bottom:.5rem;">🔕</div>
-    Nessuna notifica.
+  <div class="card">
+    <div class="empty-state">
+      <div class="empty-state-icon">🔕</div>
+      <div class="empty-state-title">Nessuna notifica</div>
+      <div class="empty-state-desc">Non ci sono notifiche al momento.</div>
+    </div>
   </div>
   {% endif %}
 </div>

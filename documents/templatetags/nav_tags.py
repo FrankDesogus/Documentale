@@ -3,12 +3,60 @@
 Fornisce helper leggeri per:
 - contatori badge (approvazioni pendenti, CCB, ECN, bozze)
 - controlli ruolo per mostrare/nascondere voci di menu
+- filtri status_label / status_badge_class per Tailwind
 
 MB1: is_staff NON concede bypass applicativo automatico.
 """
 from django import template
 
 register = template.Library()
+
+
+# ---------------------------------------------------------------------------
+# Filtri label e badge Tailwind — usati nei template per stati documento/ECN
+# ---------------------------------------------------------------------------
+
+_STATUS_LABELS = {
+    'draft': 'Bozza',
+    'in_approval': 'In approvazione',
+    'approved': 'Approvato',
+    'rejected': 'Rifiutato',
+    'superseded': 'Versione sostituita',
+    'archived': 'Archiviato',
+    # ECN
+    'ccb_preparation': 'Istruttoria CCB',
+    'under_review': 'In revisione CCB',
+    'closed': 'Chiusa',
+    # Approvatori
+    'pending': 'In attesa',
+    'cancelled': 'Annullato',
+}
+
+_BADGE_MAP = {
+    'draft': 'badge-status-draft',
+    'in_approval': 'badge-status-in_approval',
+    'approved': 'badge-status-approved',
+    'rejected': 'badge-status-rejected',
+    'superseded': 'badge-status-superseded',
+    'archived': 'badge-status-archived',
+    'ccb_preparation': 'badge-ecn-ccb_prep',
+    'under_review': 'badge-ecn-under_review',
+    'closed': 'badge-ecn-closed',
+    'pending': 'badge-status-in_approval',
+    'cancelled': 'badge-status-archived',
+}
+
+
+@register.filter
+def status_label(value):
+    """Restituisce l'etichetta leggibile per uno stato tecnico."""
+    return _STATUS_LABELS.get(str(value).lower(), value)
+
+
+@register.filter
+def status_badge_class(value):
+    """Restituisce la classe CSS Tailwind per il badge di stato."""
+    return _BADGE_MAP.get(str(value).lower(), 'badge-status-draft')
 
 
 # ---------------------------------------------------------------------------

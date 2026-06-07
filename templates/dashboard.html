@@ -1,70 +1,77 @@
 {% extends "base.html" %}
 {% load nav_tags %}
-{% block title %}Dashboard — Documentale{% endblock %}
+{% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<h1>Dashboard</h1>
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-brand-900 mb-1">Dashboard</h1>
+  <p class="text-sm text-gray-500">Benvenuto, {{ request.user.get_full_name|default:request.user.username }}</p>
+</div>
 
-<!-- ── Riquadri contatori ── -->
-<div class="dash-cards">
+<!-- ── KPI Cards ── -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
 
-  <a href="{% url 'my_drafts' %}" class="dash-card accent-amber">
-    <div class="dc-count">{{ draft_count|default:"0" }}</div>
-    <div class="dc-label">Le mie bozze</div>
-    <div class="dc-sub">In lavorazione</div>
+  <a href="{% url 'my_drafts' %}" class="kpi-card border-t-4 border-amber-400 no-underline">
+    <span class="kpi-icon">✏️</span>
+    <span class="kpi-value">{{ draft_count|default:"0" }}</span>
+    <span class="kpi-label">Le mie bozze</span>
+    <span class="text-xs text-gray-400">In lavorazione</span>
   </a>
 
-  <a href="{% url 'approval_queue' %}" class="dash-card accent-blue">
-    <div class="dc-count">{{ pending_count|default:"0" }}</div>
-    <div class="dc-label">Da approvare</div>
-    <div class="dc-sub">Documenti in attesa</div>
+  <a href="{% url 'approval_queue' %}" class="kpi-card border-t-4 border-brand-500 no-underline">
+    <span class="kpi-icon">✅</span>
+    <span class="kpi-value">{{ pending_count|default:"0" }}</span>
+    <span class="kpi-label">Da approvare</span>
+    <span class="text-xs text-gray-400">Documenti in attesa</span>
   </a>
 
-  <a href="{% url 'ecn:ecn_list' %}" class="dash-card accent-purple">
-    <div class="dc-count">{{ my_ecn_count|default:"0" }}</div>
-    <div class="dc-label">ECN aperte</div>
-    <div class="dc-sub">Proposte varianti</div>
+  <a href="{% url 'ecn:ecn_list' %}" class="kpi-card border-t-4 border-purple-400 no-underline">
+    <span class="kpi-icon">🔄</span>
+    <span class="kpi-value">{{ my_ecn_count|default:"0" }}</span>
+    <span class="kpi-label">ECN aperte</span>
+    <span class="text-xs text-gray-400">Proposte varianti</span>
   </a>
 
-  <a href="{% url 'workspace_my_work' %}" class="dash-card accent-red">
+  <a href="{% url 'workspace_my_work' %}" class="kpi-card border-t-4 border-red-400 no-underline">
+    <span class="kpi-icon">⚡</span>
     {% with tot=pending_count|add:pending_ccb_count|add:draft_count %}
-    <div class="dc-count">{{ tot|default:"0" }}</div>
-    <div class="dc-label">Attività in attesa</div>
-    <div class="dc-sub">
-      {% if tot %}Richiede attenzione{% else %}Tutto in ordine{% endif %}
-    </div>
+    <span class="kpi-value">{{ tot|default:"0" }}</span>
+    <span class="kpi-label">Attività in attesa</span>
+    <span class="text-xs text-gray-400">{% if tot %}Richiede attenzione{% else %}Tutto in ordine{% endif %}</span>
     {% endwith %}
   </a>
 
-  {% if pending_ccb_count %}
-  <a href="{% url 'workspace_my_work' %}" class="dash-card accent-blue">
-    <div class="dc-count">{{ pending_ccb_count }}</div>
-    <div class="dc-label">Decisioni CCB</div>
-    <div class="dc-sub">In attesa del tuo voto</div>
-  </a>
-  {% endif %}
-
 </div>
 
+{% if pending_ccb_count %}
+<div class="mb-6">
+  <a href="{% url 'workspace_my_work' %}" class="kpi-card border-t-4 border-sky-400 no-underline inline-flex items-center gap-3 px-5 py-3">
+    <span class="text-xl">🗳️</span>
+    <div>
+      <span class="kpi-value text-xl">{{ pending_ccb_count }}</span>
+      <span class="kpi-label ml-2">Decisioni CCB in attesa del tuo voto</span>
+    </div>
+  </a>
+</div>
+{% endif %}
+
 <!-- ── Esplora archivio ── -->
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
-  <h2 style="margin:0">Esplora archivio</h2>
-  <a href="{% url 'folder_list' %}" class="btn btn-outline" style="font-size:.85rem;padding:.3rem .75rem">Tutte le cartelle</a>
+<div class="flex items-center justify-between mb-3">
+  <h2 class="text-lg font-semibold text-brand-900">Esplora archivio</h2>
+  <a href="{% url 'folder_list' %}" class="btn-secondary btn-sm">Tutte le cartelle</a>
 </div>
 
 {% if explorer_folders %}
-<div class="folder-explorer" style="margin-bottom:2rem">
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
   {% for folder in explorer_folders %}
-  <a href="{% url 'folder_detail' folder.pk %}" class="folder-explorer-item">
-    <span class="fi">📁</span>
-    <div>
-      <div class="fn">{{ folder.name }}</div>
-      <div class="fm">
-        {{ folder.code }}
-        {% with sc=folder.subfolders.count %}
-        {% if sc %} · {{ sc }} sottocartell{% if sc == 1 %}a{% else %}e{% endif %}{% endif %}
-        {% endwith %}
-      </div>
+  <a href="{% url 'folder_detail' folder.pk %}" class="folder-tile no-underline">
+    <div class="folder-tile-icon">📁</div>
+    <div class="folder-tile-name">{{ folder.name }}</div>
+    <div class="folder-tile-meta">
+      {{ folder.code }}
+      {% with sc=folder.subfolders.count %}
+      {% if sc %} · {{ sc }} sottocartell{% if sc == 1 %}a{% else %}e{% endif %}{% endif %}
+      {% endwith %}
     </div>
   </a>
   {% endfor %}
@@ -78,33 +85,31 @@
 {% endif %}
 
 <!-- ── Link rapidi ── -->
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.75rem">
-  <a href="{% url 'document_list' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
-      <div style="font-size:1.6rem;margin-bottom:.3rem">📄</div>
-      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">Documenti approvati</div>
-    </div>
+<h2 class="text-lg font-semibold text-brand-900 mb-3">Accesso rapido</h2>
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+
+  <a href="{% url 'document_list' %}" class="folder-tile no-underline text-center">
+    <div class="text-2xl mb-2">📄</div>
+    <div class="folder-tile-name text-center">Documenti approvati</div>
   </a>
-  <a href="{% url 'project_list' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
-      <div style="font-size:1.6rem;margin-bottom:.3rem">🗂️</div>
-      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">Progetti</div>
-    </div>
+
+  <a href="{% url 'project_list' %}" class="folder-tile no-underline text-center">
+    <div class="text-2xl mb-2">🗂️</div>
+    <div class="folder-tile-name text-center">Progetti</div>
   </a>
-  <a href="{% url 'ecn:ecn_list' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
-      <div style="font-size:1.6rem;margin-bottom:.3rem">🔄</div>
-      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">ECN / Varianti</div>
-    </div>
+
+  <a href="{% url 'ecn:ecn_list' %}" class="folder-tile no-underline text-center">
+    <div class="text-2xl mb-2">🔄</div>
+    <div class="folder-tile-name text-center">ECN / Varianti</div>
   </a>
+
   {% user_can_quality_workspace user as dash_can_quality %}
   {% if dash_can_quality %}
-  <a href="{% url 'workspace_quality' %}" style="text-decoration:none">
-    <div class="card" style="text-align:center;cursor:pointer;padding:.9rem">
-      <div style="font-size:1.6rem;margin-bottom:.3rem">⚙️</div>
-      <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">Workspace Qualità</div>
-    </div>
+  <a href="{% url 'workspace_quality' %}" class="folder-tile no-underline text-center">
+    <div class="text-2xl mb-2">⚙️</div>
+    <div class="folder-tile-name text-center">Workspace Qualità</div>
   </a>
   {% endif %}
+
 </div>
 {% endblock %}
