@@ -1,0 +1,16 @@
+Gentile {{ coordinator.get_full_name|default:coordinator.username }},
+
+sei stato assegnato come Responsabile Istruttoria CCB per la seguente variante.
+
+Codice ECN : {{ change_notice.code }}
+Titolo     : {{ change_notice.title }}
+Documento  : {{ change_notice.document.code }} — {{ change_notice.document.title }}
+Proponente : {{ change_notice.proposed_by.get_full_name|default:change_notice.proposed_by.username }}
+Motivazione: {{ change_notice.get_motivation_display }}
+
+Il tuo compito è compilare il dossier istruttorio (classificazione variante, analisi
+requisiti, impatto tecnico/costi/tempi/qualità) prima dell'invio ai votanti CCB.
+
+Accedi al sistema documentale per procedere.
+
+Questo messaggio è generato automaticamente, non rispondere a questa email.

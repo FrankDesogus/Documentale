@@ -126,6 +126,17 @@ def approve_version(approval_request, approved_by, comment=""):
     if is_final:
         from notifications.services import send_version_approved_email
         send_version_approved_email(approval_request)
+    elif policy == Policy.SEQUENTIAL:
+        # SEQUENTIAL e non finale: notifica il prossimo approvatore pending
+        next_slot = (
+            approval_request.approvers
+            .filter(status=ApproverStatus.PENDING)
+            .order_by('order')
+            .first()
+        )
+        if next_slot:
+            from notifications.services import send_approval_request_email
+            send_approval_request_email(approval_request, next_slot.approver)
 
     return approval_request
 

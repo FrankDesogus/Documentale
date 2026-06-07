@@ -1,0 +1,14 @@
+Gentile {{ recipient.get_full_name|default:recipient.username }},
+
+l'ECN {{ change_notice.code }} «{{ change_notice.title }}» è stato eseguito:
+è stata creata la nuova revisione del documento.
+
+Documento  : {{ change_notice.document.code }} — {{ change_notice.document.title }}
+Revisione  : {% if change_notice.executed_version %}{{ change_notice.executed_version.revision_label }}{% else %}—{% endif %}
+Proponente : {{ change_notice.proposed_by.get_full_name|default:change_notice.proposed_by.username }}
+
+La nuova revisione è ora in bozza e deve essere inviata in approvazione.
+
+Accedi al sistema documentale per i dettagli.
+
+Questo messaggio è generato automaticamente, non rispondere a questa email.

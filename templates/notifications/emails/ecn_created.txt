@@ -1,0 +1,16 @@
+Gentile {{ recipient.get_full_name|default:recipient.username }},
+
+È stata proposta una nuova variante di controllo (ECN) sul documento che ti riguarda.
+
+Codice ECN : {{ change_notice.code }}
+Titolo     : {{ change_notice.title }}
+Documento  : {{ change_notice.document.code }} — {{ change_notice.document.title }}
+Proponente : {{ change_notice.proposed_by.get_full_name|default:change_notice.proposed_by.username }}
+Motivazione: {{ change_notice.get_motivation_display }}
+
+Descrizione:
+{{ change_notice.description }}
+
+Puoi consultare il dettaglio della pratica nel sistema documentale.
+
+Questo messaggio è generato automaticamente, non rispondere a questa email.
