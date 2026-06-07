@@ -2,88 +2,89 @@
 {% block title %}{{ project.code }} — {{ project.name }} — Documentale{% endblock %}
 
 {% block content %}
-
-{# Breadcrumb #}
-<p class="meta" style="margin-bottom:.5rem">
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
   <a href="{% url 'folder_list' %}">Archivio</a>
   {% if project.root_folder and project.root_folder.parent %}
-  &nbsp;/&nbsp;<a href="{% url 'folder_detail' project.root_folder.parent.pk %}">{{ project.root_folder.parent.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'folder_detail' project.root_folder.parent.pk %}">{{ project.root_folder.parent.name }}</a>
   {% endif %}
-  &nbsp;/&nbsp;<span style="color:#1a3a5c;font-weight:600">🗂️ {{ project.code }}</span>
-</p>
+  <span class="breadcrumb-sep">›</span>
+  <span>🗂️ {{ project.code }}</span>
+</nav>
 
-<h1>{{ project.code }} — {{ project.name }}</h1>
-
-{# Scheda progetto #}
-<div class="card" style="margin-bottom:1.25rem">
-  <dl class="dl-grid">
-    <dt>Tipo</dt>           <dd>{{ project.get_project_type_display }}</dd>
-    {% if project.manager %}
-    <dt>Responsabile</dt>   <dd>{{ project.manager.get_full_name|default:project.manager.username }}</dd>
-    {% endif %}
-    {% if project.root_folder and project.root_folder.parent %}
-    <dt>Cartella padre</dt> <dd><a href="{% url 'folder_detail' project.root_folder.parent.pk %}">{{ project.root_folder.parent.code }} – {{ project.root_folder.parent.name }}</a></dd>
-    {% endif %}
-    {% if project.description %}
-    <dt>Descrizione</dt>    <dd>{{ project.description }}</dd>
-    {% endif %}
-    <dt>Creato il</dt>      <dd>{{ project.created_at|date:"d/m/Y" }}</dd>
-  </dl>
-</div>
-
-{# Azioni principali #}
-<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem">
-  {% if project.root_folder and project.root_folder.parent %}
-  <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="btn btn-secondary" style="font-size:.88rem">← Cartella padre</a>
-  {% else %}
-  <a href="{% url 'project_list' %}" class="btn btn-secondary" style="font-size:.88rem">← Progetti</a>
-  {% endif %}
-  {% if can_manage %}
-  <a href="{% url 'project_edit' project.pk %}" class="btn btn-secondary" style="font-size:.88rem">Modifica progetto</a>
-  {% endif %}
-  {% if can_create_doc %}
-  <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary" style="font-size:.88rem">+ Nuovo documento</a>
-  {% endif %}
-  {% if can_manage and project.root_folder %}
-  <a href="{% url 'folder_create' %}?parent={{ project.root_folder.pk }}" class="btn btn-secondary" style="font-size:.88rem">+ Sottocartella</a>
-  {% endif %}
-</div>
-
-{# Sottocartelle della root folder #}
-{% if subfolders %}
-<h2 style="margin-bottom:.5rem">Struttura cartelle</h2>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:.65rem;margin-bottom:1.25rem">
-  {% for sub in subfolders %}
-  <a href="{% url 'folder_detail' sub.pk %}" style="text-decoration:none;color:inherit">
-    <div class="card" style="cursor:pointer;padding:.75rem 1rem;display:flex;align-items:center;gap:.6rem">
-      <span style="font-size:1.5rem;line-height:1">📁</span>
-      <div style="min-width:0">
-        <div style="font-weight:600;color:#1a3a5c;font-size:.92rem">{{ sub.name }}</div>
-        <div class="meta" style="font-size:.76rem">{{ sub.code }}</div>
-      </div>
+<!-- Header progetto -->
+<div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+  <div>
+    <div class="flex items-center gap-3 mb-1 flex-wrap">
+      <span class="text-2xl font-bold text-brand-900 font-mono">{{ project.code }}</span>
+      <span class="badge badge-project">Progetto</span>
+      <span class="meta text-xs">{{ project.get_project_type_display }}</span>
     </div>
+    <h1 class="text-xl font-semibold text-gray-800">{{ project.name }}</h1>
+    <div class="flex items-center gap-4 mt-2 text-sm text-gray-500 flex-wrap">
+      {% if project.manager %}<span>👤 {{ project.manager.get_full_name|default:project.manager.username }}</span>{% endif %}
+      {% if project.root_folder and project.root_folder.parent %}
+      <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="text-brand-600 hover:underline">📁 {{ project.root_folder.parent.code }} — {{ project.root_folder.parent.name }}</a>
+      {% endif %}
+      <span class="meta">Creato il {{ project.created_at|date:"d/m/Y" }}</span>
+    </div>
+    {% if project.description %}
+    <p class="text-sm text-gray-600 mt-2">{{ project.description }}</p>
+    {% endif %}
+  </div>
+
+  <!-- Azioni -->
+  <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
+    {% if project.root_folder and project.root_folder.parent %}
+    <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="btn-secondary btn-sm">← Cartella padre</a>
+    {% else %}
+    <a href="{% url 'project_list' %}" class="btn-secondary btn-sm">← Progetti</a>
+    {% endif %}
+    {% if can_manage %}
+    <a href="{% url 'project_edit' project.pk %}" class="btn-secondary btn-sm">Modifica</a>
+    {% endif %}
+    {% if can_create_doc %}
+    <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn-primary btn-sm">+ Nuovo documento</a>
+    {% endif %}
+    {% if can_manage and project.root_folder %}
+    <a href="{% url 'folder_create' %}?parent={{ project.root_folder.pk }}" class="btn-secondary btn-sm">+ Sottocartella</a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Struttura cartelle -->
+{% if subfolders %}
+<h2 class="section-title">Struttura cartelle</h2>
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+  {% for sub in subfolders %}
+  <a href="{% url 'folder_detail' sub.pk %}" class="folder-tile no-underline block">
+    <div class="folder-tile-icon">📁</div>
+    <div class="folder-tile-name">{{ sub.name }}</div>
+    <div class="folder-tile-meta">{{ sub.code }}</div>
   </a>
   {% endfor %}
 </div>
 {% endif %}
 
-{# Ricerca documenti progetto #}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;margin-top:1rem">
-  <h2 style="margin:0">Documenti</h2>
+<!-- Documenti del progetto -->
+<div class="flex items-center justify-between mb-3 mt-4">
+  <h2 class="section-title mb-0">Documenti</h2>
   {% if can_create_doc %}
-  <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn btn-primary" style="font-size:.85rem;padding:.3rem .75rem">+ Nuovo</a>
+  <a href="{% url 'document_new' %}?project={{ project.pk }}" class="btn-primary btn-sm">+ Nuovo</a>
   {% endif %}
 </div>
 
 {% if project.root_folder %}
-<form method="get" class="filter-bar" style="margin-bottom:1rem">
+<!-- Filtri documenti -->
+<form method="get" class="filter-bar">
   <div class="filter-group">
-    <label>Cerca</label>
-    <input type="text" name="q" value="{{ doc_q }}" placeholder="Codice, titolo, tipo…" style="min-width:180px">
+    <label class="form-label">Cerca</label>
+    <input type="text" name="q" value="{{ doc_q }}" placeholder="Codice, titolo, tipo…" class="min-w-[180px]">
   </div>
   {% if doc_type_choices %}
   <div class="filter-group">
-    <label>Tipo documento</label>
+    <label class="form-label">Tipo documento</label>
     <select name="document_type">
       <option value="">— tutti —</option>
       {% for dt in doc_type_choices %}
@@ -94,7 +95,7 @@
   {% endif %}
   {% if project_folder_choices|length > 1 %}
   <div class="filter-group">
-    <label>Cartella</label>
+    <label class="form-label">Cartella</label>
     <select name="folder">
       <option value="">— tutte —</option>
       {% for pf in project_folder_choices %}
@@ -104,63 +105,77 @@
   </div>
   {% endif %}
   <div class="filter-actions">
-    <button type="submit" class="btn btn-primary" style="font-size:.88rem;padding:.35rem .8rem">🔍 Cerca</button>
+    <button type="submit" class="btn-primary btn-sm">🔍 Cerca</button>
     {% if doc_q or doc_type_filter or doc_folder_filter %}
-    <a href="{% url 'project_detail' project.pk %}" class="btn btn-outline" style="font-size:.88rem;padding:.35rem .8rem">✕ Reset</a>
+    <a href="{% url 'project_detail' project.pk %}" class="btn-secondary btn-sm">✕ Reset</a>
     {% endif %}
   </div>
 </form>
 
 {% if doc_page_obj %}
-<p class="meta" style="margin-bottom:.5rem">{{ doc_page_obj.paginator.count }} document{% if doc_page_obj.paginator.count == 1 %}o{% else %}i{% endif %}{% if doc_q or doc_type_filter or doc_folder_filter %} (filtrati){% endif %}</p>
-<table>
-  <thead>
-    <tr>
+{% if doc_q or doc_type_filter or doc_folder_filter %}
+<p class="meta mb-2">{{ doc_page_obj.paginator.count }} document{% if doc_page_obj.paginator.count == 1 %}o{% else %}i{% endif %} (filtrati)</p>
+{% endif %}
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr>
       <th>Codice</th>
       <th>Titolo</th>
       <th>Cartella</th>
       <th>Tipo</th>
       <th>Revisione</th>
       <th>Stato</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for doc in doc_page_obj %}
-    <tr>
-      <td><strong>{{ doc.code }}</strong></td>
-      <td>{{ doc.title }}</td>
-      <td class="meta" style="font-size:.8rem">
-        {% if doc.project_folder and doc.project_folder.pk != project.root_folder.pk %}
-        {{ doc.project_folder.name }}
-        {% else %}
-        <span style="color:#aaa">root</span>
-        {% endif %}
-      </td>
-      <td class="meta" style="font-size:.8rem">{{ doc.document_type|default:"—" }}</td>
-      <td>{% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
-      <td>
-        {% if doc.current_version %}
-        <span class="badge badge-{{ doc.current_version.status }}">{{ doc.current_version.get_status_display }}</span>
-        {% else %}
-        <span class="meta">—</span>
-        {% endif %}
-      </td>
-      <td><a href="{% url 'document_detail' doc.pk %}" class="btn btn-primary" style="padding:.15rem .5rem;font-size:.82rem">Apri</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+      <th class="w-20"></th>
+    </tr></thead>
+    <tbody>
+      {% for doc in doc_page_obj %}
+      <tr>
+        <td class="font-mono font-semibold text-brand-800">{{ doc.code }}</td>
+        <td>{{ doc.title }}</td>
+        <td class="meta text-xs">
+          {% if doc.project_folder and doc.project_folder.pk != project.root_folder.pk %}
+          {{ doc.project_folder.name }}
+          {% else %}
+          <span class="text-gray-400">root</span>
+          {% endif %}
+        </td>
+        <td class="meta text-xs">{{ doc.document_type|default:"—" }}</td>
+        <td>{% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
+        <td>
+          {% if doc.current_version %}
+            {% with s=doc.current_version.status %}
+            {% if s == 'approved' %}<span class="badge-status-approved">Approvato</span>
+            {% elif s == 'draft' %}<span class="badge-status-draft">Bozza</span>
+            {% elif s == 'in_approval' %}<span class="badge-status-in_approval">In approvazione</span>
+            {% elif s == 'rejected' %}<span class="badge-status-rejected">Rifiutato</span>
+            {% elif s == 'superseded' %}<span class="badge-status-superseded">Superato</span>
+            {% else %}<span>{{ doc.current_version.get_status_display }}</span>
+            {% endif %}
+            {% endwith %}
+          {% else %}
+          <span class="meta">—</span>
+          {% endif %}
+        </td>
+        <td><a href="{% url 'document_detail' doc.pk %}" class="btn-primary btn-sm">Apri</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% include "_pagination.html" with page_obj=doc_page_obj %}
 {% else %}
 <div class="card">
-  <p class="meta">
-    {% if doc_q or doc_type_filter or doc_folder_filter %}
-    Nessun documento trovato per i filtri selezionati. <a href="{% url 'project_detail' project.pk %}">Mostra tutti</a>
-    {% else %}
-    Nessun documento nel progetto.
-    {% endif %}
-  </p>
+  <div class="empty-state">
+    <div class="empty-state-icon">📄</div>
+    <div class="empty-state-title">Nessun documento trovato</div>
+    <div class="empty-state-desc">
+      {% if doc_q or doc_type_filter or doc_folder_filter %}
+      Nessun documento per i filtri selezionati. <a href="{% url 'project_detail' project.pk %}" class="text-brand-600 hover:underline">Mostra tutti</a>
+      {% else %}
+      Nessun documento nel progetto.
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endif %}
 
@@ -170,127 +185,156 @@
 </div>
 {% endif %}
 
-{# ECN collegati #}
+<!-- ECN collegati -->
 {% if project_ecns %}
-<h2 style="margin-top:1.75rem;margin-bottom:.5rem">ECN / Varianti collegate</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Codice</th><th>Titolo</th><th>Documento</th><th>Stato</th><th>Data</th><th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for ecn in project_ecns %}
-    <tr>
-      <td><strong>{{ ecn.code }}</strong></td>
-      <td>{{ ecn.title }}</td>
-      <td><a href="{% url 'document_detail' ecn.document_id %}">{{ ecn.document.code }}</a></td>
-      <td><span class="badge badge-{{ ecn.status }}">
-        {% if ecn.status == 'ccb_preparation' %}Istruttoria CCB
-        {% elif ecn.status == 'under_review' %}In revisione CCB
-        {% else %}{{ ecn.get_status_display }}{% endif %}
-      </span></td>
-      <td class="meta" style="white-space:nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
-      <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<h2 class="section-title mt-8">ECN / Varianti collegate</h2>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr>
+      <th>Codice</th>
+      <th>Titolo</th>
+      <th>Documento</th>
+      <th>Stato</th>
+      <th>Data</th>
+      <th class="w-20"></th>
+    </tr></thead>
+    <tbody>
+      {% for ecn in project_ecns %}
+      <tr>
+        <td class="font-mono font-semibold text-brand-800">{{ ecn.code }}</td>
+        <td>{{ ecn.title }}</td>
+        <td><a href="{% url 'document_detail' ecn.document_id %}" class="text-brand-600 hover:underline">{{ ecn.document.code }}</a></td>
+        <td>
+          {% if ecn.status == 'draft' %}<span class="badge-ecn-draft">Bozza</span>
+          {% elif ecn.status == 'ccb_preparation' %}<span class="badge-ecn-ccb_prep">Istruttoria CCB</span>
+          {% elif ecn.status == 'under_review' %}<span class="badge-ecn-under_review">In revisione CCB</span>
+          {% elif ecn.status == 'approved' %}<span class="badge-ecn-approved">Approvata</span>
+          {% elif ecn.status == 'rejected' %}<span class="badge-ecn-rejected">Rifiutata</span>
+          {% elif ecn.status == 'closed' %}<span class="badge-ecn-closed">Chiusa</span>
+          {% else %}<span>{{ ecn.get_status_display }}</span>
+          {% endif %}
+        </td>
+        <td class="meta whitespace-nowrap">{{ ecn.proposed_at|date:"d/m/Y" }}</td>
+        <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary btn-sm">Apri</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 
-{# Baseline #}
-<h2 style="margin-top:1.75rem">Baseline progetto</h2>
-<p class="meta">Fotografia documentale in un momento specifico. Le modifiche successive non aggiornano la baseline corrente.</p>
+<!-- Baseline progetto -->
+<h2 class="section-title mt-8">Baseline progetto</h2>
+<p class="meta mb-3">Fotografia documentale in un momento specifico. Le modifiche successive non aggiornano la baseline corrente.</p>
 {% if can_manage %}
-<p style="margin-bottom:1rem"><a href="{% url 'project_revision_create' project.pk %}" class="btn btn-primary" style="font-size:.88rem">Congela stato corrente</a></p>
+<div class="mb-4">
+  <a href="{% url 'project_revision_create' project.pk %}" class="btn-primary btn-sm">Congela stato corrente</a>
+</div>
 {% endif %}
 
 {% if revisions %}
-<table>
-  <thead>
-    <tr>
-      <th>Etichetta</th><th>Titolo</th><th>Stato</th><th>Corrente</th><th>Emessa il</th><th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for rev in revisions %}
-    <tr>
-      <td><strong>{{ rev.revision_label }}</strong></td>
-      <td>{{ rev.title }}</td>
-      <td>
-        {% if rev.status == 'draft' %}<span class="badge badge-draft">Bozza</span>
-        {% elif rev.status == 'issued' %}<span class="badge badge-active">Emessa</span>
-        {% elif rev.status == 'superseded' %}<span class="badge badge-superseded">Superata</span>
-        {% elif rev.status == 'archived' %}<span class="badge badge-archived">Archiviata</span>
-        {% endif %}
-      </td>
-      <td>{% if rev.is_current %}✓{% endif %}</td>
-      <td>{{ rev.issued_at|date:"d/m/Y"|default:"—" }}</td>
-      <td><a href="{% url 'project_revision_detail' rev.pk %}" class="btn btn-secondary" style="padding:.15rem .5rem;font-size:.8rem">Apri</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr>
+      <th>Etichetta</th>
+      <th>Titolo</th>
+      <th>Stato</th>
+      <th>Corrente</th>
+      <th>Emessa il</th>
+      <th class="w-20"></th>
+    </tr></thead>
+    <tbody>
+      {% for rev in revisions %}
+      <tr>
+        <td class="font-mono font-semibold">{{ rev.revision_label }}</td>
+        <td>{{ rev.title }}</td>
+        <td>
+          {% if rev.status == 'draft' %}<span class="badge-status-draft">Bozza</span>
+          {% elif rev.status == 'issued' %}<span class="badge-status-approved">Emessa</span>
+          {% elif rev.status == 'superseded' %}<span class="badge-status-superseded">Superata</span>
+          {% elif rev.status == 'archived' %}<span class="badge-status-archived">Archiviata</span>
+          {% else %}<span>{{ rev.status }}</span>
+          {% endif %}
+        </td>
+        <td>{% if rev.is_current %}<span class="text-green-600 font-semibold">✔</span>{% endif %}</td>
+        <td class="meta whitespace-nowrap">{{ rev.issued_at|date:"d/m/Y"|default:"—" }}</td>
+        <td><a href="{% url 'project_revision_detail' rev.pk %}" class="btn-secondary btn-sm">Apri</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
 <p class="meta">Nessuna baseline creata per questo progetto.</p>
 {% endif %}
 
-{# Confronto baseline corrente #}
+<!-- Confronto baseline corrente -->
 {% if current_baseline %}
-<h2 style="margin-top:1.5rem">Confronto con baseline corrente</h2>
-<p class="meta">Baseline corrente: <strong>{{ current_baseline.revision_label }}</strong> — {{ current_baseline.title }}{% if current_baseline.issued_at %} ({{ current_baseline.issued_at|date:"d/m/Y" }}){% endif %}</p>
+<h2 class="section-title mt-8">Confronto con baseline corrente</h2>
+<div class="alert-info mb-4">
+  Baseline corrente: <strong>{{ current_baseline.revision_label }}</strong> — {{ current_baseline.title }}{% if current_baseline.issued_at %} ({{ current_baseline.issued_at|date:"d/m/Y" }}){% endif %}
+</div>
 {% if comparison_rows %}
-<table>
-  <thead>
-    <tr>
-      <th>Documento</th><th>Revisione corrente</th><th>Revisione baseline</th><th>Stato</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in comparison_rows %}
-    <tr>
-      <td>
-        {% if row.document %}<a href="{% url 'document_detail' row.document.pk %}">{{ row.document.code }}</a>
-        <span class="meta" style="display:block;font-size:.8rem">{{ row.document.title }}</span>
-        {% else %}—{% endif %}
-      </td>
-      <td>{% if row.current_version %}Rev. {{ row.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
-      <td>{% if row.baseline_version %}Rev. {{ row.baseline_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
-      <td>
-        {% if row.status == 'aligned' %}<span class="badge badge-approved">{{ row.status_label }}</span>
-        {% elif row.status == 'changed' %}<span class="badge badge-draft">{{ row.status_label }}</span>
-        {% elif row.status == 'new' %}<span class="badge badge-in_approval">{{ row.status_label }}</span>
-        {% elif row.status == 'missing' %}<span class="badge badge-rejected">{{ row.status_label }}</span>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr>
+      <th>Documento</th>
+      <th>Revisione corrente</th>
+      <th>Revisione baseline</th>
+      <th>Stato</th>
+    </tr></thead>
+    <tbody>
+      {% for row in comparison_rows %}
+      <tr>
+        <td>
+          {% if row.document %}
+          <a href="{% url 'document_detail' row.document.pk %}" class="text-brand-600 hover:underline font-mono font-semibold">{{ row.document.code }}</a>
+          <div class="text-xs text-gray-500">{{ row.document.title }}</div>
+          {% else %}—{% endif %}
+        </td>
+        <td>{% if row.current_version %}Rev. {{ row.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
+        <td>{% if row.baseline_version %}Rev. {{ row.baseline_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
+        <td>
+          {% if row.status == 'aligned' %}<span class="badge-status-approved">{{ row.status_label }}</span>
+          {% elif row.status == 'changed' %}<span class="badge-status-draft">{{ row.status_label }}</span>
+          {% elif row.status == 'new' %}<span class="badge-status-in_approval">{{ row.status_label }}</span>
+          {% elif row.status == 'missing' %}<span class="badge-status-rejected">{{ row.status_label }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
 <p class="meta">Nessun documento approvato trovato nelle cartelle del progetto.</p>
 {% endif %}
 {% endif %}
 
-{# Storico eventi #}
+<!-- Storico eventi -->
 {% if show_audit %}
-<h2 style="margin-top:1.75rem">Storico eventi</h2>
+<h2 class="section-title mt-8">Storico eventi</h2>
 {% if audit_logs %}
-<table>
-  <thead>
-    <tr><th>Data/ora</th><th>Utente</th><th>Azione</th><th>Oggetto</th></tr>
-  </thead>
-  <tbody>
-    {% for entry in audit_logs %}
-    <tr>
-      <td class="meta" style="white-space:nowrap">{{ entry.timestamp|date:"d/m/Y H:i" }}</td>
-      <td>{% if entry.user %}{{ entry.user.get_full_name|default:entry.user.username }}{% else %}—{% endif %}</td>
-      <td><code style="font-size:.82rem">{{ entry.action }}</code></td>
-      <td class="meta" style="font-size:.82rem">{{ entry.object_repr }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-container">
+  <table class="data-table">
+    <thead><tr>
+      <th>Data/ora</th>
+      <th>Utente</th>
+      <th>Azione</th>
+      <th>Oggetto</th>
+    </tr></thead>
+    <tbody>
+      {% for entry in audit_logs %}
+      <tr>
+        <td class="meta whitespace-nowrap">{{ entry.timestamp|date:"d/m/Y H:i" }}</td>
+        <td>{% if entry.user %}{{ entry.user.get_full_name|default:entry.user.username }}{% else %}—{% endif %}</td>
+        <td><code class="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">{{ entry.action }}</code></td>
+        <td class="meta text-xs">{{ entry.object_repr }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
 <p class="meta">Nessun evento registrato per questo progetto.</p>
 {% endif %}

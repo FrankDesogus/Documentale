@@ -2,109 +2,205 @@
 {% block title %}Decisione CCB — {{ ecn.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
-</p>
-<h1>Decisione CCB — {{ ecn.code }}</h1>
-<p class="meta">{{ ecn.title }}</p>
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'ecn:ecn_list' %}">ECN / Varianti</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Decisione CCB</span>
+</nav>
 
-{# Dossier in sola lettura #}
-<div class="card" style="margin-bottom:1rem">
-  <h2 style="font-size:1rem;margin:0 0 .75rem">Dossier istruttorio (sola lettura)</h2>
-  <dl class="dl-grid">
-    <dt>Documento</dt>          <dd>{{ ecn.document.code }} — {{ ecn.document.title }}</dd>
-    <dt>Rev. riferimento</dt>   <dd>Rev. {{ ecn.document_version.revision_label }}</dd>
-    <dt>Proponente</dt>         <dd>{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</dd>
-    <dt>Categoria motivazione</dt><dd>{{ ecn.get_motivation_display }}</dd>
-    {% if ecn.motivation_detail %}
-    <dt>Motivazione</dt>        <dd style="white-space:pre-wrap">{{ ecn.motivation_detail }}</dd>
-    {% endif %}
-    {% if ecn.description %}
-    <dt>Descrizione modifica</dt><dd style="white-space:pre-wrap">{{ ecn.description }}</dd>
-    {% endif %}
-    {% if ecn.ccb_class %}
-    <dt>Classificazione</dt>    <dd>{{ ecn.get_ccb_class_display }}</dd>
-    {% endif %}
-    {% if ecn.ccb_requirements %}
-    <dt>Analisi requisiti</dt>  <dd style="white-space:pre-wrap">{{ ecn.ccb_requirements }}</dd>
-    {% endif %}
-    {% if ecn.ccb_technical_impact %}
-    <dt>Impatto tecnico</dt>    <dd style="white-space:pre-wrap">{{ ecn.ccb_technical_impact }}</dd>
-    {% endif %}
-    {% if ecn.ccb_cost_impact %}
-    <dt>Impatto costi</dt>      <dd style="white-space:pre-wrap">{{ ecn.ccb_cost_impact }}</dd>
-    {% endif %}
-    {% if ecn.ccb_time_impact %}
-    <dt>Impatto tempi</dt>      <dd style="white-space:pre-wrap">{{ ecn.ccb_time_impact }}</dd>
-    {% endif %}
-    {% if ecn.ccb_quality_impact %}
-    <dt>Impatto qualità</dt>    <dd style="white-space:pre-wrap">{{ ecn.ccb_quality_impact }}</dd>
-    {% endif %}
-    {% if ecn.ccb_other_impact %}
-    <dt>Impatto altri doc.</dt> <dd style="white-space:pre-wrap">{{ ecn.ccb_other_impact }}</dd>
-    {% endif %}
-    {% if ecn.ccb_notes %}
-    <dt>Note CCB</dt>           <dd style="white-space:pre-wrap">{{ ecn.ccb_notes }}</dd>
-    {% endif %}
-  </dl>
+<div class="page-header">
+  <h1>Decisione CCB — {{ ecn.code }}</h1>
+  <p class="page-header-sub">{{ ecn.title }}</p>
 </div>
 
-{# Componenti CCB e policy #}
+<!-- Box prossima azione -->
+<div class="next-action-box mb-4">
+  <div class="next-action-box-title">La tua decisione CCB è richiesta</div>
+  <p class="next-action-box-text">Esamina il dossier istruttorio e esprimi il tuo voto. Il tuo voto sarà registrato nell'audit trail.</p>
+</div>
+
+<!-- Dossier (sola lettura) -->
+<div class="card mb-4">
+  <div class="card-header">
+    <h2 class="section-title mb-0">Dossier istruttorio</h2>
+  </div>
+  <div class="detail-grid">
+    <div class="detail-item">
+      <span class="detail-label">Documento</span>
+      <span class="detail-value">{{ ecn.document.code }} — {{ ecn.document.title }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Revisione di riferimento</span>
+      <span class="detail-value">Rev. {{ ecn.document_version.revision_label }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Proponente</span>
+      <span class="detail-value">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Categoria motivazione</span>
+      <span class="detail-value">{{ ecn.get_motivation_display }}</span>
+    </div>
+    {% if ecn.ccb_class %}
+    <div class="detail-item">
+      <span class="detail-label">Classificazione variante</span>
+      <span class="detail-value">{{ ecn.get_ccb_class_display }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.motivation_detail %}
+    <div class="detail-item md:col-span-2">
+      <span class="detail-label">Motivazione</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.motivation_detail }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.description %}
+    <div class="detail-item md:col-span-2">
+      <span class="detail-label">Descrizione modifica</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.description }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.ccb_requirements %}
+    <div class="detail-item md:col-span-2">
+      <span class="detail-label">Analisi requisiti</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.ccb_requirements }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.ccb_technical_impact %}
+    <div class="detail-item md:col-span-2">
+      <span class="detail-label">Impatto tecnico</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.ccb_technical_impact }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.ccb_cost_impact %}
+    <div class="detail-item">
+      <span class="detail-label">Impatto costi</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.ccb_cost_impact }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.ccb_time_impact %}
+    <div class="detail-item">
+      <span class="detail-label">Impatto tempi</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.ccb_time_impact }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.ccb_quality_impact %}
+    <div class="detail-item">
+      <span class="detail-label">Impatto qualità</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.ccb_quality_impact }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.ccb_other_impact %}
+    <div class="detail-item">
+      <span class="detail-label">Impatto altri documenti</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.ccb_other_impact }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.ccb_notes %}
+    <div class="detail-item md:col-span-2">
+      <span class="detail-label">Note CCB</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.ccb_notes }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Componenti CCB e policy -->
 {% if approvers %}
-<div class="card" style="margin-bottom:1rem">
-  <dl class="dl-grid" style="margin-bottom:.5rem">
-    <dt>Policy CCB</dt><dd>{{ ecn.get_ccb_policy_display }}</dd>
-  </dl>
-  <strong style="font-size:.9rem">Componenti CCB</strong>
-  <ul style="margin:.35rem 0 0 1.2rem;font-size:.9rem">
+<div class="card mb-4">
+  <div class="card-header">
+    <h2 class="section-title mb-0">Composizione CCB</h2>
+  </div>
+  <div class="flex items-center gap-2 mb-3">
+    <span class="detail-label">Policy:</span>
+    <span class="text-sm font-semibold text-gray-700">
+      {% if ecn.ccb_policy == 'any' %}Basta un voto (ANY)
+      {% elif ecn.ccb_policy == 'all' %}Tutti devono approvare (ALL)
+      {% elif ecn.ccb_policy == 'sequential' %}Voto in ordine (SEQUENTIAL)
+      {% else %}{{ ecn.get_ccb_policy_display }}
+      {% endif %}
+    </span>
+  </div>
+  <ul class="space-y-1">
     {% for app in approvers %}
-    <li>{{ app.order }}. {{ app.user.get_full_name|default:app.user.username }}</li>
+    <li class="flex items-center gap-2 text-sm text-gray-700">
+      <span class="w-6 text-center text-gray-400 font-mono">{{ app.order }}.</span>
+      <span>{{ app.user.get_full_name|default:app.user.username }}</span>
+    </li>
     {% endfor %}
   </ul>
 </div>
 {% endif %}
 
-{# Form decisione #}
+<!-- Form decisione -->
 <form method="post">
   {% csrf_token %}
 
-  <div class="card">
-    <fieldset>
-      <legend>Decisione *</legend>
-      <div style="margin-bottom:1rem">
-        {% for radio in form.action %}
-        <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;font-weight:normal">
-          {{ radio.tag }} {{ radio.choice_label }}
-        </label>
-        {% endfor %}
-        {% if form.action.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.action.errors.as_text }}</p>
-        {% endif %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- Approva -->
+    <div class="card border-green-200">
+      <h3 class="text-base font-semibold text-green-700 mb-3">✔ Approva ECN</h3>
+      <div class="form-group">
+        <label class="form-label" for="id_decision_approve">Decisione <span class="text-red-500">*</span></label>
+        <div class="space-y-2">
+          {% for radio in form.action %}
+          {% if radio.data.value == 'approve' %}
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            {{ radio.tag }}
+            <span class="font-medium text-green-700">{{ radio.choice_label }}</span>
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
       </div>
-    </fieldset>
+    </div>
 
-    <fieldset>
-      <legend>Commento e motivazione</legend>
-      <div style="margin-bottom:1rem">
-        <label for="id_comment">{{ form.comment.label }}</label>
-        {{ form.comment }}
-        <p class="meta" style="margin:.2rem 0 0">{{ form.comment.help_text }}</p>
-        {% if form.comment.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.comment.errors.as_text }}</p>
-        {% endif %}
+    <!-- Rifiuta -->
+    <div class="card border-red-200">
+      <h3 class="text-base font-semibold text-red-700 mb-3">✖ Rifiuta ECN</h3>
+      <div class="form-group">
+        <div class="space-y-2">
+          {% for radio in form.action %}
+          {% if radio.data.value == 'reject' %}
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            {{ radio.tag }}
+            <span class="font-medium text-red-700">{{ radio.choice_label }}</span>
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
       </div>
-      <div style="margin-bottom:1rem">
-        <label for="id_ccb_notes">{{ form.ccb_notes.label }}</label>
-        {{ form.ccb_notes }}
-        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_notes.help_text }}</p>
-        {% if form.ccb_notes.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_notes.errors.as_text }}</p>
-        {% endif %}
-      </div>
-    </fieldset>
+    </div>
   </div>
 
-  <button type="submit" class="btn btn-primary">Conferma decisione</button>
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  {% if form.action.errors %}
+  <p class="form-error mb-4">{{ form.action.errors.as_text }}</p>
+  {% endif %}
+
+  <!-- Commento e note -->
+  <div class="form-section mt-4">
+    <div class="form-section-title">Commento e motivazione</div>
+
+    <div class="form-group">
+      <label class="form-label" for="id_comment">{{ form.comment.label }}</label>
+      {{ form.comment }}
+      {% if form.comment.help_text %}<p class="form-help">{{ form.comment.help_text }}</p>{% endif %}
+      {% if form.comment.errors %}<p class="form-error">{{ form.comment.errors.as_text }}</p>{% endif %}
+    </div>
+
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_ccb_notes">{{ form.ccb_notes.label }}</label>
+      {{ form.ccb_notes }}
+      {% if form.ccb_notes.help_text %}<p class="form-help">{{ form.ccb_notes.help_text }}</p>{% endif %}
+      {% if form.ccb_notes.errors %}<p class="form-error">{{ form.ccb_notes.errors.as_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Conferma decisione</button>
+    <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 {% endblock %}

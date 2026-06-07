@@ -2,74 +2,101 @@
 {% block title %}Nuovo documento — Documentale{% endblock %}
 
 {% block content %}
-{% if from_project %}
-<p class="meta"><a href="{% url 'project_detail' from_project.pk %}">← {{ from_project.code }} — {{ from_project.name }}</a></p>
-<h1>Nuovo documento in {{ from_project.code }}</h1>
-<div class="card" style="margin-bottom:1rem">
-  <p class="meta" style="margin:0">Il documento sarà creato nella cartella radice <strong>{{ from_project.root_folder }}</strong> del progetto.</p>
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  {% if from_project %}
+  <a href="{% url 'project_detail' from_project.pk %}">{{ from_project.code }} — {{ from_project.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  {% else %}
+  <a href="{% url 'dashboard' %}">Dashboard</a>
+  <span class="breadcrumb-sep">›</span>
+  {% endif %}
+  <span>Nuovo documento</span>
+</nav>
+
+<div class="page-header">
+  <h1>{% if from_project %}Nuovo documento in {{ from_project.code }}{% else %}Nuovo documento{% endif %}</h1>
 </div>
-{% else %}
-<p class="meta"><a href="{% url 'dashboard' %}">← Dashboard</a></p>
-<h1>Nuovo documento</h1>
+
+{% if from_project %}
+<div class="alert-info mb-4">
+  Il documento sarà creato nella cartella radice <strong>{{ from_project.root_folder }}</strong> del progetto.
+</div>
 {% endif %}
 
 <form method="post" action="{% url 'document_new' %}{% if from_project %}?project={{ from_project.pk }}{% endif %}" enctype="multipart/form-data">
   {% csrf_token %}
 
-  <div class="card" style="margin-bottom:1rem">
-    <h2 style="margin-top:0">Dati documento</h2>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+  <!-- Sezione: Informazioni documento -->
+  <div class="form-section">
+    <div class="form-section-title">Informazioni documento</div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       {% for field in form %}
-        {% if field.name in "code,title,category,document_type,project_folder" %}
-        <div {% if field.name == "title" %}style="grid-column:span 2"{% endif %}>
-          <label for="{{ field.id_for_label }}">
-            {{ field.label }}{% if field.field.required %} <span style="color:#dc3545">*</span>{% endif %}
+        {% if field.name == 'code' or field.name == 'category' or field.name == 'document_type' or field.name == 'project_folder' %}
+        <div class="form-group mb-0">
+          <label class="form-label" for="{{ field.id_for_label }}">
+            {{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}
           </label>
           {{ field }}
-          {% if field.help_text %}<div class="meta" style="margin-top:.2rem">{{ field.help_text }}</div>{% endif %}
-          {% for error in field.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+          {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
         </div>
         {% endif %}
       {% endfor %}
-      <div style="grid-column:span 2">
-        <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
-        {{ form.description }}
-        {% for error in form.description.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+      <!-- Titolo — full width -->
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.title.id_for_label }}">
+          {{ form.title.label }}{% if form.title.field.required %} <span class="text-red-500">*</span>{% endif %}
+        </label>
+        {{ form.title }}
+        {% if form.title.help_text %}<p class="form-help">{{ form.title.help_text }}</p>{% endif %}
+        {% for error in form.title.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
+      <!-- Descrizione — full width -->
+      {% if form.description %}
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+        {{ form.description }}
+        {% for error in form.description.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:1rem">
-    <h2 style="margin-top:0">Prima revisione</h2>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-      <div>
-        <label for="{{ form.revision_label.id_for_label }}">
-          {{ form.revision_label.label }} <span style="color:#dc3545">*</span>
+  <!-- Sezione: Prima revisione -->
+  <div class="form-section">
+    <div class="form-section-title">Prima revisione</div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_label.id_for_label }}">
+          {{ form.revision_label.label }} <span class="text-red-500">*</span>
         </label>
         {{ form.revision_label }}
-        {% if form.revision_label.help_text %}<div class="meta">{{ form.revision_label.help_text }}</div>{% endif %}
-        {% for error in form.revision_label.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+        {% if form.revision_label.help_text %}<p class="form-help">{{ form.revision_label.help_text }}</p>{% endif %}
+        {% for error in form.revision_label.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
-      <div>
-        <label for="{{ form.revision_number.id_for_label }}">
-          {{ form.revision_number.label }} <span style="color:#dc3545">*</span>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_number.id_for_label }}">
+          {{ form.revision_number.label }} <span class="text-red-500">*</span>
         </label>
         {{ form.revision_number }}
-        {% for error in form.revision_number.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+        {% for error in form.revision_number.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
-      <div style="grid-column:span 2">
-        <label for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
         {{ form.change_summary }}
       </div>
-      <div style="grid-column:span 2">
-        <label for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
         {{ form.file }}
-        {% for error in form.file.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+        {% for error in form.file.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
     </div>
   </div>
 
-  <button type="submit" class="btn btn-primary">Crea documento e prima bozza</button>
-  <a href="{% url 'dashboard' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Crea documento e prima bozza</button>
+    <a href="{% if from_project %}{% url 'project_detail' from_project.pk %}{% else %}{% url 'dashboard' %}{% endif %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 {% endblock %}

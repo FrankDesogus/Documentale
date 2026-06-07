@@ -22,7 +22,14 @@
     {% if approval_request.due_date %}
     <dt>Scadenza</dt>     <dd>{{ approval_request.due_date|date:"d/m/Y" }}</dd>
     {% endif %}
-    <dt>Modalità</dt>     <dd>{{ approval_request.get_approval_policy_display }}</dd>
+    <dt>Modalità</dt>
+    <dd>
+      {% if approval_request.approval_policy == 'any' %}Basta un voto (ANY)
+      {% elif approval_request.approval_policy == 'all' %}Tutti devono approvare (ALL)
+      {% elif approval_request.approval_policy == 'sequential' %}Voto sequenziale (SEQUENTIAL)
+      {% else %}{{ approval_request.get_approval_policy_display }}
+      {% endif %}
+    </dd>
     <dt>Stato richiesta</dt>
     <dd>
       {% if approval_request.status == 'PENDING' %}
@@ -101,9 +108,10 @@
   </table>
 </div>
 {% if next_approver and approval_request.status == 'PENDING' %}
-<p class="meta mb-4">
-  Prossimo approvatore atteso: <strong>{{ next_approver.get_full_name|default:next_approver.username }}</strong>
-</p>
+<div class="next-action-box mb-4">
+  <div class="next-action-box-title">In attesa di</div>
+  <p class="next-action-box-text">{{ next_approver.get_full_name|default:next_approver.username }}</p>
+</div>
 {% endif %}
 {% endif %}
 
