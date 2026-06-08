@@ -224,20 +224,25 @@
 </div>
 {% endif %}
 
-<!-- Baseline progetto -->
-<h2 class="section-title mt-8">Baseline progetto</h2>
-<p class="meta mb-3">Fotografia documentale in un momento specifico. Le modifiche successive non aggiornano la baseline corrente.</p>
-{% if can_manage %}
-<div class="mb-4">
-  <a href="{% url 'project_revision_create' project.pk %}" class="btn-primary btn-sm">Congela stato corrente</a>
+<!-- Storico progetto -->
+<div class="flex items-center justify-between mb-2 mt-8 gap-4 flex-wrap">
+  <h2 class="section-title mb-0">Storico progetto</h2>
+  {% if can_manage %}
+  <div class="flex gap-2 flex-wrap">
+    <a href="{{ save_version_url }}" class="btn-primary btn-sm">Salva versione</a>
+    <a href="{{ save_revision_url }}" class="btn-secondary btn-sm">Salva revisione</a>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
+<p class="meta mb-5">Fotografia documentale in un momento specifico. Le modifiche successive non aggiornano gli snapshot salvati.</p>
 
-{% if revisions %}
-<div class="table-container">
+<!-- Versioni salvate -->
+<h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">Versioni salvate</h3>
+{% if version_snapshots %}
+<div class="table-container mb-6">
   <table class="data-table">
     <thead><tr>
-      <th>Etichetta</th>
+      <th>Versione</th>
       <th>Titolo</th>
       <th>Stato</th>
       <th>Corrente</th>
@@ -245,35 +250,73 @@
       <th class="w-20"></th>
     </tr></thead>
     <tbody>
-      {% for rev in revisions %}
+      {% for snap in version_snapshots %}
       <tr>
-        <td class="font-mono font-semibold">{{ rev.revision_label }}</td>
-        <td>{{ rev.title }}</td>
+        <td class="font-mono font-semibold">{{ snap.revision_label }}</td>
+        <td>{{ snap.title }}</td>
         <td>
-          {% if rev.status == 'draft' %}<span class="badge-status-draft">Bozza</span>
-          {% elif rev.status == 'issued' %}<span class="badge-status-approved">Emessa</span>
-          {% elif rev.status == 'superseded' %}<span class="badge-status-superseded">Superata</span>
-          {% elif rev.status == 'archived' %}<span class="badge-status-archived">Archiviata</span>
-          {% else %}<span>{{ rev.status }}</span>
+          {% if snap.status == 'draft' %}<span class="badge-status-draft">Bozza</span>
+          {% elif snap.status == 'issued' %}<span class="badge-status-approved">Emessa</span>
+          {% elif snap.status == 'superseded' %}<span class="badge-status-superseded">Superata</span>
+          {% elif snap.status == 'archived' %}<span class="badge-status-archived">Archiviata</span>
+          {% else %}<span>{{ snap.status }}</span>
           {% endif %}
         </td>
-        <td>{% if rev.is_current %}<span class="text-green-600 font-semibold">✔</span>{% endif %}</td>
-        <td class="meta whitespace-nowrap">{{ rev.issued_at|date:"d/m/Y"|default:"—" }}</td>
-        <td><a href="{% url 'project_revision_detail' rev.pk %}" class="btn-secondary btn-sm">Apri</a></td>
+        <td>{% if snap.is_current %}<span class="text-green-600 font-semibold">✔</span>{% endif %}</td>
+        <td class="meta whitespace-nowrap">{{ snap.issued_at|date:"d/m/Y"|default:"—" }}</td>
+        <td><a href="{% url 'project_revision_detail' snap.pk %}" class="btn-secondary btn-sm">Apri</a></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% else %}
-<p class="meta">Nessuna baseline creata per questo progetto.</p>
+<p class="meta mb-6">Nessuna versione salvata.</p>
 {% endif %}
 
-<!-- Confronto baseline corrente -->
+<!-- Revisioni salvate -->
+<h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2">Revisioni salvate</h3>
+{% if revision_snapshots %}
+<div class="table-container mb-6">
+  <table class="data-table">
+    <thead><tr>
+      <th>Revisione</th>
+      <th>Titolo</th>
+      <th>Stato</th>
+      <th>Corrente</th>
+      <th>Emessa il</th>
+      <th class="w-20"></th>
+    </tr></thead>
+    <tbody>
+      {% for snap in revision_snapshots %}
+      <tr>
+        <td class="font-mono font-semibold">{{ snap.revision_label }}</td>
+        <td>{{ snap.title }}</td>
+        <td>
+          {% if snap.status == 'draft' %}<span class="badge-status-draft">Bozza</span>
+          {% elif snap.status == 'issued' %}<span class="badge-status-approved">Emessa</span>
+          {% elif snap.status == 'superseded' %}<span class="badge-status-superseded">Superata</span>
+          {% elif snap.status == 'archived' %}<span class="badge-status-archived">Archiviata</span>
+          {% else %}<span>{{ snap.status }}</span>
+          {% endif %}
+        </td>
+        <td>{% if snap.is_current %}<span class="text-green-600 font-semibold">✔</span>{% endif %}</td>
+        <td class="meta whitespace-nowrap">{{ snap.issued_at|date:"d/m/Y"|default:"—" }}</td>
+        <td><a href="{% url 'project_revision_detail' snap.pk %}" class="btn-secondary btn-sm">Apri</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="meta mb-6">Nessuna revisione salvata.</p>
+{% endif %}
+
+<!-- Confronto con revisione corrente -->
 {% if current_baseline %}
-<h2 class="section-title mt-8">Confronto con baseline corrente</h2>
+<h2 class="section-title mt-4">Confronto con revisione corrente</h2>
 <div class="alert-info mb-4">
-  Baseline corrente: <strong>{{ current_baseline.revision_label }}</strong> — {{ current_baseline.title }}{% if current_baseline.issued_at %} ({{ current_baseline.issued_at|date:"d/m/Y" }}){% endif %}
+  Revisione corrente: <strong>{{ current_baseline.revision_label }}</strong> — {{ current_baseline.title }}{% if current_baseline.issued_at %} ({{ current_baseline.issued_at|date:"d/m/Y" }}){% endif %}
 </div>
 {% if comparison_rows %}
 <div class="table-container">
@@ -281,7 +324,7 @@
     <thead><tr>
       <th>Documento</th>
       <th>Revisione corrente</th>
-      <th>Revisione baseline</th>
+      <th>Revisione snapshot</th>
       <th>Stato</th>
     </tr></thead>
     <tbody>

@@ -499,8 +499,17 @@ def project_detail(request, project_id):
 
     revisions = project.revisions.order_by('-revision_number')
 
+    version_snapshots = project.revisions.filter(
+        snapshot_type='version'
+    ).order_by('-revision_number')
+    revision_snapshots = project.revisions.filter(
+        snapshot_type='revision'
+    ).order_by('-revision_number')
+
     from projects.services import build_project_baseline_comparison
-    current_baseline, comparison_rows = build_project_baseline_comparison(project)
+    current_baseline, comparison_rows = build_project_baseline_comparison(
+        project, snapshot_type='revision'
+    )
 
     from projects.permissions import can_create_document_in_folder
     can_create_doc = (
@@ -538,11 +547,17 @@ def project_detail(request, project_id):
             .order_by('-proposed_at')[:20]
         )
 
+    from django.urls import reverse as _reverse
+    _save_version_url = _reverse('project_snapshot_create', kwargs={'project_id': project.pk}) + '?snapshot_type=version'
+    _save_revision_url = _reverse('project_snapshot_create', kwargs={'project_id': project.pk}) + '?snapshot_type=revision'
+
     return render(request, 'projects/project_detail.html', {
         'project': project,
         'documents': documents,
         'subfolders': subfolders,
         'revisions': revisions,
+        'version_snapshots': version_snapshots,
+        'revision_snapshots': revision_snapshots,
         'can_manage': _can_manage_project(request.user),
         'can_create_doc': can_create_doc,
         'current_baseline': current_baseline,
@@ -557,6 +572,10 @@ def project_detail(request, project_id):
         'doc_type_choices': doc_type_choices,
         'project_folder_choices': project_folder_choices,
         'doc_page_obj': documents if project.root_folder else None,
+        # snapshot URLs
+        'snapshot_urls_available': True,
+        'save_version_url': _save_version_url,
+        'save_revision_url': _save_revision_url,
     })
 
 
@@ -596,9 +615,15 @@ def project_edit(request, project_id):
     else:
         form = ProjectUpdateForm(instance=project)
 
+    from django.urls import reverse as _reverse
+    _base = _reverse('project_snapshot_create', kwargs={'project_id': project.pk})
+
     return render(request, 'projects/project_edit.html', {
         'form': form,
         'project': project,
+        'snapshot_urls_available': True,
+        'save_version_url': _base + '?snapshot_type=version',
+        'save_revision_url': _base + '?snapshot_type=revision',
     })
 
 
@@ -667,60 +692,78 @@ def project_create(request):
 
 
 # ---------------------------------------------------------------------------
-# ProjectRevision (baseline) views
+# ProjectRevision (snapshot) views
 # ---------------------------------------------------------------------------
 
 @login_required
-def project_revision_create(request, project_id):
+def project_snapshot_create(request, project_id):
+    """
+    Crea uno snapshot VERSION o REVISION per il progetto.
+    Il snapshot_type è determinato dal parametro GET/POST 'snapshot_type'.
+    La form chiede solo titolo, descrizione e note.
+    """
     from django.db import transaction
-    from projects.forms import ProjectRevisionForm
+    from projects.forms import ProjectSnapshotForm
     from projects.services import create_project_revision, populate_project_revision_from_current_documents
+    from projects.models import ProjectRevision
 
     project = get_object_or_404(Project, pk=project_id)
 
     if not _can_manage_project(request.user):
         raise PermissionDenied
 
-    last = project.revisions.order_by('-revision_number').first()
-    next_number = (last.revision_number + 1) if last else 0
-    next_label = f'{next_number:02d}'
+    snapshot_type = request.GET.get('snapshot_type') or request.POST.get('snapshot_type') or 'revision'
+    if snapshot_type not in ('version', 'revision'):
+        snapshot_type = 'revision'
+
+    type_label = 'Versione' if snapshot_type == 'version' else 'Revisione'
+    auto_label = project.version if snapshot_type == 'version' else project.revision
 
     if request.method == 'POST':
-        form = ProjectRevisionForm(request.POST, project=project)
+        form = ProjectSnapshotForm(request.POST)
         if form.is_valid():
             d = form.cleaned_data
-            with transaction.atomic():
-                revision = create_project_revision(
-                    project=project,
-                    created_by=request.user,
-                    revision_label=d['revision_label'],
-                    revision_number=d['revision_number'],
-                    title=d['title'],
-                    description=d['description'],
-                )
-                added = populate_project_revision_from_current_documents(revision)
-            if added == 0:
-                messages.warning(
-                    request,
-                    f'Baseline {revision.revision_label} creata senza documenti: '
-                    'nessun documento approvato trovato nelle cartelle del progetto.',
-                )
-            else:
-                messages.success(
-                    request,
-                    f'Baseline {revision.revision_label} creata con {added} documenti.',
-                )
-            return redirect('project_revision_detail', revision_id=revision.pk)
+            try:
+                with transaction.atomic():
+                    snap = create_project_revision(
+                        project=project,
+                        created_by=request.user,
+                        snapshot_type=snapshot_type,
+                        title=d.get('title') or f'{type_label} salvata {auto_label}',
+                        description=d.get('description', ''),
+                        notes=d.get('notes', ''),
+                    )
+                    added = populate_project_revision_from_current_documents(snap)
+                if added == 0:
+                    messages.warning(
+                        request,
+                        f'{type_label} {snap.revision_label} salvata senza documenti: '
+                        'nessun documento approvato trovato nelle cartelle del progetto.',
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f'{type_label} {snap.revision_label} salvata con {added} documenti.',
+                    )
+                return redirect('project_revision_detail', revision_id=snap.pk)
+            except Exception as exc:
+                messages.error(request, f'Errore: {exc}')
     else:
-        form = ProjectRevisionForm(
-            project=project,
-            initial={'revision_number': next_number, 'revision_label': next_label},
-        )
+        form = ProjectSnapshotForm()
 
-    return render(request, 'projects/project_revision_form.html', {
+    return render(request, 'projects/project_snapshot_form.html', {
         'form': form,
         'project': project,
+        'snapshot_type': snapshot_type,
+        'type_label': type_label,
+        'auto_label': auto_label,
     })
+
+
+@login_required
+def project_revision_create(request, project_id):
+    """Vista legacy — redirige al nuovo flusso snapshot."""
+    return redirect(f'/projects/{project_id}/snapshot/new/?snapshot_type=revision')
 
 
 @login_required

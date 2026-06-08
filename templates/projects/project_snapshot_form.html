@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Salva {{ type_label }} — {{ project.code }} — Documentale{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb">
+  <a href="{% url 'project_detail' project.pk %}">{{ project.code }} – {{ project.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Salva {{ type_label }}</span>
+</nav>
+
+<div class="page-header">
+  <h1>Salva {{ type_label }}</h1>
+  <p class="page-header-sub">{{ project.code }} — {{ project.name }}</p>
+</div>
+
+<div class="alert-info mb-4">
+  {% if snapshot_type == 'version' %}
+  Stai salvando la <strong>versione {{ auto_label }}</strong> del progetto.
+  Lo snapshot conterrà le revisioni approvate correnti dei documenti nelle cartelle del progetto.
+  {% else %}
+  Stai salvando la <strong>revisione {{ auto_label }}</strong> del progetto.
+  Lo snapshot conterrà le revisioni approvate correnti dei documenti nelle cartelle del progetto.
+  {% endif %}
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <table class="data-table text-sm">
+      <tr>
+        <td class="text-gray-500 pr-4">Versione progetto</td>
+        <td class="font-mono font-semibold">{{ project.version }}</td>
+        <td class="text-gray-500 pl-4">schema: {{ project.get_version_scheme_display }}</td>
+      </tr>
+      <tr>
+        <td class="text-gray-500 pr-4">Revisione progetto</td>
+        <td class="font-mono font-semibold">{{ project.revision }}</td>
+        <td class="text-gray-500 pl-4">schema: {{ project.get_revision_scheme_display }}</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="snapshot_type" value="{{ snapshot_type }}">
+
+  <div class="form-section">
+    <div class="form-section-title">Dati snapshot</div>
+
+    {% for field in form %}
+    <div class="form-group {% if forloop.last %}mb-0{% endif %}">
+      <label class="form-label" for="{{ field.id_for_label }}">
+        {{ field.label }}
+        {% if field.field.required %}<span class="text-red-500"> *</span>{% endif %}
+      </label>
+      {{ field }}
+      {% if field.help_text %}
+      <p class="form-help">{{ field.help_text }}</p>
+      {% endif %}
+      {% for error in field.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Salva {{ type_label }}</button>
+    <a href="{% url 'project_detail' project.pk %}" class="btn-secondary">Annulla</a>
+  </div>
+</form>
+{% endblock %}

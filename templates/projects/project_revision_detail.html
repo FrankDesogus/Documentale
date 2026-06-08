@@ -1,17 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Baseline {{ revision.revision_label }} — {{ project.code }} — Documentale{% endblock %}
+{% block title %}{{ revision.get_snapshot_type_display }} {{ revision.revision_label }} — {{ project.code }} — Documentale{% endblock %}
 
 {% block content %}
 <nav class="breadcrumb">
   <a href="{% url 'project_detail' project.pk %}">{{ project.code }} – {{ project.name }}</a>
   <span class="breadcrumb-sep">›</span>
-  <span>Baseline {{ revision.revision_label }}</span>
+  <span>{{ revision.get_snapshot_type_display }} {{ revision.revision_label }}</span>
 </nav>
 
 <div class="flex items-start justify-between gap-4 flex-wrap mb-6">
   <div>
     <div class="flex items-center gap-3 mb-1 flex-wrap">
-      <span class="text-2xl font-bold text-brand-900 font-mono">{{ revision.revision_label }}</span>
+      <span class="text-2xl font-bold text-elt-white font-mono">{{ revision.revision_label }}</span>
+      <span class="badge badge-project">{{ revision.get_snapshot_type_display }}</span>
       {% if revision.status == 'draft' %}<span class="badge-status-draft">Bozza</span>
       {% elif revision.status == 'issued' %}<span class="badge-status-approved">Emessa</span>
       {% elif revision.status == 'superseded' %}<span class="badge-status-superseded">Superata</span>
@@ -19,48 +20,73 @@
       {% endif %}
       {% if revision.is_current %}<span class="badge badge-project">Corrente</span>{% endif %}
     </div>
-    <h1 class="text-xl font-semibold text-gray-800">{{ revision.title }}</h1>
-    <p class="meta mt-1">Questa baseline conserva le revisioni documento incluse al momento dell'emissione.</p>
+    <h1 class="text-xl font-semibold text-slate-100">{{ revision.title }}</h1>
+    {% if revision.snapshot_project_name %}
+    <p class="meta mt-1">
+      Fotografia del progetto <strong>{{ revision.snapshot_project_name }}</strong>
+      (Ver. {{ revision.snapshot_project_version }}{% if revision.snapshot_project_version_scheme %} — {{ revision.snapshot_project_version_scheme }}{% endif %},
+       Rev. {{ revision.snapshot_project_revision }}{% if revision.snapshot_project_revision_scheme %} — {{ revision.snapshot_project_revision_scheme }}{% endif %})
+      al momento della creazione.
+    </p>
+    {% else %}
+    <p class="meta mt-1">Snapshot del progetto al momento della creazione.</p>
+    {% endif %}
   </div>
 
   {% if can_issue %}
   <form method="post" action="{% url 'project_revision_issue' revision.pk %}">
     {% csrf_token %}
     <button type="submit" class="btn-primary"
-      onclick="return confirm('Emettere la baseline {{ revision.revision_label }}? Le baseline precedenti correnti verranno marcate come superate.')">
-      Emetti baseline
+      onclick="return confirm('Emettere lo snapshot {{ revision.revision_label }}? Gli snapshot precedenti dello stesso tipo verranno marcati come superati.')">
+      Emetti snapshot
     </button>
   </form>
   {% endif %}
 </div>
 
-<!-- Dettagli -->
+<!-- Metadati snapshot -->
 <div class="form-section mb-6">
-  <div class="form-section-title">Dettagli baseline</div>
+  <div class="form-section-title">Metadati snapshot</div>
   <dl class="dl-grid">
     <dt>Progetto</dt>
     <dd><a href="{% url 'project_detail' project.pk %}" class="text-brand-600 hover:underline">{{ project.code }} – {{ project.name }}</a></dd>
+    <dt>Tipo snapshot</dt>
+    <dd>{{ revision.get_snapshot_type_display }}</dd>
     <dt>Etichetta</dt>
     <dd class="font-mono font-semibold">{{ revision.revision_label }}</dd>
-    <dt>Numero</dt>
-    <dd>{{ revision.revision_number }}</dd>
+    {% if revision.snapshot_project_version %}
+    <dt>Versione al momento</dt>
+    <dd class="font-mono">{{ revision.snapshot_project_version }} ({{ revision.snapshot_project_version_scheme }})</dd>
+    {% endif %}
+    {% if revision.snapshot_project_revision %}
+    <dt>Revisione al momento</dt>
+    <dd class="font-mono">{{ revision.snapshot_project_revision }} ({{ revision.snapshot_project_revision_scheme }})</dd>
+    {% endif %}
+    {% if revision.snapshot_project_manager_display %}
+    <dt>Responsabile al momento</dt>
+    <dd>{{ revision.snapshot_project_manager_display }}</dd>
+    {% endif %}
+    {% if revision.snapshot_project_type %}
+    <dt>Tipo progetto</dt>
+    <dd>{{ revision.snapshot_project_type }}</dd>
+    {% endif %}
     {% if revision.description %}
     <dt>Descrizione</dt>
     <dd>{{ revision.description }}</dd>
     {% endif %}
-    <dt>Creata da</dt>
+    {% if revision.notes %}
+    <dt>Note</dt>
+    <dd>{{ revision.notes }}</dd>
+    {% endif %}
+    <dt>Creato da</dt>
     <dd>{{ revision.created_by.get_full_name|default:revision.created_by.username|default:"—" }} il {{ revision.created_at|date:"d/m/Y H:i" }}</dd>
     {% if revision.issued_at %}
-    <dt>Emessa da</dt>
+    <dt>Emesso da</dt>
     <dd>{{ revision.issued_by.get_full_name|default:revision.issued_by.username|default:"—" }} il {{ revision.issued_at|date:"d/m/Y H:i" }}</dd>
     {% endif %}
     {% if revision.replaces_revision %}
     <dt>Sostituisce</dt>
     <dd><a href="{% url 'project_revision_detail' revision.replaces_revision.pk %}" class="text-brand-600 hover:underline">{{ revision.replaces_revision }}</a></dd>
-    {% endif %}
-    {% if revision.notes %}
-    <dt>Note</dt>
-    <dd>{{ revision.notes }}</dd>
     {% endif %}
   </dl>
 </div>
@@ -79,7 +105,7 @@
         <th>Codice</th>
         <th>Titolo documento</th>
         <th>Revisione</th>
-        <th>Stato revisione</th>
+        <th>Cartella</th>
         <th>Descrizione voce</th>
       </tr>
     </thead>
@@ -88,21 +114,22 @@
       <tr>
         <td class="meta">{{ item.item_number }}</td>
         <td>
+          {% if item.document_version %}
           <a href="{% url 'document_detail' item.document_version.document.pk %}" class="font-mono font-semibold text-brand-800 hover:underline">
-            {{ item.document_version.document.code }}
+            {{ item.snapshot_document_code|default:item.document_version.document.code }}
           </a>
-        </td>
-        <td>{{ item.document_version.document.title }}</td>
-        <td class="font-mono">{{ item.document_version.revision_label }}</td>
-        <td>
-          {% with s=item.document_version.status %}
-          {% if s == 'approved' %}<span class="badge-status-approved">{{ item.document_version.get_status_display }}</span>
-          {% elif s == 'draft' %}<span class="badge-status-draft">{{ item.document_version.get_status_display }}</span>
-          {% elif s == 'in_approval' %}<span class="badge-status-in_approval">{{ item.document_version.get_status_display }}</span>
-          {% elif s == 'superseded' %}<span class="badge-status-superseded">{{ item.document_version.get_status_display }}</span>
-          {% else %}<span class="meta">{{ item.document_version.get_status_display }}</span>
+          {% else %}
+          <span class="font-mono font-semibold text-slate-400">{{ item.snapshot_document_code|default:"—" }}</span>
           {% endif %}
-          {% endwith %}
+        </td>
+        <td>{{ item.snapshot_document_title|default:item.document_version.document.title|default:"—" }}</td>
+        <td class="font-mono">{{ item.snapshot_document_revision_label|default:item.document_version.revision_label|default:"—" }}</td>
+        <td class="meta text-xs">
+          {% if item.snapshot_folder_path %}
+          {{ item.snapshot_folder_path }}
+          {% elif item.document_version and item.document_version.document.project_folder %}
+          {{ item.document_version.document.project_folder.code }}
+          {% else %}—{% endif %}
         </td>
         <td class="meta">{{ item.description }}</td>
       </tr>
@@ -114,9 +141,9 @@
 <div class="card">
   <div class="empty-state">
     <div class="empty-state-icon">📄</div>
-    <div class="empty-state-title">Baseline vuota</div>
+    <div class="empty-state-title">Snapshot vuoto</div>
     <div class="empty-state-desc">
-      Questa baseline non contiene documenti. Probabilmente è stata creata quando non erano presenti
+      Questo snapshot non contiene documenti. Probabilmente è stato creato quando non erano presenti
       documenti approvati nella cartella del progetto.
     </div>
   </div>

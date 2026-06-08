@@ -4750,3 +4750,97 @@ class ProjectSnapshotTypeTests(TestCase):
             with transaction.atomic():
                 snap2.is_current = True
                 snap2.save(update_fields=['is_current'])
+
+
+class ProjectSnapshotViewTests(TestCase):
+    """VH-3: test vista project_snapshot_create e template storico progetto."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.manager = User.objects.create_user('vh3_manager', password='pw', is_staff=True)
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+        self.other = User.objects.create_user('vh3_other', password='pw')
+        parent = make_folder(code='VH3-PARENT', owner=self.manager)
+        from projects.services import create_project_with_root_folder
+        self.project = create_project_with_root_folder(
+            parent_folder=parent,
+            code='VH3-P',
+            name='VH3 Progetto',
+            created_by=self.manager,
+        )
+
+    def _url(self, snapshot_type='revision'):
+        return reverse('project_snapshot_create', kwargs={'project_id': self.project.pk}) + f'?snapshot_type={snapshot_type}'
+
+    # 1. GET form — utente manager
+    def test_get_form_revision(self):
+        self.client.login(username='vh3_manager', password='pw')
+        resp = self.client.get(self._url('revision'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Revisione')
+
+    def test_get_form_version(self):
+        self.client.login(username='vh3_manager', password='pw')
+        resp = self.client.get(self._url('version'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Versione')
+
+    # 2. Utente non autorizzato viene bloccato
+    def test_non_manager_cannot_access(self):
+        self.client.login(username='vh3_other', password='pw')
+        resp = self.client.get(self._url())
+        self.assertEqual(resp.status_code, 403)
+
+    # 3. POST crea snapshot REVISION
+    def test_post_creates_revision_snapshot(self):
+        self.client.login(username='vh3_manager', password='pw')
+        resp = self.client.post(
+            reverse('project_snapshot_create', kwargs={'project_id': self.project.pk}),
+            {'snapshot_type': 'revision', 'title': 'Rev test', 'description': '', 'notes': ''},
+        )
+        self.assertEqual(ProjectRevision.objects.filter(project=self.project, snapshot_type='revision').count(), 1)
+        snap = ProjectRevision.objects.get(project=self.project, snapshot_type='revision')
+        self.assertRedirects(resp, reverse('project_revision_detail', kwargs={'revision_id': snap.pk}))
+
+    # 4. POST crea snapshot VERSION
+    def test_post_creates_version_snapshot(self):
+        self.client.login(username='vh3_manager', password='pw')
+        self.client.post(
+            reverse('project_snapshot_create', kwargs={'project_id': self.project.pk}),
+            {'snapshot_type': 'version', 'title': '', 'description': '', 'notes': ''},
+        )
+        self.assertEqual(ProjectRevision.objects.filter(project=self.project, snapshot_type='version').count(), 1)
+
+    # 5. snapshot_type invalido ricade su 'revision'
+    def test_invalid_snapshot_type_defaults_to_revision(self):
+        self.client.login(username='vh3_manager', password='pw')
+        url = reverse('project_snapshot_create', kwargs={'project_id': self.project.pk}) + '?snapshot_type=bogus'
+        self.client.post(url, {'snapshot_type': 'bogus', 'title': '', 'description': '', 'notes': ''})
+        snap = ProjectRevision.objects.filter(project=self.project).first()
+        self.assertIsNotNone(snap)
+        self.assertEqual(snap.snapshot_type, 'revision')
+
+    # 6. project_detail mostra due sezioni separate
+    def test_project_detail_shows_two_sections(self):
+        self.client.login(username='vh3_manager', password='pw')
+        resp = self.client.get(reverse('project_detail', kwargs={'project_id': self.project.pk}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Versioni salvate')
+        self.assertContains(resp, 'Revisioni salvate')
+
+    # 7. project_detail ha i pulsanti Salva versione / Salva revisione per manager
+    def test_project_detail_has_snapshot_buttons(self):
+        self.client.login(username='vh3_manager', password='pw')
+        resp = self.client.get(reverse('project_detail', kwargs={'project_id': self.project.pk}))
+        self.assertContains(resp, 'Salva versione')
+        self.assertContains(resp, 'Salva revisione')
+
+    # 8. project_revision_detail mostra tipo snapshot e metadati congelati
+    def test_revision_detail_shows_snapshot_type_and_metadata(self):
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='version', title='VH3 ver')
+        self.client.login(username='vh3_manager', password='pw')
+        resp = self.client.get(reverse('project_revision_detail', kwargs={'revision_id': snap.pk}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Versione')
+        self.assertContains(resp, snap.revision_label)
