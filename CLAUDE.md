@@ -120,3 +120,6 @@ Procedi per piccoli step.
 
 Dopo ogni step, indica cosa hai modificato e come testarlo.
 
+## Current handoff
+
+Prima di iniziare nuovi task, leggere `PROJECT_HANDOFF.md` per il checkpoint corrente, i comandi di avvio e la roadmap immediata.

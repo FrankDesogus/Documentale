@@ -1,7 +1,8 @@
 # Istruzioni operative per Codex
 
-Prima di modificare qualsiasi file, leggi integralmente `./CLAUDE.md`.
+Prima di iniziare un task, leggi integralmente `CLAUDE.md` e `PROJECT_HANDOFF.md`.
 `CLAUDE.md` contiene il contesto architetturale e le regole consolidate del progetto.
+`PROJECT_HANDOFF.md` contiene il checkpoint corrente, i comandi di avvio e la roadmap immediata.
 
 Regole permanenti:
 - Non fare push automaticamente.
