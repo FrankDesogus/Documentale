@@ -66,8 +66,28 @@
       {% for error in form.manager.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
     </div>
 
-    <!-- Schema revisione e Revisione -->
+    <!-- Schema versione e Versione -->
     <div class="grid grid-cols-2 gap-4 mb-0">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.version_scheme.id_for_label }}">
+          {{ form.version_scheme.label }}
+        </label>
+        {{ form.version_scheme }}
+        {% if form.version_scheme.help_text %}<p class="form-help">{{ form.version_scheme.help_text }}</p>{% endif %}
+        {% for error in form.version_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.version.id_for_label }}">
+          {{ form.version.label }}
+        </label>
+        {{ form.version }}
+        {% if form.version.help_text %}<p class="form-help">{{ form.version.help_text }}</p>{% endif %}
+        {% for error in form.version.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+    </div>
+
+    <!-- Schema revisione e Revisione -->
+    <div class="grid grid-cols-2 gap-4 mb-0 mt-4">
       <div class="form-group mb-0">
         <label class="form-label" for="{{ form.revision_scheme.id_for_label }}">
           {{ form.revision_scheme.label }}
@@ -88,6 +108,18 @@
     <p class="form-help text-slate-500 mt-1">
       Cambiando schema inserire manualmente un valore coerente. Lo storico non viene modificato.
     </p>
+
+    <!-- Avviso snapshot facoltativo (link attivi da VH-3) -->
+    <div class="alert-info mt-4 text-sm">
+      Prima di modificare versione o revisione puoi salvare lo stato corrente nello storico del progetto.
+      {% if project.pk and snapshot_urls_available %}
+      <span class="ml-2">
+        <a href="{{ save_version_url }}" class="text-brand-700 underline hover:no-underline">Salva versione</a>
+        &nbsp;·&nbsp;
+        <a href="{{ save_revision_url }}" class="text-brand-700 underline hover:no-underline">Salva revisione</a>
+      </span>
+      {% endif %}
+    </div>
   </div>
 
   <div class="form-actions">

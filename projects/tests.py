@@ -4371,3 +4371,187 @@ class ProjectVersionRevisionTests(TestCase):
             call_command('demo_company', reset=True, no_email=True, stdout=StringIO(), stderr=StringIO())
         except Exception as exc:
             self.fail(f'demo_company --reset ha sollevato: {exc}')
+
+
+# ---------------------------------------------------------------------------
+# VH-1 — Project.version e Project.version_scheme
+# ---------------------------------------------------------------------------
+
+class ProjectVersionFieldTests(TestCase):
+    """Test VH-1: reintroduzione Project.version e Project.version_scheme."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from documents.permissions import GROUP_MANAGERS
+        self.manager = User.objects.create_user('vh1_mgr', password='pw', is_staff=True)
+        Group.objects.get_or_create(name=GROUP_MANAGERS)[0].user_set.add(self.manager)
+        self.dept = ProjectFolder.objects.create(
+            code='VH1-DEPT', name='VH1 Dept',
+            folder_kind=ProjectFolder.FolderKind.DEPARTMENT,
+            owner=self.manager, status=ProjectFolder.Status.ACTIVE,
+        )
+
+    def _make_project(self, code='VH1-001', version_scheme='numeric', version='00',
+                      revision_scheme='numeric', revision='00'):
+        from projects.services import create_project_with_root_folder
+        return create_project_with_root_folder(
+            parent_folder=self.dept,
+            code=code,
+            name=f'Test {code}',
+            project_type='internal',
+            manager=self.manager,
+            created_by=self.manager,
+            version_scheme=version_scheme,
+            version=version,
+            revision_scheme=revision_scheme,
+            revision=revision,
+        )
+
+    # 1. default numeric / "00"
+    def test_default_version_scheme_numeric(self):
+        """Nuovo progetto ha version_scheme='numeric' di default."""
+        prj = self._make_project()
+        self.assertEqual(prj.version_scheme, 'numeric')
+
+    def test_default_version_is_00(self):
+        """Nuovo progetto ha version='00' di default."""
+        prj = self._make_project()
+        self.assertEqual(prj.version, '00')
+
+    # 2. schema alfabetico esplicito
+    def test_alphabetic_version_scheme_stored(self):
+        """Version_scheme='alphabetic' con version='A' viene salvato correttamente."""
+        prj = self._make_project(code='VH1-002', version_scheme='alphabetic', version='A')
+        prj.refresh_from_db()
+        self.assertEqual(prj.version_scheme, 'alphabetic')
+        self.assertEqual(prj.version, 'A')
+
+    # 3. validazione mismatch
+    def test_update_form_rejects_version_mismatch(self):
+        """ProjectUpdateForm rifiuta versione numerica con schema alfabetico."""
+        from projects.forms import ProjectUpdateForm
+        prj = self._make_project(code='VH1-003')
+        form = ProjectUpdateForm(
+            data={
+                'name': prj.name,
+                'version_scheme': 'alphabetic',
+                'version': '01',           # numerico, schema alfabetico → errore
+                'revision_scheme': 'numeric',
+                'revision': '00',
+            },
+            instance=prj,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn('version', form.errors)
+
+    # 4. create service
+    def test_create_service_saves_version_fields(self):
+        """create_project_with_root_folder persiste version e version_scheme."""
+        prj = self._make_project(code='VH1-004', version_scheme='alphabetic', version='B')
+        prj.refresh_from_db()
+        self.assertEqual(prj.version_scheme, 'alphabetic')
+        self.assertEqual(prj.version, 'B')
+
+    # 5. update service
+    def test_update_service_saves_version_fields(self):
+        """update_project_metadata aggiorna version e version_scheme."""
+        from projects.services import update_project_metadata
+        prj = self._make_project(code='VH1-005')
+        update_project_metadata(
+            project=prj, name=prj.name,
+            version_scheme='alphabetic', version='C',
+            updated_by=self.manager,
+        )
+        prj.refresh_from_db()
+        self.assertEqual(prj.version_scheme, 'alphabetic')
+        self.assertEqual(prj.version, 'C')
+
+    def test_update_service_writes_auditlog_version(self):
+        """update_project_metadata scrive AuditLog con version e version_scheme."""
+        from projects.services import update_project_metadata
+        from auditlog.models import AuditLog
+        prj = self._make_project(code='VH1-006')
+        update_project_metadata(
+            project=prj, name=prj.name,
+            version_scheme='alphabetic', version='D',
+            updated_by=self.manager,
+        )
+        log = AuditLog.objects.filter(
+            action='update_project_metadata', object_id=str(prj.pk),
+        ).order_by('-id').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.changes.get('version_scheme'), 'alphabetic')
+        self.assertEqual(log.changes.get('version'), 'D')
+
+    # 6. form create
+    def test_create_form_has_version_scheme_field(self):
+        """ProjectCreateForm espone il campo version_scheme."""
+        from projects.forms import ProjectCreateForm
+        self.assertIn('version_scheme', ProjectCreateForm().fields)
+
+    def test_create_form_has_version_field(self):
+        """ProjectCreateForm espone il campo version."""
+        from projects.forms import ProjectCreateForm
+        self.assertIn('version', ProjectCreateForm().fields)
+
+    # 7. form edit
+    def test_update_form_has_version_scheme_field(self):
+        """ProjectUpdateForm espone il campo version_scheme."""
+        from projects.forms import ProjectUpdateForm
+        self.assertIn('version_scheme', ProjectUpdateForm().fields)
+
+    def test_update_form_has_version_field(self):
+        """ProjectUpdateForm espone il campo version."""
+        from projects.forms import ProjectUpdateForm
+        self.assertIn('version', ProjectUpdateForm().fields)
+
+    # 8. detail / list
+    def test_project_detail_shows_version(self):
+        """project_detail mostra la versione corrente (Ver. XX)."""
+        prj = self._make_project(code='VH1-007', version='01')
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('project_detail', args=[prj.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ver. 01')
+
+    def test_project_list_shows_version(self):
+        """project_list mostra la versione nella colonna dedicata."""
+        prj = self._make_project(code='VH1-008', version='02')
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('project_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '02')
+
+    def test_project_edit_shows_version_scheme_and_version_fields(self):
+        """project_edit contiene i campi id_version_scheme e id_version."""
+        prj = self._make_project(code='VH1-009')
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('project_edit', args=[prj.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id_version_scheme')
+        self.assertContains(response, 'id_version')
+
+    # 9. demo project
+    @override_settings(DEBUG=True, DATABASES={
+        'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'},
+    })
+    def test_demo_project_has_version_00(self):
+        """demo_company crea PRJ-DEMO-001 con version='00' e version_scheme='numeric'."""
+        from io import StringIO
+        from django.core.management import call_command
+        call_command('demo_company', reset=True, no_email=True, stdout=StringIO(), stderr=StringIO())
+        prj = Project.objects.get(code='PRJ-DEMO-001')
+        self.assertEqual(prj.version, '00')
+        self.assertEqual(prj.version_scheme, 'numeric')
+
+    @override_settings(DEBUG=True, DATABASES={
+        'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'},
+    })
+    def test_demo_alpha_project_has_version_A(self):
+        """demo_company crea PRJ-DEMO-ALPHA con version='A' e version_scheme='alphabetic'."""
+        from io import StringIO
+        from django.core.management import call_command
+        call_command('demo_company', reset=True, no_email=True, stdout=StringIO(), stderr=StringIO())
+        prj = Project.objects.get(code='PRJ-DEMO-ALPHA')
+        self.assertEqual(prj.version, 'A')
+        self.assertEqual(prj.version_scheme, 'alphabetic')

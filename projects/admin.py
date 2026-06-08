@@ -54,7 +54,7 @@ class ProjectFolderAdmin(admin.ModelAdmin):
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'revision_scheme', 'revision', 'project_type', 'root_folder', 'root_parent_folder', 'manager', 'created_at')
+    list_display = ('code', 'name', 'version_scheme', 'version', 'revision_scheme', 'revision', 'project_type', 'root_folder', 'root_parent_folder', 'manager', 'created_at')
     list_filter = ('project_type',)
     search_fields = ('code', 'name', 'description', 'root_folder__code', 'root_folder__name')
     readonly_fields = ('created_at', 'updated_at')

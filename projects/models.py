@@ -266,6 +266,19 @@ class Project(models.Model):
         default=ProjectType.OTHER,
         verbose_name='Tipo',
     )
+    version_scheme = models.CharField(
+        max_length=20,
+        choices=SequenceScheme.choices,
+        default=SequenceScheme.NUMERIC,
+        verbose_name='Schema versione',
+        help_text='Schema usato per la versione corrente.',
+    )
+    version = models.CharField(
+        max_length=32,
+        default='00',
+        verbose_name='Versione',
+        help_text='Versione corrente del progetto. Modificabile manualmente.',
+    )
     revision_scheme = models.CharField(
         max_length=20,
         choices=SequenceScheme.choices,

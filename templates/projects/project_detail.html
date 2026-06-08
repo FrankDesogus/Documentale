@@ -28,7 +28,7 @@
       <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="text-brand-600 hover:underline">📁 {{ project.root_folder.parent.code }} — {{ project.root_folder.parent.name }}</a>
       {% endif %}
       <span class="meta">Creato il {{ project.created_at|date:"d/m/Y" }}</span>
-      <span class="meta">{{ project.get_revision_scheme_display }} · Rev. {{ project.revision }}</span>
+      <span class="meta">Ver. {{ project.version }} ({{ project.get_version_scheme_display }}) · Rev. {{ project.revision }} ({{ project.get_revision_scheme_display }})</span>
     </div>
     {% if project.description %}
     <p class="text-sm text-slate-300 mt-2">{{ project.description }}</p>

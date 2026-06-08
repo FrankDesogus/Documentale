@@ -28,7 +28,9 @@ class ProjectUpdateForm(forms.ModelForm):
     """Form per la modifica dei metadati di un progetto esistente."""
     class Meta:
         model = Project
-        fields = ['name', 'description', 'manager', 'revision_scheme', 'revision']
+        fields = ['name', 'description', 'manager',
+                  'version_scheme', 'version',
+                  'revision_scheme', 'revision']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),
         }
@@ -40,6 +42,12 @@ class ProjectUpdateForm(forms.ModelForm):
         ).order_by('last_name', 'first_name', 'username')
         self.fields['manager'].required = False
         self.fields['manager'].empty_label = '— nessuno —'
+        self.fields['version_scheme'].label = 'Schema versione'
+        self.fields['version'].label = 'Versione'
+        self.fields['version'].help_text = (
+            'Numerica: 00, 01… — Alfabetica: A, B… '
+            'Modificabile manualmente. Cambiando schema inserire un valore coerente.'
+        )
         self.fields['revision_scheme'].label = 'Schema revisione'
         self.fields['revision'].label = 'Revisione'
         self.fields['revision'].help_text = (
@@ -49,17 +57,21 @@ class ProjectUpdateForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        scheme = cleaned.get('revision_scheme', SequenceScheme.NUMERIC)
-        revision = cleaned.get('revision', '')
-        if revision:
-            try:
-                revision = normalize_sequence_value(revision, scheme)
-                validate_sequence_value(revision, scheme)
-                cleaned['revision'] = revision
-            except Exception as exc:
-                self.add_error('revision', str(exc))
-        elif 'revision' in cleaned:
-            self.add_error('revision', 'La revisione non può essere vuota.')
+        for scheme_field, value_field, label in [
+            ('version_scheme', 'version', 'La versione'),
+            ('revision_scheme', 'revision', 'La revisione'),
+        ]:
+            scheme = cleaned.get(scheme_field, SequenceScheme.NUMERIC)
+            value = cleaned.get(value_field, '')
+            if value:
+                try:
+                    value = normalize_sequence_value(value, scheme)
+                    validate_sequence_value(value, scheme)
+                    cleaned[value_field] = value
+                except Exception as exc:
+                    self.add_error(value_field, str(exc))
+            elif value_field in cleaned:
+                self.add_error(value_field, f'{label} non può essere vuota.')
         return cleaned
 
 
@@ -101,6 +113,20 @@ class ProjectCreateForm(forms.Form):
         label='Responsabile',
         empty_label='— nessuno —',
     )
+    version_scheme = forms.ChoiceField(
+        choices=SequenceScheme.choices,
+        initial=SequenceScheme.NUMERIC,
+        required=True,
+        label='Schema versione',
+        help_text='Numerica (00, 01…) o Alfabetica (A, B…).',
+    )
+    version = forms.CharField(
+        max_length=32,
+        initial='00',
+        required=True,
+        label='Versione',
+        help_text='Numerica: 00. Alfabetica: A.',
+    )
     revision_scheme = forms.ChoiceField(
         choices=SequenceScheme.choices,
         initial=SequenceScheme.NUMERIC,
@@ -138,17 +164,21 @@ class ProjectCreateForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        scheme = cleaned.get('revision_scheme', SequenceScheme.NUMERIC)
-        revision = cleaned.get('revision', '')
-        if revision:
-            try:
-                revision = normalize_sequence_value(revision, scheme)
-                validate_sequence_value(revision, scheme)
-                cleaned['revision'] = revision
-            except Exception as exc:
-                self.add_error('revision', str(exc))
-        elif 'revision' in cleaned:
-            self.add_error('revision', 'La revisione non può essere vuota.')
+        for scheme_field, value_field, label in [
+            ('version_scheme', 'version', 'La versione'),
+            ('revision_scheme', 'revision', 'La revisione'),
+        ]:
+            scheme = cleaned.get(scheme_field, SequenceScheme.NUMERIC)
+            value = cleaned.get(value_field, '')
+            if value:
+                try:
+                    value = normalize_sequence_value(value, scheme)
+                    validate_sequence_value(value, scheme)
+                    cleaned[value_field] = value
+                except Exception as exc:
+                    self.add_error(value_field, str(exc))
+            elif value_field in cleaned:
+                self.add_error(value_field, f'{label} non può essere vuota.')
         return cleaned
 
 

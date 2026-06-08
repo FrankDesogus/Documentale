@@ -34,8 +34,8 @@
     <thead><tr>
       <th>Codice</th>
       <th>Nome</th>
-      <th>Schema</th>
-      <th>Rev.</th>
+      <th>Versione</th>
+      <th>Revisione</th>
       <th>Tipo</th>
       <th>Cartella</th>
       <th>Responsabile</th>
@@ -46,8 +46,8 @@
       <tr>
         <td class="font-mono font-semibold text-brand-800">{{ project.code }}</td>
         <td>{{ project.name }}</td>
-        <td class="meta">{{ project.get_revision_scheme_display }}</td>
-        <td class="meta font-mono">{{ project.revision }}</td>
+        <td class="meta font-mono">{{ project.version }} <span class="text-xs text-slate-400">({{ project.get_version_scheme_display }})</span></td>
+        <td class="meta font-mono">{{ project.revision }} <span class="text-xs text-slate-400">({{ project.get_revision_scheme_display }})</span></td>
         <td class="meta">{{ project.get_project_type_display }}</td>
         <td class="meta">
           {% if project.root_folder and project.root_folder.parent %}

@@ -105,3 +105,21 @@ def next_sequence_value(value: str, scheme: str) -> str:
     if scheme == SequenceScheme.ALPHABETIC:
         return next_alphabetic_value(value)
     raise ValidationError(f"Schema sconosciuto: '{scheme}'.")
+
+
+def sequence_label_to_number(label: str, scheme: str) -> int:
+    """
+    Converte un'etichetta di revisione nel numero ordinale corrispondente.
+
+    NUMERIC:    '00' → 0,  '01' → 1,  '10' → 10
+    ALPHABETIC: 'A'  → 1,  'B'  → 2,  'Z'  → 26, 'AA' → 27, 'AB' → 28
+    """
+    label = normalize_sequence_value(label, scheme)
+    validate_sequence_value(label, scheme)
+    if scheme == SequenceScheme.NUMERIC:
+        return int(label)
+    # ALPHABETIC: base-26, 1-indexed (A=1, Z=26, AA=27, …)
+    result = 0
+    for c in label.upper():
+        result = result * 26 + (ord(c) - ord('A') + 1)
+    return result

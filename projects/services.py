@@ -169,6 +169,8 @@ def update_project_metadata(
     name: str,
     description: str = '',
     manager=None,
+    version_scheme: str = None,
+    version: str = None,
     revision_scheme: str = None,
     revision: str = None,
     updated_by=None,
@@ -178,7 +180,7 @@ def update_project_metadata(
 
     Sincronizza anche il nome della root folder col nome del progetto.
     Codice progetto e root folder non vengono mai modificati.
-    revision_scheme e revision sono metadati modificabili manualmente.
+    version_scheme, version, revision_scheme, revision sono modificabili manualmente.
     """
     from .models import Project, ProjectFolder
 
@@ -190,6 +192,17 @@ def update_project_metadata(
     project.name = name
     project.description = description
     project.manager = manager
+
+    if version_scheme is not None:
+        project.version_scheme = version_scheme
+        update_fields.append('version_scheme')
+
+    if version is not None:
+        version = version.strip()
+        if not version:
+            raise ValidationError("La versione non può essere vuota.")
+        project.version = version
+        update_fields.append('version')
 
     if revision_scheme is not None:
         project.revision_scheme = revision_scheme
@@ -214,6 +227,10 @@ def update_project_metadata(
             'project_code': project.code,
             'name': name,
         }
+        if version_scheme is not None:
+            changes['version_scheme'] = version_scheme
+        if version is not None:
+            changes['version'] = version
         if revision_scheme is not None:
             changes['revision_scheme'] = revision_scheme
         if revision is not None:
@@ -243,6 +260,8 @@ def create_project_with_root_folder(
     project_type: str = 'other',
     manager=None,
     created_by=None,
+    version_scheme: str = 'numeric',
+    version: str = '00',
     revision_scheme: str = 'numeric',
     revision: str = '00',
 ) -> 'Project':
@@ -298,6 +317,8 @@ def create_project_with_root_folder(
         manager=manager,
         created_by=created_by,
         root_folder=root_folder,
+        version_scheme=version_scheme or 'numeric',
+        version=version.strip() if version else '00',
         revision_scheme=revision_scheme or 'numeric',
         revision=revision.strip() if revision else '00',
     )

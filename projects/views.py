@@ -583,6 +583,8 @@ def project_edit(request, project_id):
                     name=d['name'],
                     description=d.get('description', ''),
                     manager=d.get('manager'),
+                    version_scheme=d.get('version_scheme'),
+                    version=d.get('version'),
                     revision_scheme=d.get('revision_scheme'),
                     revision=d.get('revision'),
                     updated_by=request.user,
@@ -642,6 +644,8 @@ def project_create(request):
                     project_type=d['project_type'],
                     manager=d.get('manager'),
                     created_by=request.user,
+                    version_scheme=d.get('version_scheme', 'numeric'),
+                    version=d.get('version', '00'),
                     revision_scheme=d.get('revision_scheme', 'numeric'),
                     revision=d.get('revision', '00'),
                 )

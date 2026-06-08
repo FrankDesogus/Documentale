@@ -453,10 +453,16 @@ class Command(BaseCommand):
             project_type='engineering',
             manager=supervisor,
             created_by=supervisor,
+            version_scheme='numeric',
+            version='00',
             revision_scheme='numeric',
             revision='00',
         )
-        self._step(f'{PRJ_CODE}: progetto creato con root folder {prj.root_folder.code} (Schema: {prj.get_revision_scheme_display()} · Rev. {prj.revision}).')
+        self._step(
+            f'{PRJ_CODE}: progetto creato con root folder {prj.root_folder.code} '
+            f'(Ver. {prj.version} ({prj.get_version_scheme_display()}) · '
+            f'Rev. {prj.revision} ({prj.get_revision_scheme_display()})).'
+        )
 
         # Sottocartelle del progetto
         root = prj.root_folder
@@ -543,14 +549,20 @@ class Command(BaseCommand):
             parent_folder=folder_ing,
             code=PRJ_CODE,
             name='Progetto Demo Alfabetico',
-            description='Progetto demo con schema revisione alfabetico.',
+            description='Progetto demo con schema revisione e versione alfabetici.',
             project_type='internal',
             manager=supervisor,
             created_by=supervisor,
+            version_scheme='alphabetic',
+            version='A',
             revision_scheme='alphabetic',
             revision='A',
         )
-        self._step(f'{PRJ_CODE}: progetto alfabetico creato (Schema: {prj.get_revision_scheme_display()} · Rev. {prj.revision}).')
+        self._step(
+            f'{PRJ_CODE}: progetto alfabetico creato '
+            f'(Ver. {prj.version} ({prj.get_version_scheme_display()}) · '
+            f'Rev. {prj.revision} ({prj.get_revision_scheme_display()})).'
+        )
         return prj
 
     # ------------------------------------------------------------------
