@@ -583,6 +583,8 @@ def project_edit(request, project_id):
                     name=d['name'],
                     description=d.get('description', ''),
                     manager=d.get('manager'),
+                    version=d.get('version'),
+                    revision=d.get('revision'),
                     updated_by=request.user,
                 )
                 messages.success(request, f'Progetto "{project.name}" aggiornato.')
@@ -640,6 +642,8 @@ def project_create(request):
                     project_type=d['project_type'],
                     manager=d.get('manager'),
                     created_by=request.user,
+                    version=d.get('version', '0'),
+                    revision=d.get('revision', '0'),
                 )
                 messages.success(request, f'Progetto "{project.name}" creato.')
                 return redirect('project_detail', project_id=project.pk)

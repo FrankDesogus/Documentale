@@ -60,10 +60,30 @@
     </div>
 
     <!-- Responsabile -->
-    <div class="form-group mb-0">
+    <div class="form-group">
       <label class="form-label" for="{{ form.manager.id_for_label }}">{{ form.manager.label }}</label>
       {{ form.manager }}
       {% for error in form.manager.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+    </div>
+
+    <!-- Versione e Revisione -->
+    <div class="grid grid-cols-2 gap-4 mb-0">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.version.id_for_label }}">
+          {{ form.version.label }}
+        </label>
+        {{ form.version }}
+        {% if form.version.help_text %}<p class="form-help">{{ form.version.help_text }}</p>{% endif %}
+        {% for error in form.version.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision.id_for_label }}">
+          {{ form.revision.label }}
+        </label>
+        {{ form.revision }}
+        {% if form.revision.help_text %}<p class="form-help">{{ form.revision.help_text }}</p>{% endif %}
+        {% for error in form.revision.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
     </div>
   </div>
 

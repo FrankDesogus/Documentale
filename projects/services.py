@@ -169,6 +169,8 @@ def update_project_metadata(
     name: str,
     description: str = '',
     manager=None,
+    version: str = None,
+    revision: str = None,
     updated_by=None,
 ) -> 'Project':
     """
@@ -176,6 +178,8 @@ def update_project_metadata(
 
     Sincronizza anche il nome della root folder col nome del progetto.
     Codice progetto e root folder non vengono mai modificati.
+    version e revision sono metadati stringa modificabili manualmente;
+    non vengono incrementati automaticamente.
     """
     from .models import Project, ProjectFolder
 
@@ -183,16 +187,41 @@ def update_project_metadata(
     if not name:
         raise ValidationError("Il nome del progetto è obbligatorio.")
 
+    update_fields = ['name', 'description', 'manager', 'updated_at']
     project.name = name
     project.description = description
     project.manager = manager
-    project.save(update_fields=['name', 'description', 'manager', 'updated_at'])
+
+    if version is not None:
+        version = version.strip()
+        if not version:
+            raise ValidationError("La versione non può essere vuota.")
+        project.version = version
+        update_fields.append('version')
+
+    if revision is not None:
+        revision = revision.strip()
+        if not revision:
+            raise ValidationError("La revisione non può essere vuota.")
+        project.revision = revision
+        update_fields.append('revision')
+
+    project.save(update_fields=update_fields)
 
     if project.root_folder_id:
         ProjectFolder.objects.filter(pk=project.root_folder_id).update(name=name)
 
     try:
         from auditlog.models import AuditLog
+        changes = {
+            'project_id': project.pk,
+            'project_code': project.code,
+            'name': name,
+        }
+        if version is not None:
+            changes['version'] = version
+        if revision is not None:
+            changes['revision'] = revision
         AuditLog.objects.create(
             user=updated_by,
             action='update_project_metadata',
@@ -200,11 +229,7 @@ def update_project_metadata(
             model_name='project',
             object_id=str(project.pk),
             object_repr=str(project)[:255],
-            changes={
-                'project_id': project.pk,
-                'project_code': project.code,
-                'name': name,
-            },
+            changes=changes,
         )
     except Exception:
         pass
@@ -222,6 +247,8 @@ def create_project_with_root_folder(
     project_type: str = 'other',
     manager=None,
     created_by=None,
+    version: str = '0',
+    revision: str = '0',
 ) -> 'Project':
     """
     Crea atomicamente un progetto con la propria root folder dedicata.
@@ -275,6 +302,8 @@ def create_project_with_root_folder(
         manager=manager,
         created_by=created_by,
         root_folder=root_folder,
+        version=version.strip() if version else '0',
+        revision=revision.strip() if revision else '0',
     )
     project.full_clean()  # Esegue clean() per validare coerenza root_folder
     project.save()

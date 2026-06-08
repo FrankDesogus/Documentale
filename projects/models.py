@@ -264,6 +264,18 @@ class Project(models.Model):
         default=ProjectType.OTHER,
         verbose_name='Tipo',
     )
+    version = models.CharField(
+        max_length=32,
+        default='0',
+        verbose_name='Versione',
+        help_text='Versione corrente del progetto. Modificabile manualmente.',
+    )
+    revision = models.CharField(
+        max_length=32,
+        default='0',
+        verbose_name='Revisione',
+        help_text='Revisione corrente del progetto. Modificabile manualmente.',
+    )
     root_folder = models.OneToOneField(
         ProjectFolder,
         on_delete=models.PROTECT,

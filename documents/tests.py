@@ -2472,7 +2472,16 @@ class DemoSupervisorTests(TestCase):
 
     # ── Test 1-3: creazione account via comando ────────────────────────────
 
-    @override_settings(EMAIL_BACKEND=LOCMEM)
+    @override_settings(
+        EMAIL_BACKEND=LOCMEM,
+        DEBUG=True,
+        DATABASES={
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': ':memory:',
+            }
+        },
+    )
     def test_supervisor_created_by_command(self):
         """demo_company crea supervisor_demo (get_or_create idempotente)."""
         from io import StringIO

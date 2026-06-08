@@ -28,6 +28,7 @@
       <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="text-brand-600 hover:underline">📁 {{ project.root_folder.parent.code }} — {{ project.root_folder.parent.name }}</a>
       {% endif %}
       <span class="meta">Creato il {{ project.created_at|date:"d/m/Y" }}</span>
+      <span class="meta">Ver. {{ project.version }} · Rev. {{ project.revision }}</span>
     </div>
     {% if project.description %}
     <p class="text-sm text-slate-300 mt-2">{{ project.description }}</p>
@@ -311,7 +312,6 @@
 {% endif %}
 {% endif %}
 
-<!-- Storico eventi -->
 {% if show_audit %}
 <h2 class="section-title mt-8">Storico eventi</h2>
 {% if audit_logs %}

@@ -452,8 +452,10 @@ class Command(BaseCommand):
             project_type='engineering',
             manager=supervisor,
             created_by=supervisor,
+            version='0',
+            revision='0',
         )
-        self._step(f'{PRJ_CODE}: progetto creato con root folder {prj.root_folder.code}.')
+        self._step(f'{PRJ_CODE}: progetto creato con root folder {prj.root_folder.code} (Ver. {prj.version} · Rev. {prj.revision}).')
 
         # Sottocartelle del progetto
         root = prj.root_folder

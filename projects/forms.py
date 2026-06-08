@@ -30,7 +30,7 @@ class ProjectUpdateForm(forms.ModelForm):
     """
     class Meta:
         model = Project
-        fields = ['name', 'description', 'manager']
+        fields = ['name', 'description', 'manager', 'version', 'revision']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),
         }
@@ -42,6 +42,18 @@ class ProjectUpdateForm(forms.ModelForm):
         ).order_by('last_name', 'first_name', 'username')
         self.fields['manager'].required = False
         self.fields['manager'].empty_label = '— nessuno —'
+
+    def clean_version(self):
+        v = self.cleaned_data.get('version', '').strip()
+        if not v:
+            raise forms.ValidationError('La versione non può essere vuota.')
+        return v
+
+    def clean_revision(self):
+        r = self.cleaned_data.get('revision', '').strip()
+        if not r:
+            raise forms.ValidationError('La revisione non può essere vuota.')
+        return r
 
 
 # Mantenuto per compatibilità: usato dai test legacy che importano ProjectForm
@@ -82,6 +94,20 @@ class ProjectCreateForm(forms.Form):
         label='Responsabile',
         empty_label='— nessuno —',
     )
+    version = forms.CharField(
+        max_length=32,
+        initial='0',
+        required=True,
+        label='Versione',
+        help_text='Es. 0, 1, 2.1, A — modificabile manualmente in qualsiasi momento.',
+    )
+    revision = forms.CharField(
+        max_length=32,
+        initial='0',
+        required=True,
+        label='Revisione',
+        help_text='Es. 0, 1, A, Rev. C — modificabile manualmente in qualsiasi momento.',
+    )
 
     def __init__(self, *args, allowed_parent_folders=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -102,6 +128,18 @@ class ProjectCreateForm(forms.Form):
                 "Il codice deve essere unico anche tra le cartelle."
             )
         return code
+
+    def clean_version(self):
+        v = self.cleaned_data.get('version', '').strip()
+        if not v:
+            raise forms.ValidationError('La versione non può essere vuota.')
+        return v
+
+    def clean_revision(self):
+        r = self.cleaned_data.get('revision', '').strip()
+        if not r:
+            raise forms.ValidationError('La revisione non può essere vuota.')
+        return r
 
 
 class ProjectRevisionForm(forms.ModelForm):
