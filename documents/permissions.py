@@ -310,6 +310,23 @@ def can_view_audit(user, folder=None):
     return False
 
 
+def can_edit_document_metadata(user, document):
+    """
+    Può modificare i metadati del documento (titolo, schema revisione, ecc.).
+    Non richiede che il documento sia attivo: il guard su revision_scheme
+    è gestito da Document.clean().
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if _in_group(user, GROUP_MANAGERS):
+        return True
+    if document.project_folder_id:
+        return _has_folder_write(user, document.project_folder_id)
+    return _in_group(user, GROUP_AUTHORS)
+
+
 def can_download_version_file(user, version):
     """
     is_staff NON concede questo permesso.

@@ -149,6 +149,28 @@ class DocumentVersionEditForm(forms.Form):
         return label
 
 
+class DocumentMetadataEditForm(forms.ModelForm):
+    revision_scheme = forms.ChoiceField(
+        choices=SequenceScheme.choices,
+        label='Schema revisione',
+        help_text=(
+            'Il cambio dello schema non modifica le revisioni storiche. '
+            'La prima revisione successiva dovrà essere inserita manualmente.'
+        ),
+    )
+
+    class Meta:
+        model = Document
+        fields = ['title', 'description', 'revision_scheme']
+        labels = {
+            'title': 'Titolo',
+            'description': 'Descrizione',
+        }
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+        }
+
+
 class ApproverRowForm(forms.Form):
     approver = forms.ModelChoiceField(
         queryset=User.objects.filter(is_active=True).order_by('last_name', 'first_name', 'username'),

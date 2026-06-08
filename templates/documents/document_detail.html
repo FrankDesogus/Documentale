@@ -64,6 +64,9 @@
     {% if show_create_ecn %}
     <a href="{% url 'ecn:ecn_create' %}?document={{ document.pk }}" class="btn-secondary">+ Richiedi ECN</a>
     {% endif %}
+    {% if show_edit_metadata %}
+    <a href="{% url 'document_edit_metadata' document.pk %}" class="btn-secondary">Modifica metadati</a>
+    {% endif %}
   </div>
 </div>
 
