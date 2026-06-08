@@ -4555,3 +4555,198 @@ class ProjectVersionFieldTests(TestCase):
         prj = Project.objects.get(code='PRJ-DEMO-ALPHA')
         self.assertEqual(prj.version, 'A')
         self.assertEqual(prj.version_scheme, 'alphabetic')
+
+
+# ---------------------------------------------------------------------------
+# VH-2 — ProjectRevision snapshot_type + metadati congelati
+# ---------------------------------------------------------------------------
+
+class ProjectSnapshotTypeTests(TestCase):
+    """Test VH-2: snapshot VERSION / REVISION, metadati congelati, is_current per tipo."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from documents.permissions import GROUP_MANAGERS
+        self.manager = User.objects.create_user('vh2_mgr', password='pw', is_staff=True)
+        Group.objects.get_or_create(name=GROUP_MANAGERS)[0].user_set.add(self.manager)
+        self.dept = ProjectFolder.objects.create(
+            code='VH2-DEPT', name='VH2 Dept',
+            folder_kind=ProjectFolder.FolderKind.DEPARTMENT,
+            owner=self.manager, status=ProjectFolder.Status.ACTIVE,
+        )
+        from projects.services import create_project_with_root_folder
+        self.project = create_project_with_root_folder(
+            parent_folder=self.dept,
+            code='VH2-PRJ',
+            name='VH2 Project',
+            project_type='internal',
+            manager=self.manager,
+            created_by=self.manager,
+            version_scheme='numeric',
+            version='01',
+            revision_scheme='alphabetic',
+            revision='B',
+        )
+
+    def _make_approved_doc(self, code):
+        from documents.models import Document, DocumentVersion
+        from documents.services import submit_version_for_approval
+        from approvals.services import approve_version
+        doc = Document.objects.create(
+            code=code, title=f'Doc {code}',
+            category=Document.Category.QUALITY,
+            project_folder=self.project.root_folder,
+            owner=self.manager, created_by=self.manager,
+            status=Document.Status.ACTIVE,
+        )
+        ver = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.DRAFT, is_current=False,
+            created_by=self.manager,
+        )
+        req = submit_version_for_approval(ver, self.manager, [self.manager])
+        approve_version(req, self.manager, comment='test')
+        doc.refresh_from_db()
+        return doc, doc.current_version
+
+    # 1. VERSION snapshot
+    def test_create_version_snapshot(self):
+        """create_project_revision con snapshot_type='version' crea snapshot VERSION."""
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='version')
+        self.assertEqual(snap.snapshot_type, 'version')
+
+    # 2. REVISION snapshot
+    def test_create_revision_snapshot(self):
+        """create_project_revision con snapshot_type='revision' crea snapshot REVISION."""
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='revision')
+        self.assertEqual(snap.snapshot_type, 'revision')
+
+    # 3. metadata congelati
+    def test_version_snapshot_copies_project_metadata(self):
+        """Snapshot VERSION congela nome, versione, revisione del progetto."""
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='version')
+        self.assertEqual(snap.snapshot_project_name, 'VH2 Project')
+        self.assertEqual(snap.snapshot_project_version, '01')
+        self.assertEqual(snap.snapshot_project_version_scheme, 'numeric')
+        self.assertEqual(snap.snapshot_project_revision, 'B')
+        self.assertEqual(snap.snapshot_project_revision_scheme, 'alphabetic')
+
+    def test_revision_snapshot_label_is_project_revision(self):
+        """Snapshot REVISION usa project.revision come revision_label."""
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='revision')
+        self.assertEqual(snap.revision_label, 'B')
+
+    def test_version_snapshot_label_is_project_version(self):
+        """Snapshot VERSION usa project.version come revision_label."""
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='version')
+        self.assertEqual(snap.revision_label, '01')
+
+    # 4. document metadata congelati
+    def test_item_snapshot_fields_populated(self):
+        """populate_project_revision_from_current_documents popola i campi denormalizzati."""
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        doc, ver = self._make_approved_doc('VH2-DOC-001')
+        snap = create_project_revision(self.project, self.manager, snapshot_type='revision')
+        populate_project_revision_from_current_documents(snap)
+        item = snap.items.get(document_version=ver)
+        self.assertEqual(item.snapshot_document_code, 'VH2-DOC-001')
+        self.assertEqual(item.snapshot_document_revision_label, '00')
+        self.assertNotEqual(item.snapshot_folder_path, '')
+
+    # 5. path congelato
+    def test_item_snapshot_folder_path_set(self):
+        """Il snapshot_folder_path dell'item è il path materializzato della cartella al momento del freeze."""
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        doc, ver = self._make_approved_doc('VH2-DOC-002')
+        snap = create_project_revision(self.project, self.manager, snapshot_type='revision')
+        populate_project_revision_from_current_documents(snap)
+        item = snap.items.get(document_version=ver)
+        self.assertEqual(item.snapshot_folder_path, self.project.root_folder.path)
+
+    # 6. progetto modificato dopo freeze → storico invariato
+    def test_project_change_after_freeze_does_not_affect_snapshot(self):
+        """Modificare project.name dopo il freeze non cambia snapshot_project_name."""
+        from projects.services import create_project_revision, update_project_metadata
+        snap = create_project_revision(self.project, self.manager, snapshot_type='version')
+        update_project_metadata(
+            project=self.project, name='Nome Modificato',
+            version='02', version_scheme='numeric',
+            updated_by=self.manager,
+        )
+        snap.refresh_from_db()
+        self.assertEqual(snap.snapshot_project_name, 'VH2 Project')
+        self.assertEqual(snap.snapshot_project_version, '01')
+
+    # 7. documento modificato dopo freeze → storico invariato
+    def test_document_change_after_freeze_does_not_affect_item_snapshot(self):
+        """Modificare il titolo del documento dopo il freeze non cambia snapshot_document_title."""
+        from projects.services import create_project_revision, populate_project_revision_from_current_documents
+        from documents.models import Document
+        doc, ver = self._make_approved_doc('VH2-DOC-003')
+        snap = create_project_revision(self.project, self.manager, snapshot_type='revision')
+        populate_project_revision_from_current_documents(snap)
+        Document.objects.filter(pk=doc.pk).update(title='Titolo Modificato')
+        item = snap.items.get(document_version=ver)
+        self.assertEqual(item.snapshot_document_title, f'Doc VH2-DOC-003')
+
+    # 8. ordering numerico
+    def test_revision_number_numeric_ordering(self):
+        """Schema numerico: '01' → revision_number=1."""
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='version')
+        self.assertEqual(snap.revision_number, 1)  # project.version='01'
+
+    # 9. ordering alfabetico
+    def test_revision_number_alphabetic_ordering(self):
+        """Schema alfabetico: 'B' → revision_number=2."""
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, snapshot_type='revision')
+        self.assertEqual(snap.revision_number, 2)  # project.revision='B'
+
+    # 10. is_current indipendente per tipo
+    def test_issue_version_does_not_affect_revision_is_current(self):
+        """Emettere uno snapshot VERSION non tocca is_current degli snapshot REVISION."""
+        from projects.services import create_project_revision, issue_project_revision
+        # Crea e emetti REVISION
+        rev_snap = create_project_revision(self.project, self.manager, snapshot_type='revision')
+        issue_project_revision(rev_snap, self.manager)
+        # Crea e emetti VERSION (con label diversa per evitare unique conflict)
+        from projects.services import update_project_metadata
+        update_project_metadata(project=self.project, name=self.project.name,
+                                version='02', updated_by=self.manager)
+        ver_snap = create_project_revision(self.project, self.manager, snapshot_type='version')
+        issue_project_revision(ver_snap, self.manager)
+        # REVISION snapshot rimane is_current=True
+        rev_snap.refresh_from_db()
+        ver_snap.refresh_from_db()
+        self.assertTrue(rev_snap.is_current)
+        self.assertTrue(ver_snap.is_current)
+
+    # 11. constraint DB
+    def test_db_constraint_one_current_per_type(self):
+        """Il DB rifiuta due snapshot is_current=True dello stesso tipo per lo stesso progetto."""
+        from django.db import IntegrityError, transaction
+        from projects.services import create_project_revision
+        snap1 = create_project_revision(self.project, self.manager, snapshot_type='version')
+        snap1.is_current = True
+        snap1.save(update_fields=['is_current'])
+        # Prova a impostare is_current su un secondo snapshot dello stesso tipo via SQL diretto
+        snap2 = ProjectRevision.objects.create(
+            project=self.project,
+            snapshot_type='version',
+            revision_label='99',
+            revision_number=99,
+            title='Secondo corrente',
+            status=ProjectRevision.Status.ISSUED,
+            is_current=False,
+            created_by=self.manager,
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                snap2.is_current = True
+                snap2.save(update_fields=['is_current'])

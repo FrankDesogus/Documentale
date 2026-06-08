@@ -349,6 +349,10 @@ class ProjectRevision(models.Model):
         SUPERSEDED = 'superseded', 'Superata'
         ARCHIVED = 'archived', 'Archiviata'
 
+    class SnapshotType(models.TextChoices):
+        VERSION = 'version', 'Versione'
+        REVISION = 'revision', 'Revisione'
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -357,8 +361,14 @@ class ProjectRevision(models.Model):
         related_name='revisions',
         verbose_name='Progetto',
     )
-    revision_label = models.CharField(max_length=20, verbose_name='Etichetta revisione')
-    revision_number = models.PositiveIntegerField(default=0, verbose_name='Numero revisione')
+    snapshot_type = models.CharField(
+        max_length=20,
+        choices=SnapshotType.choices,
+        default=SnapshotType.REVISION,
+        verbose_name='Tipo snapshot',
+    )
+    revision_label = models.CharField(max_length=20, verbose_name='Etichetta')
+    revision_number = models.PositiveIntegerField(default=0, verbose_name='Numero ordinamento')
     title = models.CharField(max_length=255, verbose_name='Titolo')
     description = models.TextField(blank=True, verbose_name='Descrizione')
     status = models.CharField(
@@ -396,15 +406,36 @@ class ProjectRevision(models.Model):
     )
     notes = models.TextField(blank=True, verbose_name='Note')
 
+    # --- Metadati progetto congelati al momento del freeze ---
+    snapshot_project_name = models.CharField(max_length=255, blank=True, default='', verbose_name='Nome progetto (snapshot)')
+    snapshot_project_description = models.TextField(blank=True, default='', verbose_name='Descrizione progetto (snapshot)')
+    snapshot_project_type = models.CharField(max_length=20, blank=True, default='', verbose_name='Tipo progetto (snapshot)')
+    snapshot_project_manager_display = models.CharField(max_length=200, blank=True, default='', verbose_name='Responsabile (snapshot)')
+    snapshot_project_version = models.CharField(max_length=32, blank=True, default='', verbose_name='Versione progetto (snapshot)')
+    snapshot_project_version_scheme = models.CharField(max_length=20, blank=True, default='', verbose_name='Schema versione (snapshot)')
+    snapshot_project_revision = models.CharField(max_length=32, blank=True, default='', verbose_name='Revisione progetto (snapshot)')
+    snapshot_project_revision_scheme = models.CharField(max_length=20, blank=True, default='', verbose_name='Schema revisione (snapshot)')
+
     class Meta:
-        verbose_name = 'Baseline progetto'
-        verbose_name_plural = 'Baseline progetto'
-        ordering = ['project', '-revision_number']
-        unique_together = [('project', 'revision_label'), ('project', 'revision_number')]
+        verbose_name = 'Snapshot progetto'
+        verbose_name_plural = 'Snapshot progetto'
+        ordering = ['project', 'snapshot_type', '-revision_number']
+        unique_together = [
+            ('project', 'snapshot_type', 'revision_label'),
+            ('project', 'snapshot_type', 'revision_number'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'snapshot_type'],
+                condition=models.Q(is_current=True),
+                name='unique_current_snapshot_per_type',
+            ),
+        ]
 
     def __str__(self):
         project_code = self.project.code if self.project else '—'
-        return f"{project_code} baseline rev.{self.revision_label} – {self.title}"
+        type_label = self.get_snapshot_type_display()
+        return f"{project_code} {type_label} {self.revision_label} – {self.title}"
 
 
 class ProjectRevisionItem(models.Model):
@@ -412,7 +443,7 @@ class ProjectRevisionItem(models.Model):
         ProjectRevision,
         on_delete=models.CASCADE,
         related_name='items',
-        verbose_name='Baseline',
+        verbose_name='Snapshot',
     )
     item_number = models.PositiveSmallIntegerField(verbose_name='Numero voce')
     document_version = models.ForeignKey(
@@ -424,9 +455,15 @@ class ProjectRevisionItem(models.Model):
     description = models.CharField(max_length=255, blank=True, verbose_name='Descrizione')
     notes = models.TextField(blank=True, verbose_name='Note')
 
+    # --- Dati documento congelati al momento del freeze ---
+    snapshot_document_code = models.CharField(max_length=50, blank=True, default='', verbose_name='Codice documento (snapshot)')
+    snapshot_document_title = models.CharField(max_length=255, blank=True, default='', verbose_name='Titolo documento (snapshot)')
+    snapshot_document_revision_label = models.CharField(max_length=20, blank=True, default='', verbose_name='Revisione documento (snapshot)')
+    snapshot_folder_path = models.CharField(max_length=1000, blank=True, default='', verbose_name='Path cartella (snapshot)')
+
     class Meta:
-        verbose_name = 'Voce baseline progetto'
-        verbose_name_plural = 'Voci baseline progetto'
+        verbose_name = 'Voce snapshot progetto'
+        verbose_name_plural = 'Voci snapshot progetto'
         ordering = ['revision', 'item_number']
         unique_together = [('revision', 'item_number'), ('revision', 'document_version')]
 

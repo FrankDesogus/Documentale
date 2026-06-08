@@ -182,7 +182,35 @@ class ProjectCreateForm(forms.Form):
         return cleaned
 
 
+class ProjectSnapshotForm(forms.Form):
+    """
+    Form semplificato per creare uno snapshot (VERSION o REVISION).
+
+    Non chiede revision_label, revision_number né snapshot_type:
+    - snapshot_type viene dal pulsante (parametro GET/POST)
+    - revision_label deriva da project.version o project.revision
+    - revision_number viene calcolato automaticamente
+    """
+    title = forms.CharField(
+        max_length=255,
+        required=False,
+        label='Titolo',
+        help_text='Lascia vuoto per usare il titolo automatico.',
+    )
+    description = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False,
+        label='Descrizione',
+    )
+    notes = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 2}),
+        required=False,
+        label='Note',
+    )
+
+
 class ProjectRevisionForm(forms.ModelForm):
+    """Form legacy per compatibilità con test esistenti. Usa ProjectSnapshotForm per nuovi flussi."""
     class Meta:
         model = ProjectRevision
         fields = ['revision_label', 'revision_number', 'title', 'description']
@@ -194,21 +222,24 @@ class ProjectRevisionForm(forms.ModelForm):
             'revision_number': 'Numero progressivo',
         }
 
-    def __init__(self, *args, project=None, **kwargs):
+    def __init__(self, *args, project=None, snapshot_type='revision', **kwargs):
         self._project = project
+        self._snapshot_type = snapshot_type
         super().__init__(*args, **kwargs)
 
     def clean_revision_label(self):
         label = self.cleaned_data.get('revision_label')
         if self._project and label:
             qs = ProjectRevision.objects.filter(
-                project=self._project, revision_label=label
+                project=self._project,
+                snapshot_type=self._snapshot_type,
+                revision_label=label,
             )
             if self.instance and self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise forms.ValidationError(
-                    f'Esiste già una baseline con etichetta "{label}" per questo progetto.'
+                    f'Esiste già uno snapshot con etichetta "{label}" per questo progetto.'
                 )
         return label
 
@@ -216,12 +247,14 @@ class ProjectRevisionForm(forms.ModelForm):
         number = self.cleaned_data.get('revision_number')
         if self._project and number is not None:
             qs = ProjectRevision.objects.filter(
-                project=self._project, revision_number=number
+                project=self._project,
+                snapshot_type=self._snapshot_type,
+                revision_number=number,
             )
             if self.instance and self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise forms.ValidationError(
-                    f'Esiste già una baseline con numero progressivo {number} per questo progetto.'
+                    f'Esiste già uno snapshot con numero progressivo {number} per questo progetto.'
                 )
         return number

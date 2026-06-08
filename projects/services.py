@@ -331,30 +331,83 @@ def create_project_with_root_folder(
 def create_project_revision(
     project: Project,
     created_by: User,
-    revision_label: str,
-    revision_number: int,
+    revision_label: str = None,
+    revision_number: int = None,
     title: str = '',
     description: str = '',
+    snapshot_type: str = 'revision',
+    notes: str = '',
 ) -> ProjectRevision:
-    if ProjectRevision.objects.filter(project=project, revision_label=revision_label).exists():
+    """
+    Crea un nuovo snapshot (VERSION o REVISION) per il progetto.
+
+    Se revision_label è omesso, viene derivato automaticamente da project.version
+    (snapshot_type='version') o project.revision (snapshot_type='revision').
+    Se revision_number è omesso, viene calcolato tramite sequence_label_to_number.
+    I metadati progetto vengono congelati automaticamente al momento della creazione.
+    """
+    from documents.versioning import sequence_label_to_number
+
+    # Auto-derive label dal progetto se non fornita
+    if revision_label is None:
+        if snapshot_type == ProjectRevision.SnapshotType.VERSION:
+            revision_label = project.version
+        else:
+            revision_label = project.revision
+
+    # Auto-calcola revision_number se non fornito
+    if revision_number is None:
+        if snapshot_type == ProjectRevision.SnapshotType.VERSION:
+            scheme = project.version_scheme
+        else:
+            scheme = project.revision_scheme
+        try:
+            revision_number = sequence_label_to_number(revision_label, scheme)
+        except Exception:
+            revision_number = 0
+
+    if ProjectRevision.objects.filter(
+        project=project, snapshot_type=snapshot_type, revision_label=revision_label
+    ).exists():
+        type_label = 'versione' if snapshot_type == 'version' else 'revisione'
         raise ValidationError(
-            f'Esiste già una baseline con etichetta "{revision_label}" '
+            f'Esiste già uno snapshot {type_label} con etichetta "{revision_label}" '
             f'per il progetto {project.code}.'
         )
-    if ProjectRevision.objects.filter(project=project, revision_number=revision_number).exists():
+    if ProjectRevision.objects.filter(
+        project=project, snapshot_type=snapshot_type, revision_number=revision_number
+    ).exists():
+        type_label = 'versione' if snapshot_type == 'version' else 'revisione'
         raise ValidationError(
-            f'Esiste già una baseline con numero progressivo {revision_number} '
+            f'Esiste già uno snapshot {type_label} con numero ordinamento {revision_number} '
             f'per il progetto {project.code}.'
         )
+
+    # Congela metadati progetto
+    manager = project.manager
+    manager_display = ''
+    if manager:
+        manager_display = manager.get_full_name() or manager.username
+
     revision = ProjectRevision.objects.create(
         project=project,
+        snapshot_type=snapshot_type,
         revision_label=revision_label,
         revision_number=revision_number,
-        title=title or f'Baseline {revision_label}',
+        title=title or f'Snapshot {revision_label}',
         description=description,
+        notes=notes,
         status=ProjectRevision.Status.DRAFT,
         is_current=False,
         created_by=created_by,
+        snapshot_project_name=project.name,
+        snapshot_project_description=project.description,
+        snapshot_project_type=project.project_type,
+        snapshot_project_manager_display=manager_display,
+        snapshot_project_version=project.version,
+        snapshot_project_version_scheme=project.version_scheme,
+        snapshot_project_revision=project.revision,
+        snapshot_project_revision_scheme=project.revision_scheme,
     )
     _write_audit(
         actor=created_by,
@@ -369,16 +422,18 @@ def populate_project_revision_from_current_documents(project_revision: ProjectRe
     from documents.models import Document
 
     if project_revision.status != ProjectRevision.Status.DRAFT:
-        raise ValueError('Solo le revisioni in bozza possono essere popolate automaticamente.')
+        raise ValueError('Solo i snapshot in bozza possono essere popolati automaticamente.')
 
     folders = get_project_document_folders(project_revision.project)
     if not folders:
         return 0
 
+    folder_path_map = {f.pk: f.path for f in folders}
+
     documents = (
         Document.objects
         .filter(project_folder__in=folders, current_version__isnull=False)
-        .select_related('current_version')
+        .select_related('current_version', 'project_folder')
         .order_by('code')
     )
 
@@ -396,11 +451,16 @@ def populate_project_revision_from_current_documents(project_revision: ProjectRe
         if version.pk in existing_version_ids:
             continue
         item_number += 1
+        folder_path = folder_path_map.get(doc.project_folder_id, '')
         ProjectRevisionItem.objects.create(
             revision=project_revision,
             item_number=item_number,
             document_version=version,
             description=doc.title,
+            snapshot_document_code=doc.code,
+            snapshot_document_title=doc.title,
+            snapshot_document_revision_label=version.revision_label,
+            snapshot_folder_path=folder_path,
         )
         existing_version_ids.add(version.pk)
         added += 1
@@ -411,11 +471,12 @@ def populate_project_revision_from_current_documents(project_revision: ProjectRe
 @transaction.atomic
 def issue_project_revision(project_revision: ProjectRevision, issued_by: User) -> ProjectRevision:
     if project_revision.status != ProjectRevision.Status.DRAFT:
-        raise ValueError('Solo le baseline in bozza possono essere emesse.')
+        raise ValueError('Solo i snapshot in bozza possono essere emessi.')
 
-    # Marca come superata la precedente baseline corrente
+    # Marca come superato il precedente snapshot corrente dello stesso tipo
     ProjectRevision.objects.filter(
         project=project_revision.project,
+        snapshot_type=project_revision.snapshot_type,
         is_current=True,
     ).update(status=ProjectRevision.Status.SUPERSEDED, is_current=False)
 
@@ -434,11 +495,11 @@ def issue_project_revision(project_revision: ProjectRevision, issued_by: User) -
     return project_revision
 
 
-def build_project_baseline_comparison(project):
+def build_project_baseline_comparison(project, snapshot_type='revision'):
     """
-    Confronta i documenti approvati correnti del progetto con la baseline corrente.
+    Confronta i documenti approvati correnti del progetto con lo snapshot corrente.
 
-    Restituisce (current_baseline, rows) dove rows è una lista di dict:
+    Restituisce (current_snapshot, rows) dove rows è una lista di dict:
       {
         'document':        Document (o None per i "missing"),
         'current_version': DocumentVersion | None,
@@ -447,11 +508,13 @@ def build_project_baseline_comparison(project):
         'status_label':    str,
       }
 
-    Se non esiste una baseline corrente restituisce (None, []).
+    Se non esiste uno snapshot corrente del tipo richiesto restituisce (None, []).
     """
     from documents.models import Document
 
-    current_baseline = project.revisions.filter(is_current=True).first()
+    current_baseline = project.revisions.filter(
+        is_current=True, snapshot_type=snapshot_type,
+    ).first()
     if current_baseline is None:
         return None, []
 

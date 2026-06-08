@@ -24,7 +24,7 @@ class ProjectRevisionInline(admin.TabularInline):
     model = ProjectRevision
     fk_name = 'project'
     extra = 0
-    fields = ('revision_label', 'revision_number', 'title', 'status', 'is_current', 'created_at')
+    fields = ('snapshot_type', 'revision_label', 'revision_number', 'title', 'status', 'is_current', 'created_at')
     readonly_fields = ('created_at',)
     show_change_link = True
 
@@ -32,7 +32,11 @@ class ProjectRevisionInline(admin.TabularInline):
 class ProjectRevisionItemInline(admin.TabularInline):
     model = ProjectRevisionItem
     extra = 0
-    fields = ('item_number', 'description', 'document_version', 'notes')
+    fields = ('item_number', 'description', 'document_version',
+              'snapshot_document_code', 'snapshot_document_title',
+              'snapshot_document_revision_label', 'snapshot_folder_path', 'notes')
+    readonly_fields = ('snapshot_document_code', 'snapshot_document_title',
+                       'snapshot_document_revision_label', 'snapshot_folder_path')
 
 
 class MembershipInline(admin.TabularInline):
@@ -77,10 +81,13 @@ class ProjectFolderMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(ProjectRevision)
 class ProjectRevisionAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'project', 'revision_label', 'revision_number', 'status', 'is_current', 'created_at')
-    list_filter = ('status', 'is_current')
+    list_display = ('__str__', 'project', 'snapshot_type', 'revision_label', 'revision_number', 'status', 'is_current', 'created_at')
+    list_filter = ('snapshot_type', 'status', 'is_current')
     search_fields = ('project__code', 'title', 'revision_label')
-    readonly_fields = ('created_at',)
+    readonly_fields = ('created_at', 'snapshot_project_name', 'snapshot_project_description',
+                       'snapshot_project_type', 'snapshot_project_manager_display',
+                       'snapshot_project_version', 'snapshot_project_version_scheme',
+                       'snapshot_project_revision', 'snapshot_project_revision_scheme')
     inlines = [ProjectRevisionItemInline]
 
 
