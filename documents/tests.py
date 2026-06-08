@@ -3425,3 +3425,50 @@ class DocumentRevisionSchemeTests(TestCase):
         form = DocumentCreateForm(data=data)
         self.assertFalse(form.is_valid())
         self.assertIn('revision_label', form.errors)
+
+    # ------------------------------------------------------------------
+    # Guard cambio schema
+    # ------------------------------------------------------------------
+
+    def _make_doc_with_draft(self, revision_scheme='numeric', code='DOC-GRD-001'):
+        doc = self._make_doc(revision_scheme=revision_scheme, code=code)
+        create_new_revision(doc, self.user, '00', 0)
+        return doc
+
+    def test_can_change_scheme_when_no_versions(self):
+        """Cambio schema consentito se non esistono revisioni."""
+        doc = self._make_doc(code='DOC-GRD-NV')
+        doc.revision_scheme = 'alphabetic'
+        doc.full_clean()  # non deve sollevare eccezioni
+
+    def test_can_change_scheme_after_all_approved(self):
+        """Cambio schema consentito se l'unica versione è approvata (non aperta)."""
+        doc = self._make_doc_with_draft(code='DOC-GRD-AP')
+        draft = doc.versions.get()
+        draft.status = DocumentVersion.Status.APPROVED
+        draft.save()
+        doc.revision_scheme = 'alphabetic'
+        doc.full_clean()  # non deve sollevare eccezioni
+
+    def test_cannot_change_scheme_with_draft_version(self):
+        """Cambio schema bloccato se esiste una versione DRAFT."""
+        doc = self._make_doc_with_draft(code='DOC-GRD-DR')
+        doc.revision_scheme = 'alphabetic'
+        with self.assertRaises(ValidationError) as ctx:
+            doc.full_clean()
+        errors = ctx.exception.message_dict
+        self.assertIn('revision_scheme', errors)
+        self.assertIn('revisione aperta', errors['revision_scheme'][0])
+
+    def test_cannot_change_scheme_with_in_approval_version(self):
+        """Cambio schema bloccato se esiste una versione IN_APPROVAL."""
+        doc = self._make_doc_with_draft(code='DOC-GRD-IA')
+        draft = doc.versions.get()
+        draft.status = DocumentVersion.Status.IN_APPROVAL
+        draft.save()
+        doc.revision_scheme = 'alphabetic'
+        with self.assertRaises(ValidationError) as ctx:
+            doc.full_clean()
+        errors = ctx.exception.message_dict
+        self.assertIn('revision_scheme', errors)
+        self.assertIn('revisione aperta', errors['revision_scheme'][0])

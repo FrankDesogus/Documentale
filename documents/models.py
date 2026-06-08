@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.contrib.auth.models import User
@@ -176,6 +177,22 @@ class Document(models.Model):
         verbose_name = 'Documento'
         verbose_name_plural = 'Documenti'
         ordering = ['code']
+
+    _OPEN_STATUSES = {'draft', 'in_approval'}
+
+    def clean(self):
+        if self.pk:
+            old = Document.objects.filter(pk=self.pk).values('revision_scheme').first()
+            if old and old['revision_scheme'] != self.revision_scheme:
+                has_open = self.versions.filter(status__in=self._OPEN_STATUSES).exists()
+                if has_open:
+                    raise ValidationError({
+                        'revision_scheme': (
+                            'Non è possibile modificare lo schema di revisione mentre esiste '
+                            'una revisione aperta o in approvazione. '
+                            'Gestire prima la revisione corrente.'
+                        )
+                    })
 
     def __str__(self):
         return f"{self.code} – {self.title}"
