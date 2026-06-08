@@ -12,6 +12,7 @@ from documents.models import Document, DocumentVersion
 from documents.permissions import (
     can_create_document,
     can_create_revision,
+    can_edit_document_metadata,
     can_edit_version,
     can_submit_for_approval,
     can_view_audit,
@@ -229,9 +230,29 @@ def document_list(request):
         )
 
     folder_id = request.GET.get('folder', '')
+    recursive = request.GET.get('recursive', '')
+    selected_folder = None
+    selected_folder_is_project = False
     if folder_id:
         try:
-            qs = qs.filter(project_folder_id=int(folder_id))
+            folder_pk = int(folder_id)
+            from projects.models import ProjectFolder
+            selected_folder = ProjectFolder.objects.filter(
+                pk=folder_pk, status=ProjectFolder.Status.ACTIVE
+            ).first()
+            if selected_folder:
+                selected_folder_is_project = (
+                    selected_folder.folder_kind == ProjectFolder.FolderKind.PROJECT
+                )
+                do_recursive = selected_folder_is_project or recursive == '1'
+                if do_recursive and selected_folder.path:
+                    qs = qs.filter(
+                        project_folder__path__startswith=selected_folder.path
+                    )
+                else:
+                    qs = qs.filter(project_folder_id=folder_pk)
+            else:
+                qs = qs.filter(project_folder_id=folder_pk)
         except (ValueError, TypeError):
             pass
 
@@ -261,6 +282,9 @@ def document_list(request):
         'page_obj': page_obj,
         'q': q,
         'folder_id': folder_id,
+        'recursive': recursive,
+        'selected_folder': selected_folder,
+        'selected_folder_is_project': selected_folder_is_project,
         'doc_type': doc_type,
         'filter_folders': filter_folders,
         'total_count': paginator.count,
@@ -335,6 +359,7 @@ def document_detail(request, document_id):
         'latest_approval_attachments': latest_approval_attachments,
         'doc_ecns': doc_ecns,
         'show_create_ecn': show_create_ecn,
+        'show_edit_metadata': can_edit_document_metadata(request.user, doc),
     })
 
 
@@ -485,7 +510,10 @@ def new_revision(request, document_id):
         try:
             next_label = next_sequence_value(last_version.revision_label, scheme)
         except Exception:
-            next_label = str(next_number).zfill(2)
+            # Ultimo label incompatibile con lo schema corrente: lo schema è stato
+            # cambiato manualmente. Propone il primo valore del nuovo schema;
+            # l'utente lo sostituisce liberamente.
+            next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
     else:
         next_number = 0
         next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
@@ -646,6 +674,43 @@ def edit_version(request, version_id):
         'form': form,
         'version': version,
         'document': version.document,
+    })
+
+
+@login_required
+def edit_document_metadata(request, document_id):
+    from documents.forms import DocumentMetadataEditForm
+
+    doc = get_object_or_404(Document, pk=document_id)
+
+    if not can_edit_document_metadata(request.user, doc):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        form = DocumentMetadataEditForm(request.POST, instance=doc)
+        if form.is_valid():
+            try:
+                instance = form.save(commit=False)
+                instance.full_clean()
+                instance.save()
+                messages.success(
+                    request,
+                    f'Metadati di {doc.code} aggiornati.',
+                )
+                return redirect('document_detail', document_id=doc.pk)
+            except ValidationError as exc:
+                for field, errs in (exc.message_dict.items() if hasattr(exc, 'message_dict') else {None: exc.messages}.items()):
+                    for msg in errs:
+                        if field and field in form.fields:
+                            form.add_error(field, msg)
+                        else:
+                            form.add_error(None, msg)
+    else:
+        form = DocumentMetadataEditForm(instance=doc)
+
+    return render(request, 'documents/edit_document_metadata.html', {
+        'form': form,
+        'document': doc,
     })
 
 

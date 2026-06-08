@@ -3472,3 +3472,370 @@ class DocumentRevisionSchemeTests(TestCase):
         errors = ctx.exception.message_dict
         self.assertIn('revision_scheme', errors)
         self.assertIn('revisione aperta', errors['revision_scheme'][0])
+
+
+# ===========================================================================
+# FIX-DOCUMENT-FOLDER-FILTER — test filtro cartella ricorsivo
+# ===========================================================================
+
+class DocumentFolderFilterTests(TestCase):
+    """
+    Verifica che document_list applichi il filtro cartella in modo ricorsivo
+    quando richiesto (folder PROJECT o recursive=1).
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user('dff_owner', password='pw')
+        self.superuser = User.objects.create_user(
+            'dff_super', password='pw', is_superuser=True
+        )
+        from projects.models import ProjectFolder
+        from projects.services import set_folder_path
+
+        # Root cartella PROJECT
+        self.root = ProjectFolder.objects.create(
+            code='DFF-ROOT', name='Root Project',
+            folder_kind=ProjectFolder.FolderKind.PROJECT,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.owner,
+        )
+        set_folder_path(self.root)
+
+        # Sottocartella ordinaria figlia del root
+        self.sub = ProjectFolder.objects.create(
+            code='DFF-SUB', name='Subfolder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.owner,
+            parent=self.root,
+        )
+        set_folder_path(self.sub)
+
+        # Cartella ordinaria non correlata
+        self.other = ProjectFolder.objects.create(
+            code='DFF-OTHER', name='Other',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.owner,
+        )
+        set_folder_path(self.other)
+
+        # Documento nella root
+        self.doc_root, _ = _make_published_doc('DFF-DOC-ROOT', self.root, self.owner)
+        # Documento nella sottocartella
+        self.doc_sub, _ = _make_published_doc('DFF-DOC-SUB', self.sub, self.owner)
+        # Documento nella cartella esterna
+        self.doc_other, _ = _make_published_doc('DFF-DOC-OTHER', self.other, self.owner)
+
+        self.client.login(username='dff_super', password='pw')
+
+    def _get(self, **params):
+        return self.client.get(reverse('document_list'), params)
+
+    def test_no_filter_shows_all(self):
+        """Senza filtro cartella tutti i documenti sono visibili."""
+        resp = self._get()
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('DFF-DOC-ROOT', codes)
+        self.assertIn('DFF-DOC-SUB', codes)
+        self.assertIn('DFF-DOC-OTHER', codes)
+
+    def test_project_root_includes_subdocuments_automatically(self):
+        """Root folder di tipo PROJECT → include automaticamente le sottocartelle."""
+        resp = self._get(folder=self.root.pk)
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('DFF-DOC-ROOT', codes)
+        self.assertIn('DFF-DOC-SUB', codes)
+        self.assertNotIn('DFF-DOC-OTHER', codes)
+
+    def test_project_root_excludes_external_documents(self):
+        """Filtro PROJECT non mostra documenti fuori dal progetto."""
+        resp = self._get(folder=self.root.pk)
+        codes = [d.code for d in resp.context['documents']]
+        self.assertNotIn('DFF-DOC-OTHER', codes)
+
+    def test_ordinary_folder_without_recursive_shows_direct_only(self):
+        """Cartella ordinaria senza recursive → solo documenti diretti."""
+        resp = self._get(folder=self.sub.pk)
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('DFF-DOC-SUB', codes)
+        self.assertNotIn('DFF-DOC-ROOT', codes)
+        self.assertNotIn('DFF-DOC-OTHER', codes)
+
+    def test_ordinary_folder_with_recursive_includes_subdocuments(self):
+        """Cartella ordinaria con recursive=1 → include i discendenti."""
+        resp = self._get(folder=self.root.pk, recursive='1')
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('DFF-DOC-ROOT', codes)
+        self.assertIn('DFF-DOC-SUB', codes)
+
+    def test_context_exposes_selected_folder_is_project(self):
+        """Il contesto espone selected_folder_is_project=True per root PROJECT."""
+        resp = self._get(folder=self.root.pk)
+        self.assertTrue(resp.context['selected_folder_is_project'])
+
+    def test_context_selected_folder_is_project_false_for_generic(self):
+        """Il contesto espone selected_folder_is_project=False per cartella ordinaria."""
+        resp = self._get(folder=self.sub.pk)
+        self.assertFalse(resp.context['selected_folder_is_project'])
+
+    def test_recursive_checkbox_shown_for_ordinary_folder(self):
+        """La checkbox 'Includi sottocartelle' appare per cartella ordinaria."""
+        resp = self._get(folder=self.sub.pk)
+        self.assertContains(resp, 'name="recursive"')
+
+    def test_recursive_checkbox_not_shown_without_folder(self):
+        """La checkbox non appare senza filtro cartella."""
+        resp = self._get()
+        self.assertNotContains(resp, 'name="recursive"')
+
+    def test_project_auto_recursive_hint_shown(self):
+        """Il testo informativo appare per root PROJECT selezionata."""
+        resp = self._get(folder=self.root.pk)
+        self.assertContains(resp, 'include automaticamente le sottocartelle')
+
+    def test_other_filters_still_combinable(self):
+        """Il filtro q si combina correttamente con il filtro cartella ricorsivo."""
+        resp = self._get(folder=self.root.pk, q='SUB')
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('DFF-DOC-SUB', codes)
+        self.assertNotIn('DFF-DOC-ROOT', codes)
+
+    def test_denied_subfolder_excluded_for_restricted_user(self):
+        """
+        Un utente con deny sulla sottocartella non vede i suoi documenti
+        anche se seleziona la root PROJECT (sicurezza: deny rispettato).
+        """
+        restricted = User.objects.create_user('dff_restricted', password='pw')
+        _grant(self.root, user=restricted, perm='read_published')
+        _grant(self.sub, user=restricted, perm='read_published', effect='deny')
+
+        self.client.login(username='dff_restricted', password='pw')
+        resp = self._get(folder=self.root.pk)
+        codes = [d.code for d in resp.context['documents']]
+        self.assertIn('DFF-DOC-ROOT', codes)
+        self.assertNotIn('DFF-DOC-SUB', codes)
+
+    def test_private_draft_excluded(self):
+        """Le bozze private non appaiono nel filtro ricorsivo."""
+        other_user = User.objects.create_user('dff_other_author', password='pw')
+        _make_draft_doc('DFF-DRAFT-PRIV', self.sub, other_user)
+        self.client.login(username='dff_super', password='pw')
+        resp = self._get(folder=self.root.pk)
+        codes = [d.code for d in resp.context['documents']]
+        self.assertNotIn('DFF-DRAFT-PRIV', codes)
+
+
+# ===========================================================================
+# VERIFY-DOCUMENT-SCHEME-EDIT-UI — test view modifica metadati
+# ===========================================================================
+
+class DocumentMetadataEditTests(TestCase):
+    """Test della view edit_document_metadata."""
+
+    def setUp(self):
+        from projects.models import ProjectFolder
+        from projects.services import set_folder_path
+
+        self.owner = User.objects.create_user('dme_owner', password='pw')
+        self.manager = User.objects.create_user('dme_manager', password='pw')
+        self.stranger = User.objects.create_user('dme_stranger', password='pw')
+        self.superuser = User.objects.create_user(
+            'dme_super', password='pw', is_superuser=True
+        )
+
+        from django.contrib.auth.models import Group
+        mg = Group.objects.get_or_create(name='Document Managers')[0]
+        self.manager.groups.add(mg)
+
+        self.folder = ProjectFolder.objects.create(
+            code='DME-F', name='DME Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.owner,
+        )
+        set_folder_path(self.folder)
+
+        self.doc = Document.objects.create(
+            code='DME-DOC-001', title='Doc metadata test',
+            category=Document.Category.QUALITY,
+            project_folder=self.folder,
+            owner=self.owner, created_by=self.owner,
+            revision_scheme='numeric',
+        )
+
+    def _url(self):
+        return reverse('document_edit_metadata', args=[self.doc.pk])
+
+    def test_manager_can_access(self):
+        self.client.login(username='dme_manager', password='pw')
+        resp = self.client.get(self._url())
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('form', resp.context)
+
+    def test_superuser_can_access(self):
+        self.client.login(username='dme_super', password='pw')
+        resp = self.client.get(self._url())
+        self.assertEqual(resp.status_code, 200)
+
+    def test_stranger_gets_403(self):
+        self.client.login(username='dme_stranger', password='pw')
+        resp = self.client.get(self._url())
+        self.assertEqual(resp.status_code, 403)
+
+    def test_change_scheme_allowed_when_no_open_versions(self):
+        """Schema modificabile se non ci sono revisioni aperte."""
+        self.client.login(username='dme_super', password='pw')
+        resp = self.client.post(self._url(), {
+            'title': self.doc.title,
+            'description': '',
+            'revision_scheme': 'alphabetic',
+        })
+        self.assertRedirects(resp, reverse('document_detail', args=[self.doc.pk]))
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.revision_scheme, 'alphabetic')
+
+    def test_change_scheme_blocked_with_draft(self):
+        """Schema non modificabile con revisione DRAFT aperta: form mostra errore."""
+        create_new_revision(self.doc, self.owner, '00', 0)
+        self.client.login(username='dme_super', password='pw')
+        resp = self.client.post(self._url(), {
+            'title': self.doc.title,
+            'description': '',
+            'revision_scheme': 'alphabetic',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Non è possibile modificare lo schema di revisione')
+
+    def test_change_scheme_blocked_with_in_approval(self):
+        """Schema non modificabile con revisione IN_APPROVAL aperta."""
+        ver = create_new_revision(self.doc, self.owner, '00', 0)
+        ver.status = DocumentVersion.Status.IN_APPROVAL
+        ver.save()
+        self.client.login(username='dme_super', password='pw')
+        resp = self.client.post(self._url(), {
+            'title': self.doc.title,
+            'description': '',
+            'revision_scheme': 'alphabetic',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Non è possibile modificare lo schema di revisione')
+
+    def test_history_unchanged_after_scheme_change(self):
+        """Le revisioni storiche non vengono modificate dopo il cambio schema."""
+        ver = create_new_revision(self.doc, self.owner, '00', 0)
+        ver.status = DocumentVersion.Status.APPROVED
+        ver.save()
+        self.client.login(username='dme_super', password='pw')
+        self.client.post(self._url(), {
+            'title': self.doc.title,
+            'description': '',
+            'revision_scheme': 'alphabetic',
+        })
+        ver.refresh_from_db()
+        self.assertEqual(ver.revision_label, '00')
+
+    def test_title_update_works(self):
+        """Il titolo è modificabile indipendentemente dallo schema."""
+        self.client.login(username='dme_super', password='pw')
+        self.client.post(self._url(), {
+            'title': 'Titolo aggiornato',
+            'description': 'Nuova descrizione',
+            'revision_scheme': 'numeric',
+        })
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.title, 'Titolo aggiornato')
+
+    def test_detail_shows_edit_metadata_button_for_manager(self):
+        """Il pulsante 'Modifica metadati' appare nel dettaglio per il manager."""
+        self.client.login(username='dme_manager', password='pw')
+        # Pubblica il documento perché il manager vede solo doc pubblicati
+        ver = create_new_revision(self.doc, self.owner, '00', 0)
+        ver.status = DocumentVersion.Status.APPROVED
+        ver.is_current = True
+        ver.save()
+        self.doc.current_version = ver
+        self.doc.save(update_fields=['current_version'])
+        resp = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertContains(resp, 'Modifica metadati')
+
+    def test_detail_hides_edit_metadata_button_for_stranger(self):
+        """Il pulsante non appare per utenti senza permesso di scrittura."""
+        ver = create_new_revision(self.doc, self.owner, '00', 0)
+        ver.status = DocumentVersion.Status.APPROVED
+        ver.is_current = True
+        ver.save()
+        self.doc.current_version = ver
+        self.doc.save(update_fields=['current_version'])
+        # Lo stranger ha accesso in lettura (può vedere la detail) ma non in scrittura
+        _grant(self.folder, user=self.stranger, perm='read_published')
+        self.client.login(username='dme_stranger', password='pw')
+        resp = self.client.get(reverse('document_detail', args=[self.doc.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'Modifica metadati')
+
+
+# ===========================================================================
+# First revision after scheme change — test next_label
+# ===========================================================================
+
+class NextLabelAfterSchemeChangeTests(TestCase):
+    """
+    Verifica che dopo il cambio schema, la nuova revisione proponga
+    il primo valore del nuovo schema (non un valore errato).
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user('nlsc_owner', password='pw')
+        self.superuser = User.objects.create_user(
+            'nlsc_super', password='pw', is_superuser=True
+        )
+        self.doc_num = Document.objects.create(
+            code='NLSC-NUM', title='Numeric doc',
+            category=Document.Category.QUALITY,
+            owner=self.owner, created_by=self.owner,
+            revision_scheme='numeric',
+        )
+        create_new_revision(self.doc_num, self.owner, '02', 2)
+
+        self.doc_alpha = Document.objects.create(
+            code='NLSC-ALPHA', title='Alpha doc',
+            category=Document.Category.QUALITY,
+            owner=self.owner, created_by=self.owner,
+            revision_scheme='alphabetic',
+        )
+        create_new_revision(self.doc_alpha, self.owner, 'C', 2)
+
+    def _get_revision_form(self, doc):
+        self.client.login(username='nlsc_super', password='pw')
+        return self.client.get(reverse('document_new_revision', args=[doc.pk]))
+
+    def test_numeric_scheme_proposes_next_numeric(self):
+        """Schema rimasto NUMERIC → propone il prossimo valore numerico."""
+        resp = self._get_revision_form(self.doc_num)
+        self.assertEqual(resp.status_code, 200)
+        form = resp.context['form']
+        self.assertEqual(form.initial.get('revision_label'), '03')
+
+    def test_alphabetic_scheme_proposes_next_alphabetic(self):
+        """Schema rimasto ALPHABETIC → propone il prossimo valore alfabetico."""
+        resp = self._get_revision_form(self.doc_alpha)
+        self.assertEqual(resp.status_code, 200)
+        form = resp.context['form']
+        self.assertEqual(form.initial.get('revision_label'), 'D')
+
+    def test_numeric_to_alphabetic_proposes_A(self):
+        """Dopo cambio NUMERIC→ALPHABETIC la proposta è 'A' (non il valore errato)."""
+        self.doc_num.revision_scheme = 'alphabetic'
+        self.doc_num.save()
+        resp = self._get_revision_form(self.doc_num)
+        form = resp.context['form']
+        self.assertEqual(form.initial.get('revision_label'), 'A')
+
+    def test_alphabetic_to_numeric_proposes_00(self):
+        """Dopo cambio ALPHABETIC→NUMERIC la proposta è '00'."""
+        self.doc_alpha.revision_scheme = 'numeric'
+        self.doc_alpha.save()
+        resp = self._get_revision_form(self.doc_alpha)
+        form = resp.context['form']
+        self.assertEqual(form.initial.get('revision_label'), '00')

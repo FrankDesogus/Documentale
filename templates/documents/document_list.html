@@ -25,6 +25,14 @@
       {% endfor %}
     </select>
   </div>
+  {% if folder_id and not selected_folder_is_project %}
+  <div class="filter-group">
+    <label class="form-label flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" name="recursive" value="1" {% if recursive == '1' %}checked{% endif %} class="rounded">
+      <span>Includi sottocartelle</span>
+    </label>
+  </div>
+  {% endif %}
   {% endif %}
   <div class="filter-group">
     <label class="form-label">Tipo</label>
@@ -37,6 +45,9 @@
     {% endif %}
   </div>
 </form>
+{% if selected_folder_is_project and folder_id %}
+<p class="text-xs text-gray-500 mb-2">Il filtro progetto include automaticamente le sottocartelle.</p>
+{% endif %}
 
 {% if documents %}
 <div class="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden mb-4">
