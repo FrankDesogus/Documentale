@@ -78,59 +78,47 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     def _reset(self):
-        from documents.models import Document
-        from auditlog.models import AuditLog
-        from ecn.models import ChangeNotice
-        from projects.models import Project, ProjectFolder
+        """
+        Resetta l'intero database locale demo tramite flush.
 
-        # Prima elimina gli ECN demo (PROTECT sui documenti)
-        ecn_deleted = ChangeNotice.objects.filter(
-            code__startswith='ECN-DEMO-'
-        ).delete()[0]
-        if ecn_deleted:
-            self.stdout.write(f'  >> {ecn_deleted} ECN demo eliminati.')
+        Guardrail obbligatori (tutti devono essere soddisfatti):
+          1. settings.DEBUG == True
+          2. database ENGINE == django.db.backends.sqlite3
 
-        # Poi elimina i documenti demo del progetto
-        prj_doc_code = 'PRJ-DEMO-001-SPEC-001'
-        try:
-            doc = Document.objects.get(code=prj_doc_code)
-            AuditLog.objects.filter(changes__document_id=doc.pk).delete()
-            doc.delete()
-            self.stdout.write(f'  >> Documento progetto {prj_doc_code} eliminato.')
-        except Document.DoesNotExist:
-            pass
+        Senza questi guardrail il comando viene interrotto con un errore
+        leggibile. Questo evita reset accidentali su staging o produzione.
 
-        # Elimina il progetto demo e la sua root folder (PROTECT richiede prima il progetto)
-        try:
-            prj = Project.objects.get(code='PRJ-DEMO-001')
-            root_folder_pk = prj.root_folder_id
-            prj.root_folder = None
-            prj.save(update_fields=['root_folder'])
-            prj.delete()
-            if root_folder_pk:
-                # Elimina cartelle figlie prima, poi la root
-                ProjectFolder.objects.filter(
-                    path__startswith=f'/{root_folder_pk}/'
-                ).exclude(pk=root_folder_pk).delete()
-                ProjectFolder.objects.filter(pk=root_folder_pk).delete()
-            self.stdout.write('  >> Progetto PRJ-DEMO-001 e root folder eliminati.')
-        except Project.DoesNotExist:
-            pass
+        Motivazione: il database locale contiene dati fake interamente
+        rigenerabili; flush è il modo più robusto per garantire pulizia
+        completa indipendentemente dalle FK PROTECT presenti (es. ECN
+        non-demo che referenziano documenti demo).
+        """
+        from django.conf import settings
+        from django.db import connections
 
-        # Poi elimina i documenti demo
-        deleted_total = 0
-        for code in DEMO_CODES.values():
-            try:
-                doc = Document.objects.get(code=code)
-                AuditLog.objects.filter(changes__document_id=doc.pk).delete()
-                doc.delete()
-                deleted_total += 1
-                self.stdout.write(f'  >> Documento {code} eliminato.')
-            except Document.DoesNotExist:
-                pass
+        db_engine = settings.DATABASES.get('default', {}).get('ENGINE', '')
 
-        if deleted_total == 0 and ecn_deleted == 0:
-            self.stdout.write('  Nessun dato demo da eliminare.')
+        if not settings.DEBUG:
+            self.stderr.write(
+                self.style.ERROR(
+                    'ERRORE: --reset è consentito solo con settings.DEBUG = True.\n'
+                    'Questo comando è esclusivamente per l\'ambiente di sviluppo locale.'
+                )
+            )
+            raise SystemExit(1)
+
+        if 'sqlite3' not in db_engine:
+            self.stderr.write(
+                self.style.ERROR(
+                    f'ERRORE: --reset è consentito solo con SQLite (ENGINE attuale: {db_engine}).\n'
+                    'Non eseguire questo comando su un database non SQLite.'
+                )
+            )
+            raise SystemExit(1)
+
+        from django.core.management import call_command
+        call_command('flush', interactive=False, verbosity=0)
+        self.stdout.write('  >> Database locale svuotato (flush).')
 
     # ------------------------------------------------------------------
     # Flusso principale

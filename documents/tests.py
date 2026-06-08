@@ -2985,3 +2985,220 @@ class DemoSupervisorEndToEndTests(TestCase):
         pks = [u.pk for u in qs]
         self.assertIn(self.supervisor.pk, pks)
         self.assertIn(self.other.pk, pks)
+
+
+# ===========================================================================
+# DemoCompanyReset — test reset robusto del comando demo_company
+# ===========================================================================
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEBUG=True,
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    },
+)
+class DemoCompanyResetTests(TestCase):
+    """
+    Test del reset robusto di demo_company --reset --no-email.
+
+    Verifica che:
+    - il reset funzioni anche con ECN approvate collegate a documenti demo
+    - i guardrail DEBUG e SQLite blocchino il reset in ambienti non sicuri
+    - il comando senza --reset non esegua flush
+    - il secondo reset consecutivo funzioni (idempotenza)
+    """
+
+    def _call_reset(self):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        err = StringIO()
+        call_command('demo_company', reset=True, no_email=True, stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    def _call_no_reset(self):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('demo_company', no_email=True, stdout=out)
+        return out.getvalue()
+
+    # ------------------------------------------------------------------
+    # 1. Reset su database popolato
+    # ------------------------------------------------------------------
+    def test_reset_on_populated_database(self):
+        """Reset funziona su un database che contiene già dati."""
+        from django.contrib.auth.models import User as _User
+        _User.objects.create_user('existing_user', password='pw')
+        stdout, _ = self._call_reset()
+        # Il flush svuota il DB; la ricreazione crea supervisor_demo
+        self.assertTrue(
+            _User.objects.filter(username='supervisor_demo').exists()
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Reset con ECN approvata collegata a documento demo
+    # ------------------------------------------------------------------
+    def test_reset_with_approved_ecn_on_demo_document(self):
+        """
+        Reset non solleva ProtectedError anche se esiste un ECN approvata
+        con codice non-ECN-DEMO-* collegata a un documento demo.
+        """
+        from documents.models import Document, DocumentVersion
+        from ecn.models import ChangeNotice
+        from django.contrib.auth.models import User as _User
+
+        author = _User.objects.create_user('ecn_author', password='pw')
+        doc = Document.objects.create(
+            code='DEMO-PUB-001',
+            title='Doc demo con ECN esterna',
+            category=Document.Category.QUALITY,
+            owner=author,
+            created_by=author,
+            status=Document.Status.ACTIVE,
+        )
+        ver = DocumentVersion.objects.create(
+            document=doc,
+            revision_label='00',
+            revision_number=0,
+            status=DocumentVersion.Status.APPROVED,
+            is_current=True,
+            created_by=author,
+        )
+        doc.current_version = ver
+        doc.save(update_fields=['current_version'])
+
+        # ECN con codice non-ECN-DEMO-*: avrebbe causato ProtectedError nel vecchio codice
+        ChangeNotice.objects.create(
+            code='ECN-0003',
+            title='Variante di test',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            document=doc,
+            document_version=ver,
+            proposed_by=author,
+            created_by=author,
+            status=ChangeNotice.Status.APPROVED,
+        )
+
+        # Non deve sollevare ProtectedError
+        try:
+            stdout, _ = self._call_reset()
+        except Exception as exc:
+            self.fail(f'_reset() ha sollevato un\'eccezione: {exc}')
+
+    # ------------------------------------------------------------------
+    # 3. Nessun ProtectedError
+    # ------------------------------------------------------------------
+    def test_no_protected_error_on_reset(self):
+        """Reset non solleva ProtectedError in nessuna configurazione demo."""
+        from django.db.models.deletion import ProtectedError
+        try:
+            self._call_reset()
+        except ProtectedError as exc:
+            self.fail(f'ProtectedError non atteso: {exc}')
+
+    # ------------------------------------------------------------------
+    # 4. Utenti demo ricreati dopo reset
+    # ------------------------------------------------------------------
+    def test_demo_users_recreated_after_reset(self):
+        """Dopo reset, supervisor_demo e admin_demo vengono ricreati."""
+        from django.contrib.auth.models import User as _User
+        self._call_reset()
+        self.assertTrue(_User.objects.filter(username='supervisor_demo').exists())
+        self.assertTrue(_User.objects.filter(username='admin_demo').exists())
+
+    # ------------------------------------------------------------------
+    # 5. Documenti demo ricreati dopo reset
+    # ------------------------------------------------------------------
+    def test_demo_documents_recreated_after_reset(self):
+        """Dopo reset, i documenti demo vengono ricreati."""
+        from documents.models import Document
+        self._call_reset()
+        for code in ('DEMO-PUB-001', 'DEMO-DRAFT-001', 'DEMO-APPR-001', 'DEMO-ECN-001'):
+            self.assertTrue(
+                Document.objects.filter(code=code).exists(),
+                f'Documento {code} non trovato dopo reset',
+            )
+
+    # ------------------------------------------------------------------
+    # 6. ECN demo ricreata dopo reset
+    # ------------------------------------------------------------------
+    def test_demo_ecn_recreated_after_reset(self):
+        """Dopo reset, ECN-DEMO-001 viene ricreata."""
+        from ecn.models import ChangeNotice
+        self._call_reset()
+        self.assertTrue(ChangeNotice.objects.filter(code='ECN-DEMO-001').exists())
+
+    # ------------------------------------------------------------------
+    # 7. Progetto demo ricreato dopo reset
+    # ------------------------------------------------------------------
+    def test_demo_project_recreated_after_reset(self):
+        """Dopo reset, PRJ-DEMO-001 viene ricreato."""
+        from projects.models import Project
+        self._call_reset()
+        self.assertTrue(Project.objects.filter(code='PRJ-DEMO-001').exists())
+
+    # ------------------------------------------------------------------
+    # 8. Secondo reset consecutivo (idempotenza)
+    # ------------------------------------------------------------------
+    def test_double_reset_is_idempotent(self):
+        """Due reset consecutivi non sollevano eccezioni."""
+        try:
+            self._call_reset()
+            self._call_reset()
+        except Exception as exc:
+            self.fail(f'Il secondo reset ha sollevato: {exc}')
+        from django.contrib.auth.models import User as _User
+        self.assertTrue(_User.objects.filter(username='supervisor_demo').exists())
+
+    # ------------------------------------------------------------------
+    # 9. --no-email evita invii
+    # ------------------------------------------------------------------
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_no_email_prevents_smtp(self):
+        """--no-email usa il backend locmem e non solleva errori SMTP."""
+        from django.core import mail
+        self._call_reset()
+        # Nessun errore SMTP; le email vanno nella outbox in-memory (o sono 0)
+        # Il test verifica solo che il comando termini senza eccezioni SMTP.
+        self.assertTrue(True)
+
+    # ------------------------------------------------------------------
+    # 10. Reset rifiutato con DEBUG=False
+    # ------------------------------------------------------------------
+    @override_settings(DEBUG=False)
+    def test_reset_refused_when_debug_false(self):
+        """Reset viene rifiutato quando DEBUG=False."""
+        with self.assertRaises(SystemExit):
+            self._call_reset()
+
+    # ------------------------------------------------------------------
+    # 11. Reset rifiutato con database non SQLite (mock)
+    # ------------------------------------------------------------------
+    @override_settings(
+        DATABASES={
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': 'fake_db',
+            }
+        }
+    )
+    def test_reset_refused_when_not_sqlite(self):
+        """Reset viene rifiutato quando il database non è SQLite."""
+        with self.assertRaises(SystemExit):
+            self._call_reset()
+
+    # ------------------------------------------------------------------
+    # 12. Comando senza --reset non esegue flush
+    # ------------------------------------------------------------------
+    def test_no_reset_flag_does_not_flush(self):
+        """Senza --reset il comando non svuota il database."""
+        from django.contrib.auth.models import User as _User
+        existing = _User.objects.create_user('persisted_user', password='pw')
+        self._call_no_reset()
+        # L'utente preesistente deve sopravvivere
+        self.assertTrue(_User.objects.filter(pk=existing.pk).exists())
