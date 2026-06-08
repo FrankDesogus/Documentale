@@ -5,10 +5,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Documentale{% endblock %} — Documentale</title>
+<script>
+  (function () {
+    try {
+      if (localStorage.getItem('documentale-theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (err) {}
+  })();
+</script>
 <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
 {% block extra_head %}{% endblock %}
 </head>
-<body class="theme-elt h-full bg-elt-navy-950 text-slate-100">
+<body class="theme-elt h-full">
 
 <div class="flex h-screen overflow-hidden">
 
@@ -159,8 +168,17 @@
         </a>
       </div>
 
-      <span class="h-5 w-px bg-white/10"></span>
-      <span class="text-slate-300">{{ user.get_full_name|default:user.username }}</span>
+      <button type="button"
+              id="theme-toggle"
+              class="topbar-action"
+              aria-label="Attiva modalità notte"
+              title="Attiva modalità notte">
+        <span class="theme-toggle-light" aria-hidden="true">☀️</span>
+        <span class="theme-toggle-dark hidden" aria-hidden="true">🌙</span>
+      </button>
+
+      <span class="h-5 w-px bg-slate-200 dark:bg-white/10"></span>
+      <span>{{ user.get_full_name|default:user.username }}</span>
       {% else %}
       <a href="{% url 'login' %}" class="hover:text-white transition-colors">Accedi</a>
       {% endif %}
@@ -186,5 +204,41 @@
 </div>
 
 {% block extra_js %}{% endblock %}
+<script>
+  (function () {
+    var key = 'documentale-theme';
+    var root = document.documentElement;
+    var button = document.getElementById('theme-toggle');
+    if (!button) return;
+
+    var lightIcon = button.querySelector('.theme-toggle-light');
+    var darkIcon = button.querySelector('.theme-toggle-dark');
+
+    function applyTheme(theme) {
+      var isDark = theme === 'dark';
+      root.classList.toggle('dark', isDark);
+      button.setAttribute('aria-label', isDark ? 'Attiva modalità chiara' : 'Attiva modalità notte');
+      button.setAttribute('title', isDark ? 'Attiva modalità chiara' : 'Attiva modalità notte');
+      if (lightIcon && darkIcon) {
+        lightIcon.classList.toggle('hidden', isDark);
+        darkIcon.classList.toggle('hidden', !isDark);
+      }
+    }
+
+    var stored = 'light';
+    try {
+      stored = localStorage.getItem(key) === 'dark' ? 'dark' : 'light';
+    } catch (err) {}
+    applyTheme(stored);
+
+    button.addEventListener('click', function () {
+      var next = root.classList.contains('dark') ? 'light' : 'dark';
+      try {
+        localStorage.setItem(key, next);
+      } catch (err) {}
+      applyTheme(next);
+    });
+  })();
+</script>
 </body>
 </html>

@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     './templates/**/*.html',
     './*/templates/**/*.html',
@@ -22,6 +23,17 @@ module.exports = {
           },
           slate: {
             400: '#94A3B8',
+          },
+          surface: {
+            50: '#F6F8FC',
+            100: '#EEF3F8',
+          },
+          border: {
+            light: '#DCE4EF',
+          },
+          text: {
+            dark: '#081331',
+            muted: '#64748B',
           },
           white: '#F8FAFC',
         },

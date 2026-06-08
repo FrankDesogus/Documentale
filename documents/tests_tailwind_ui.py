@@ -51,6 +51,26 @@ class BaseTemplateStructureTest(TestCase):
         self.assertContains(response, 'Workflow')
         self.assertContains(response, 'Attività')
 
+    def test_theme_toggle_structure_present(self):
+        """Il tema parte light e può passare a night mode via localStorage."""
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("documentale-theme", content)
+        self.assertIn("localStorage.getItem('documentale-theme')", content)
+        self.assertIn('id="theme-toggle"', content)
+        self.assertIn('aria-label="Attiva modalità notte"', content)
+        self.assertIn('<html lang="it" class="h-full">', content)
+        self.assertNotIn('<html lang="it" class="h-full dark">', content)
+
+    def test_sidebar_glass_classes_present(self):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'sidebar-shell')
+        self.assertContains(response, 'sidebar-brand')
+        self.assertContains(response, 'sidebar-section')
+        self.assertContains(response, 'sidebar-link-active')
+
     def test_no_old_inline_styles_in_base(self):
         """Il base.html non deve più usare stili inline del vecchio CSS."""
         response = self.client.get('/')
