@@ -381,6 +381,7 @@ def new_document(request):
                         category=d['category'],
                         document_type=d['document_type'],
                         project_folder=d['project_folder'],
+                        revision_scheme=d.get('revision_scheme', 'numeric'),
                         owner=request.user,
                         created_by=request.user,
                     )
@@ -476,16 +477,21 @@ def new_revision(request, document_id):
             )
             return redirect('document_new_revision', document_id=doc.pk)
 
+    from documents.versioning import next_sequence_value, SequenceScheme
+    scheme = doc.revision_scheme or SequenceScheme.NUMERIC
     last_version = doc.versions.order_by('-revision_number').first()
     if last_version:
         next_number = last_version.revision_number + 1
-        next_label = str(next_number).zfill(2)
+        try:
+            next_label = next_sequence_value(last_version.revision_label, scheme)
+        except Exception:
+            next_label = str(next_number).zfill(2)
     else:
         next_number = 0
-        next_label = '00'
+        next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
 
     if request.method == 'POST':
-        form = DocumentRevisionCreateForm(request.POST, request.FILES)
+        form = DocumentRevisionCreateForm(request.POST, request.FILES, revision_scheme=scheme)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -511,16 +517,18 @@ def new_revision(request, document_id):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentRevisionCreateForm(initial={
-            'revision_label': next_label,
-            'revision_number': next_number,
-        })
+        form = DocumentRevisionCreateForm(
+            initial={'revision_label': next_label, 'revision_number': next_number},
+            revision_scheme=scheme,
+        )
 
     return render(request, 'documents/new_revision.html', {
         'form': form,
         'document': doc,
         'ecn': ecn,
         'needs_ecn': needs_ecn,
+        'revision_scheme': scheme,
+        'revision_scheme_display': dict(SequenceScheme.choices).get(scheme, scheme),
     })
 
 
@@ -599,8 +607,9 @@ def edit_version(request, version_id):
     if not can_edit_version(request.user, version):
         raise PermissionDenied
 
+    scheme = version.document.revision_scheme
     if request.method == 'POST':
-        form = DocumentVersionEditForm(request.POST, request.FILES)
+        form = DocumentVersionEditForm(request.POST, request.FILES, revision_scheme=scheme)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -624,11 +633,14 @@ def edit_version(request, version_id):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentVersionEditForm(initial={
-            'revision_label': version.revision_label,
-            'revision_number': version.revision_number,
-            'change_summary': version.change_summary,
-        })
+        form = DocumentVersionEditForm(
+            initial={
+                'revision_label': version.revision_label,
+                'revision_number': version.revision_number,
+                'change_summary': version.change_summary,
+            },
+            revision_scheme=scheme,
+        )
 
     return render(request, 'documents/edit_version.html', {
         'form': form,

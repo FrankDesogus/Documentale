@@ -283,6 +283,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento test UI',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'revision_scheme': 'numeric',
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -302,6 +303,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento con file',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'revision_scheme': 'numeric',
                 'revision_label': '00',
                 'revision_number': '0',
                 'file': uploaded,
@@ -321,6 +323,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento revisioni',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'revision_scheme': 'numeric',
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -346,6 +349,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento submit',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'revision_scheme': 'numeric',
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -374,6 +378,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Primo',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'revision_scheme': 'numeric',
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -382,6 +387,7 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Secondo con stesso codice',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'revision_scheme': 'numeric',
                 'revision_label': '00',
                 'revision_number': '0',
             })
@@ -554,6 +560,7 @@ class PermissionGroupTests(TestCase):
             'title': 'Documento autore',
             'category': 'QUALITY',
             'project_folder': folder.pk,
+            'revision_scheme': 'numeric',
             'revision_label': '00',
             'revision_number': '0',
         })
@@ -674,7 +681,7 @@ class EditVersionTests(TestCase):
         self.other = User.objects.create_user('ev_other', password='pw')
         Group.objects.get_or_create(name='Document Authors')[0].user_set.add(self.author)
         self.document = make_document(code='EV-001', owner=self.author)
-        self.draft = create_new_revision(self.document, self.author, 'A', 1)
+        self.draft = create_new_revision(self.document, self.author, '00', 0)
 
     def test_author_can_access_edit_form_on_draft(self):
         self.client.login(username='ev_author', password='pw')
@@ -697,8 +704,8 @@ class EditVersionTests(TestCase):
     def test_author_can_update_change_summary(self):
         self.client.login(username='ev_author', password='pw')
         self.client.post(reverse('version_edit', args=[self.draft.pk]), {
-            'revision_label': 'A',
-            'revision_number': '1',
+            'revision_label': '00',
+            'revision_number': '0',
             'change_summary': 'Sommario aggiornato',
         })
         self.draft.refresh_from_db()
@@ -707,8 +714,8 @@ class EditVersionTests(TestCase):
     def test_edit_draft_redirects_to_my_drafts(self):
         self.client.login(username='ev_author', password='pw')
         response = self.client.post(reverse('version_edit', args=[self.draft.pk]), {
-            'revision_label': 'A',
-            'revision_number': '1',
+            'revision_label': '00',
+            'revision_number': '0',
             'change_summary': 'Aggiornamento',
         })
         self.assertRedirects(response, reverse('my_drafts'))
@@ -716,8 +723,8 @@ class EditVersionTests(TestCase):
     def test_edit_draft_remains_draft(self):
         self.client.login(username='ev_author', password='pw')
         self.client.post(reverse('version_edit', args=[self.draft.pk]), {
-            'revision_label': 'A',
-            'revision_number': '1',
+            'revision_label': '00',
+            'revision_number': '0',
             'change_summary': 'Aggiornamento',
         })
         self.draft.refresh_from_db()
@@ -730,8 +737,8 @@ class EditVersionTests(TestCase):
             )
             self.client.login(username='ev_author', password='pw')
             self.client.post(reverse('version_edit', args=[self.draft.pk]), {
-                'revision_label': 'A',
-                'revision_number': '1',
+                'revision_label': '00',
+                'revision_number': '0',
                 'change_summary': '',
                 'file': uploaded,
             })
@@ -749,8 +756,8 @@ class EditVersionTests(TestCase):
 
         self.client.login(username='ev_author', password='pw')
         self.client.post(reverse('version_edit', args=[self.draft.pk]), {
-            'revision_label': 'A',
-            'revision_number': '1',
+            'revision_label': '00',
+            'revision_number': '0',
             'change_summary': 'Corretta sezione 3',
         })
         self.draft.refresh_from_db()
@@ -1032,6 +1039,7 @@ class NewDocumentFolderRequiredTests(TestCase):
             'category': 'QUALITY',
             'document_type': '',
             'description': '',
+            'revision_scheme': 'numeric',
             'revision_label': '00',
             'revision_number': 0,
             'change_summary': '',
@@ -1107,6 +1115,7 @@ class NewDocumentFolderRequiredTests(TestCase):
             'document_type': '',
             'description': '',
             'project_folder': self.folder.pk,
+            'revision_scheme': 'numeric',
             'revision_label': '00',
             'revision_number': 0,
             'change_summary': '',
@@ -3211,3 +3220,208 @@ class DemoCompanyResetTests(TestCase):
         self._call_no_reset()
         # L'utente preesistente deve sopravvivere
         self.assertTrue(_User.objects.filter(pk=existing.pk).exists())
+
+
+# ===========================================================================
+# Step C — documents/versioning.py utility tests
+# ===========================================================================
+
+class SequenceSchemeNormalizeTests(TestCase):
+    """normalize_sequence_value: strip e uppercase."""
+
+    def test_numeric_strips_whitespace(self):
+        from documents.versioning import normalize_sequence_value, SequenceScheme
+        self.assertEqual(normalize_sequence_value(' 01 ', SequenceScheme.NUMERIC), '01')
+
+    def test_alphabetic_strips_and_uppercases(self):
+        from documents.versioning import normalize_sequence_value, SequenceScheme
+        self.assertEqual(normalize_sequence_value(' az ', SequenceScheme.ALPHABETIC), 'AZ')
+
+    def test_non_string_raises(self):
+        from documents.versioning import normalize_sequence_value, SequenceScheme
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            normalize_sequence_value(42, SequenceScheme.NUMERIC)
+
+
+class SequenceSchemeValidateTests(TestCase):
+    """validate_sequence_value: regole per schema NUMERIC e ALPHABETIC."""
+
+    def test_numeric_valid(self):
+        from documents.versioning import validate_sequence_value, SequenceScheme
+        validate_sequence_value('00', SequenceScheme.NUMERIC)
+        validate_sequence_value('99', SequenceScheme.NUMERIC)
+        validate_sequence_value('100', SequenceScheme.NUMERIC)
+
+    def test_numeric_rejects_letters(self):
+        from documents.versioning import validate_sequence_value, SequenceScheme
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            validate_sequence_value('A', SequenceScheme.NUMERIC)
+
+    def test_numeric_rejects_mixed(self):
+        from documents.versioning import validate_sequence_value, SequenceScheme
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            validate_sequence_value('1A', SequenceScheme.NUMERIC)
+
+    def test_numeric_rejects_empty(self):
+        from documents.versioning import validate_sequence_value, SequenceScheme
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            validate_sequence_value('', SequenceScheme.NUMERIC)
+
+    def test_alphabetic_valid(self):
+        from documents.versioning import validate_sequence_value, SequenceScheme
+        validate_sequence_value('A', SequenceScheme.ALPHABETIC)
+        validate_sequence_value('ZZ', SequenceScheme.ALPHABETIC)
+
+    def test_alphabetic_rejects_digits(self):
+        from documents.versioning import validate_sequence_value, SequenceScheme
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            validate_sequence_value('1', SequenceScheme.ALPHABETIC)
+
+    def test_unknown_scheme_raises(self):
+        from documents.versioning import validate_sequence_value
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            validate_sequence_value('00', 'hexadecimal')
+
+
+class NextNumericValueTests(TestCase):
+    """next_numeric_value: incremento con zero-padding."""
+
+    def test_basic_increment(self):
+        from documents.versioning import next_numeric_value
+        self.assertEqual(next_numeric_value('00'), '01')
+        self.assertEqual(next_numeric_value('01'), '02')
+        self.assertEqual(next_numeric_value('9'), '10')
+
+    def test_padding_preserved_within_width(self):
+        from documents.versioning import next_numeric_value
+        self.assertEqual(next_numeric_value('09'), '10')
+
+    def test_three_digit_padding(self):
+        from documents.versioning import next_numeric_value
+        self.assertEqual(next_numeric_value('099'), '100')
+
+    def test_no_padding_single_digit(self):
+        from documents.versioning import next_numeric_value
+        self.assertEqual(next_numeric_value('1'), '2')
+
+    def test_rejects_letters(self):
+        from documents.versioning import next_numeric_value
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            next_numeric_value('A')
+
+
+class NextAlphabeticValueTests(TestCase):
+    """next_alphabetic_value: incremento base-26."""
+
+    def test_simple_increment(self):
+        from documents.versioning import next_alphabetic_value
+        self.assertEqual(next_alphabetic_value('A'), 'B')
+        self.assertEqual(next_alphabetic_value('Y'), 'Z')
+
+    def test_z_wraps_to_aa(self):
+        from documents.versioning import next_alphabetic_value
+        self.assertEqual(next_alphabetic_value('Z'), 'AA')
+
+    def test_az_to_ba(self):
+        from documents.versioning import next_alphabetic_value
+        self.assertEqual(next_alphabetic_value('AZ'), 'BA')
+
+    def test_zz_to_aaa(self):
+        from documents.versioning import next_alphabetic_value
+        self.assertEqual(next_alphabetic_value('ZZ'), 'AAA')
+
+    def test_lowercase_normalised(self):
+        from documents.versioning import next_alphabetic_value
+        self.assertEqual(next_alphabetic_value('a'), 'B')
+
+    def test_rejects_digits(self):
+        from documents.versioning import next_alphabetic_value
+        from django.core.exceptions import ValidationError as DjVE
+        with self.assertRaises(DjVE):
+            next_alphabetic_value('1')
+
+
+# ===========================================================================
+# Step C — Document.revision_scheme field tests
+# ===========================================================================
+
+class DocumentRevisionSchemeTests(TestCase):
+    """Document.revision_scheme: default, persistenza, display."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('rs_user', password='pw')
+
+    def _make_doc(self, revision_scheme='numeric', code='DOC-RS-001'):
+        return Document.objects.create(
+            code=code,
+            title='Doc RS',
+            category=Document.Category.QUALITY,
+            owner=self.user,
+            created_by=self.user,
+            revision_scheme=revision_scheme,
+        )
+
+    def test_default_is_numeric(self):
+        """Document senza revision_scheme esplicito usa 'numeric'."""
+        doc = Document.objects.create(
+            code='DOC-RS-DEFAULT',
+            title='Default scheme',
+            category=Document.Category.QUALITY,
+            owner=self.user,
+            created_by=self.user,
+        )
+        self.assertEqual(doc.revision_scheme, 'numeric')
+
+    def test_save_numeric_scheme(self):
+        doc = self._make_doc(revision_scheme='numeric', code='DOC-RS-N')
+        doc.refresh_from_db()
+        self.assertEqual(doc.revision_scheme, 'numeric')
+
+    def test_save_alphabetic_scheme(self):
+        doc = self._make_doc(revision_scheme='alphabetic', code='DOC-RS-A')
+        doc.refresh_from_db()
+        self.assertEqual(doc.revision_scheme, 'alphabetic')
+
+    def test_get_revision_scheme_display_numeric(self):
+        doc = self._make_doc(revision_scheme='numeric', code='DOC-RS-DN')
+        self.assertEqual(doc.get_revision_scheme_display(), 'Numerica')
+
+    def test_get_revision_scheme_display_alphabetic(self):
+        doc = self._make_doc(revision_scheme='alphabetic', code='DOC-RS-DA')
+        self.assertEqual(doc.get_revision_scheme_display(), 'Alfabetica')
+
+    def test_create_form_has_revision_scheme_field(self):
+        """DocumentCreateForm espone il campo revision_scheme."""
+        from documents.forms import DocumentCreateForm
+        form = DocumentCreateForm()
+        self.assertIn('revision_scheme', form.fields)
+
+    def test_create_form_numeric_revision_label_valid(self):
+        """Con schema numeric, '01' è valido in DocumentCreateForm."""
+        from documents.forms import DocumentCreateForm
+        data = {
+            'code': 'DOC-F-001', 'title': 'T', 'category': 'quality',
+            'document_type': 'procedure', 'revision_scheme': 'numeric',
+            'revision_label': '01', 'revision_number': 1,
+        }
+        form = DocumentCreateForm(data=data)
+        self.assertNotIn('revision_label', form.errors)
+
+    def test_create_form_numeric_revision_label_invalid(self):
+        """Con schema numeric, 'A' è rifiutato in DocumentCreateForm."""
+        from documents.forms import DocumentCreateForm
+        data = {
+            'code': 'DOC-F-002', 'title': 'T', 'category': 'quality',
+            'document_type': 'procedure', 'revision_scheme': 'numeric',
+            'revision_label': 'A', 'revision_number': 1,
+        }
+        form = DocumentCreateForm(data=data)
+        self.assertFalse(form.is_valid())
+        self.assertIn('revision_label', form.errors)

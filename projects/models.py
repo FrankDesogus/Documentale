@@ -2,6 +2,8 @@ from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.db import models
 
+from documents.versioning import SequenceScheme
+
 
 class ProjectFolder(models.Model):
 
@@ -264,15 +266,16 @@ class Project(models.Model):
         default=ProjectType.OTHER,
         verbose_name='Tipo',
     )
-    version = models.CharField(
-        max_length=32,
-        default='0',
-        verbose_name='Versione',
-        help_text='Versione corrente del progetto. Modificabile manualmente.',
+    revision_scheme = models.CharField(
+        max_length=20,
+        choices=SequenceScheme.choices,
+        default=SequenceScheme.NUMERIC,
+        verbose_name='Schema revisione',
+        help_text='Schema usato per la revisione corrente.',
     )
     revision = models.CharField(
         max_length=32,
-        default='0',
+        default='00',
         verbose_name='Revisione',
         help_text='Revisione corrente del progetto. Modificabile manualmente.',
     )

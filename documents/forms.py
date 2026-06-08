@@ -2,6 +2,7 @@ from django import forms
 from django.contrib.auth.models import User
 
 from documents.models import Document
+from documents.versioning import SequenceScheme, normalize_sequence_value, validate_sequence_value
 from projects.models import ProjectFolder
 
 
@@ -31,6 +32,29 @@ class DocumentCreateForm(forms.Form):
         empty_label='— seleziona cartella —',
         help_text='La cartella determina dove il documento viene archiviato e quali utenti possono accedervi.',
     )
+    revision_scheme = forms.ChoiceField(
+        choices=SequenceScheme.choices,
+        initial=SequenceScheme.NUMERIC,
+        label='Schema revisione',
+        help_text='Numerica (00, 01…) o Alfabetica (A, B…). Applicato alle revisioni future.',
+    )
+    revision_label = forms.CharField(
+        max_length=20,
+        initial='00',
+        label='Etichetta prima revisione',
+        help_text='Numerica: 00. Alfabetica: A.',
+    )
+    revision_number = forms.IntegerField(
+        min_value=0,
+        initial=0,
+        label='Numero revisione',
+    )
+    change_summary = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        required=False,
+        label='Sommario modifiche',
+    )
+    file = forms.FileField(required=False, label='File operativo')
 
     def __init__(self, *args, user=None, fixed_project_folder=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,31 +72,25 @@ class DocumentCreateForm(forms.Form):
             writable_ids = get_writable_folder_ids(user)
             qs = ProjectFolder.objects.filter(pk__in=writable_ids, status='active').order_by('code')
             self.fields['project_folder'].queryset = qs
-        else:
-            pass  # queryset stays none
-    revision_label = forms.CharField(
-        max_length=20,
-        initial='00',
-        label='Etichetta revisione',
-        help_text='Es. 00, A, Rev.00',
-    )
-    revision_number = forms.IntegerField(
-        min_value=0,
-        initial=0,
-        label='Numero revisione',
-    )
-    change_summary = forms.CharField(
-        widget=forms.Textarea(attrs={'rows': 3}),
-        required=False,
-        label='Sommario modifiche',
-    )
-    file = forms.FileField(required=False, label='File operativo')
 
     def clean_code(self):
         code = self.cleaned_data['code'].strip()
         if Document.objects.filter(code=code).exists():
             raise forms.ValidationError(f'Un documento con codice "{code}" esiste già.')
         return code
+
+    def clean(self):
+        cleaned = super().clean()
+        scheme = cleaned.get('revision_scheme', SequenceScheme.NUMERIC)
+        label = cleaned.get('revision_label', '')
+        if label:
+            try:
+                label = normalize_sequence_value(label, scheme)
+                validate_sequence_value(label, scheme)
+                cleaned['revision_label'] = label
+            except Exception as exc:
+                self.add_error('revision_label', str(exc))
+        return cleaned
 
 
 class DocumentRevisionCreateForm(forms.Form):
@@ -84,6 +102,21 @@ class DocumentRevisionCreateForm(forms.Form):
         label='Sommario modifiche',
     )
     file = forms.FileField(required=False, label='File operativo')
+
+    def __init__(self, *args, revision_scheme=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._revision_scheme = revision_scheme
+
+    def clean_revision_label(self):
+        label = self.cleaned_data.get('revision_label', '')
+        if self._revision_scheme and label:
+            from django.core.exceptions import ValidationError as DjVE
+            try:
+                label = normalize_sequence_value(label, self._revision_scheme)
+                validate_sequence_value(label, self._revision_scheme)
+            except DjVE as exc:
+                raise forms.ValidationError(str(exc))
+        return label
 
 
 class DocumentVersionEditForm(forms.Form):
@@ -99,6 +132,21 @@ class DocumentVersionEditForm(forms.Form):
         label='Sostituisci file operativo',
         help_text='Lascia vuoto per mantenere il file esistente.',
     )
+
+    def __init__(self, *args, revision_scheme=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._revision_scheme = revision_scheme
+
+    def clean_revision_label(self):
+        label = self.cleaned_data.get('revision_label', '')
+        if self._revision_scheme and label:
+            from django.core.exceptions import ValidationError as DjVE
+            try:
+                label = normalize_sequence_value(label, self._revision_scheme)
+                validate_sequence_value(label, self._revision_scheme)
+            except DjVE as exc:
+                raise forms.ValidationError(str(exc))
+        return label
 
 
 class ApproverRowForm(forms.Form):

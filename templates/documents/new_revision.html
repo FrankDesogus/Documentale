@@ -26,6 +26,12 @@
       <span class="detail-label">Titolo</span>
       <span class="detail-value">{{ document.title }}</span>
     </div>
+    {% if revision_scheme_display %}
+    <div class="detail-item">
+      <span class="detail-label">Schema revisione</span>
+      <span class="detail-value">{{ revision_scheme_display }}</span>
+    </div>
+    {% endif %}
     {% if document.current_version %}
     <div class="detail-item">
       <span class="detail-label">Revisione corrente</span>

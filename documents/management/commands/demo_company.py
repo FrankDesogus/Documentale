@@ -213,6 +213,7 @@ class Command(BaseCommand):
 
         # ── Progetto demo ─────────────────────────────────────────────
         prj_demo = self._create_project_demo(supervisor, folder_ing)
+        self._create_project_demo_alpha(supervisor, folder_ing)
 
         # ── Dataset demo per supervisor_demo ──────────────────────────
         self._create_published_doc(supervisor, folder_qua_proc)
@@ -452,10 +453,10 @@ class Command(BaseCommand):
             project_type='engineering',
             manager=supervisor,
             created_by=supervisor,
-            version='0',
-            revision='0',
+            revision_scheme='numeric',
+            revision='00',
         )
-        self._step(f'{PRJ_CODE}: progetto creato con root folder {prj.root_folder.code} (Ver. {prj.version} · Rev. {prj.revision}).')
+        self._step(f'{PRJ_CODE}: progetto creato con root folder {prj.root_folder.code} (Schema: {prj.get_revision_scheme_display()} · Rev. {prj.revision}).')
 
         # Sottocartelle del progetto
         root = prj.root_folder
@@ -523,6 +524,33 @@ class Command(BaseCommand):
             folder_coll,
         )
 
+        return prj
+
+    def _create_project_demo_alpha(self, supervisor, folder_ing):
+        """Crea PRJ-DEMO-ALPHA come progetto con schema revisione ALFABETICO."""
+        from projects.models import Project, ProjectFolder
+        from projects.services import create_project_with_root_folder
+
+        PRJ_CODE = 'PRJ-DEMO-ALPHA'
+        try:
+            prj = Project.objects.get(code=PRJ_CODE)
+            self._step(f'{PRJ_CODE}: già esistente, saltato.')
+            return prj
+        except Project.DoesNotExist:
+            pass
+
+        prj = create_project_with_root_folder(
+            parent_folder=folder_ing,
+            code=PRJ_CODE,
+            name='Progetto Demo Alfabetico',
+            description='Progetto demo con schema revisione alfabetico.',
+            project_type='internal',
+            manager=supervisor,
+            created_by=supervisor,
+            revision_scheme='alphabetic',
+            revision='A',
+        )
+        self._step(f'{PRJ_CODE}: progetto alfabetico creato (Schema: {prj.get_revision_scheme_display()} · Rev. {prj.revision}).')
         return prj
 
     # ------------------------------------------------------------------

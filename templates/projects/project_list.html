@@ -34,7 +34,7 @@
     <thead><tr>
       <th>Codice</th>
       <th>Nome</th>
-      <th>Ver.</th>
+      <th>Schema</th>
       <th>Rev.</th>
       <th>Tipo</th>
       <th>Cartella</th>
@@ -46,7 +46,7 @@
       <tr>
         <td class="font-mono font-semibold text-brand-800">{{ project.code }}</td>
         <td>{{ project.name }}</td>
-        <td class="meta font-mono">{{ project.version }}</td>
+        <td class="meta">{{ project.get_revision_scheme_display }}</td>
         <td class="meta font-mono">{{ project.revision }}</td>
         <td class="meta">{{ project.get_project_type_display }}</td>
         <td class="meta">

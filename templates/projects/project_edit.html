@@ -66,15 +66,15 @@
       {% for error in form.manager.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
     </div>
 
-    <!-- Versione e Revisione -->
+    <!-- Schema revisione e Revisione -->
     <div class="grid grid-cols-2 gap-4 mb-0">
       <div class="form-group mb-0">
-        <label class="form-label" for="{{ form.version.id_for_label }}">
-          {{ form.version.label }}
+        <label class="form-label" for="{{ form.revision_scheme.id_for_label }}">
+          {{ form.revision_scheme.label }}
         </label>
-        {{ form.version }}
-        {% if form.version.help_text %}<p class="form-help">{{ form.version.help_text }}</p>{% endif %}
-        {% for error in form.version.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+        {{ form.revision_scheme }}
+        {% if form.revision_scheme.help_text %}<p class="form-help">{{ form.revision_scheme.help_text }}</p>{% endif %}
+        {% for error in form.revision_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
       <div class="form-group mb-0">
         <label class="form-label" for="{{ form.revision.id_for_label }}">
@@ -85,6 +85,9 @@
         {% for error in form.revision.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
     </div>
+    <p class="form-help text-slate-500 mt-1">
+      Cambiando schema inserire manualmente un valore coerente. Lo storico non viene modificato.
+    </p>
   </div>
 
   <div class="form-actions">

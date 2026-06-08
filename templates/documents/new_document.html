@@ -68,6 +68,14 @@
     <div class="form-section-title">Prima revisione</div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_scheme.id_for_label }}">
+          {{ form.revision_scheme.label }} <span class="text-red-500">*</span>
+        </label>
+        {{ form.revision_scheme }}
+        {% if form.revision_scheme.help_text %}<p class="form-help">{{ form.revision_scheme.help_text }}</p>{% endif %}
+        {% for error in form.revision_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-group mb-0">
         <label class="form-label" for="{{ form.revision_label.id_for_label }}">
           {{ form.revision_label.label }} <span class="text-red-500">*</span>
         </label>

@@ -506,8 +506,8 @@ class ProjectCreateViewTests(TestCase):
             'code': 'PRJ-NEW-001',
             'name': 'Nuovo Progetto',
             'project_type': 'internal',
-            'version': '0',
-            'revision': '0',
+            'revision_scheme': 'numeric',
+            'revision': '00',
         })
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Project.objects.filter(code='PRJ-NEW-001').exists())
@@ -1223,6 +1223,7 @@ class NewDocumentFromProjectTests(TestCase):
             'document_type': '',
             'description': '',
             'project_folder': self.folder.pk,
+            'revision_scheme': 'numeric',
             'revision_label': '00',
             'revision_number': 0,
             'change_summary': '',
@@ -3666,9 +3667,9 @@ class ProjectEditTests(TestCase):
         r = self.client.post(self._edit_url(), {'name': 'Hacked', 'description': ''})
         self.assertEqual(r.status_code, 403)
 
-    def _post_edit(self, name, description='', manager_pk=None, version='0', revision='0'):
+    def _post_edit(self, name, description='', manager_pk=None, revision_scheme='numeric', revision='00'):
         """Helper per POST a project_edit con i campi obbligatori."""
-        data = {'name': name, 'description': description, 'version': version, 'revision': revision}
+        data = {'name': name, 'description': description, 'revision_scheme': revision_scheme, 'revision': revision}
         if manager_pk:
             data['manager'] = manager_pk
         return self.client.post(self._edit_url(), data)
@@ -4075,7 +4076,7 @@ class DemoProjectDataTests(TestCase):
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class ProjectVersionRevisionTests(TestCase):
     """
-    Test dei campi Project.version e Project.revision.
+    Test dei campi Project.revision_scheme e Project.revision.
 
     Coprono: modello, service creazione, service modifica, form, UI, demo.
     """
@@ -4086,7 +4087,7 @@ class ProjectVersionRevisionTests(TestCase):
         from projects.services import set_folder_path
         set_folder_path(self.parent)
 
-    def _make_project(self, code='T-001', version='0', revision='0'):
+    def _make_project(self, code='T-001', revision_scheme='numeric', revision='00'):
         from projects.services import create_project_with_root_folder
         return create_project_with_root_folder(
             parent_folder=self.parent,
@@ -4094,42 +4095,28 @@ class ProjectVersionRevisionTests(TestCase):
             name=f'Progetto {code}',
             manager=self.manager,
             created_by=self.manager,
-            version=version,
+            revision_scheme=revision_scheme,
             revision=revision,
         )
 
     # ------------------------------------------------------------------
     # Modello — valori default
     # ------------------------------------------------------------------
-    def test_new_project_default_version(self):
-        """Nuovo progetto ha version='0' per default."""
-        prj = self._make_project()
-        self.assertEqual(prj.version, '0')
-
     def test_new_project_default_revision(self):
-        """Nuovo progetto ha revision='0' per default."""
+        """Nuovo progetto ha revision='00' per default."""
         prj = self._make_project()
-        self.assertEqual(prj.revision, '0')
+        self.assertEqual(prj.revision, '00')
 
-    def test_version_accepts_flexible_strings(self):
-        """version accetta stringhe flessibili: 1, 2.1, A, Rev. C."""
-        for val in ('1', '2.1', 'A', 'Rev. C', 'B'):
-            prj = self._make_project(code=f'T-VER-{val.replace(" ", "-").replace(".", "_")}', version=val)
-            self.assertEqual(prj.version, val)
+    def test_new_project_default_revision_scheme(self):
+        """Nuovo progetto ha revision_scheme='numeric' per default."""
+        prj = self._make_project()
+        self.assertEqual(prj.revision_scheme, 'numeric')
 
     def test_revision_accepts_flexible_strings(self):
-        """revision accetta stringhe flessibili."""
-        for val in ('1', '2.1', 'A', 'Rev. C', 'B'):
+        """revision accetta stringhe flessibili (storico)."""
+        for val in ('1', '00', 'A', 'ZZ', '09'):
             prj = self._make_project(code=f'T-REV-{val.replace(" ", "-").replace(".", "_")}', revision=val)
             self.assertEqual(prj.revision, val)
-
-    def test_version_max_length(self):
-        """version rispetta max_length=32."""
-        from django.core.exceptions import ValidationError as DjVE
-        prj = self._make_project()
-        prj.version = 'x' * 33
-        with self.assertRaises(Exception):
-            prj.full_clean()
 
     def test_revision_max_length(self):
         """revision rispetta max_length=32."""
@@ -4141,24 +4128,23 @@ class ProjectVersionRevisionTests(TestCase):
     # ------------------------------------------------------------------
     # Service creazione
     # ------------------------------------------------------------------
-    def test_service_saves_version(self):
-        """create_project_with_root_folder salva la versione passata."""
-        prj = self._make_project(version='1')
-        prj.refresh_from_db()
-        self.assertEqual(prj.version, '1')
-
     def test_service_saves_revision(self):
         """create_project_with_root_folder salva la revisione passata."""
         prj = self._make_project(revision='A')
         prj.refresh_from_db()
         self.assertEqual(prj.revision, 'A')
 
-    def test_service_no_auto_increment(self):
-        """create_project_with_root_folder non incrementa version/revision automaticamente."""
-        prj = self._make_project(version='5', revision='3')
+    def test_service_saves_revision_scheme(self):
+        """create_project_with_root_folder salva il revision_scheme passato."""
+        prj = self._make_project(revision_scheme='alphabetic', revision='A')
         prj.refresh_from_db()
-        self.assertEqual(prj.version, '5')
-        self.assertEqual(prj.revision, '3')
+        self.assertEqual(prj.revision_scheme, 'alphabetic')
+
+    def test_service_no_auto_increment(self):
+        """create_project_with_root_folder non incrementa revision automaticamente."""
+        prj = self._make_project(revision='05')
+        prj.refresh_from_db()
+        self.assertEqual(prj.revision, '05')
 
     def test_service_root_folder_unchanged_after_create(self):
         """La root folder non cambia dopo la creazione."""
@@ -4170,16 +4156,6 @@ class ProjectVersionRevisionTests(TestCase):
     # ------------------------------------------------------------------
     # Service modifica
     # ------------------------------------------------------------------
-    def test_service_update_version(self):
-        """update_project_metadata aggiorna version manualmente."""
-        from projects.services import update_project_metadata
-        prj = self._make_project()
-        update_project_metadata(
-            project=prj, name=prj.name, version='2', updated_by=self.manager,
-        )
-        prj.refresh_from_db()
-        self.assertEqual(prj.version, '2')
-
     def test_service_update_revision(self):
         """update_project_metadata aggiorna revision manualmente."""
         from projects.services import update_project_metadata
@@ -4190,12 +4166,22 @@ class ProjectVersionRevisionTests(TestCase):
         prj.refresh_from_db()
         self.assertEqual(prj.revision, 'B')
 
+    def test_service_update_revision_scheme(self):
+        """update_project_metadata aggiorna revision_scheme manualmente."""
+        from projects.services import update_project_metadata
+        prj = self._make_project()
+        update_project_metadata(
+            project=prj, name=prj.name, revision_scheme='alphabetic', updated_by=self.manager,
+        )
+        prj.refresh_from_db()
+        self.assertEqual(prj.revision_scheme, 'alphabetic')
+
     def test_service_update_name_syncs_root_folder(self):
         """Modifica nome continua a sincronizzare root_folder.name."""
         from projects.services import update_project_metadata
         prj = self._make_project()
         update_project_metadata(
-            project=prj, name='Nuovo nome', version='1', updated_by=self.manager,
+            project=prj, name='Nuovo nome', updated_by=self.manager,
         )
         prj.root_folder.refresh_from_db()
         self.assertEqual(prj.root_folder.name, 'Nuovo nome')
@@ -4206,7 +4192,7 @@ class ProjectVersionRevisionTests(TestCase):
         prj = self._make_project(code='T-CODE-001')
         original_code = prj.code
         update_project_metadata(
-            project=prj, name='Altro nome', version='3', updated_by=self.manager,
+            project=prj, name='Altro nome', updated_by=self.manager,
         )
         prj.refresh_from_db()
         self.assertEqual(prj.code, original_code)
@@ -4217,47 +4203,51 @@ class ProjectVersionRevisionTests(TestCase):
         prj = self._make_project()
         parent_id = prj.root_folder.parent_id
         update_project_metadata(
-            project=prj, name=prj.name, version='1', updated_by=self.manager,
+            project=prj, name=prj.name, updated_by=self.manager,
         )
         prj.root_folder.refresh_from_db()
         self.assertEqual(prj.root_folder.parent_id, parent_id)
 
     def test_service_update_atomicity(self):
-        """update_project_metadata è atomica: version e revision vengono salvati insieme."""
+        """update_project_metadata è atomica: revision_scheme e revision vengono salvati insieme."""
         from projects.services import update_project_metadata
         prj = self._make_project()
         update_project_metadata(
-            project=prj, name=prj.name, version='X', revision='Y', updated_by=self.manager,
+            project=prj, name=prj.name,
+            revision_scheme='alphabetic', revision='C',
+            updated_by=self.manager,
         )
         prj.refresh_from_db()
-        self.assertEqual(prj.version, 'X')
-        self.assertEqual(prj.revision, 'Y')
+        self.assertEqual(prj.revision_scheme, 'alphabetic')
+        self.assertEqual(prj.revision, 'C')
 
     def test_service_update_writes_audit(self):
-        """update_project_metadata scrive AuditLog con version e revision."""
+        """update_project_metadata scrive AuditLog con revision_scheme e revision."""
         from projects.services import update_project_metadata
         from auditlog.models import AuditLog
         prj = self._make_project()
         AuditLog.objects.all().delete()
         update_project_metadata(
-            project=prj, name=prj.name, version='3', revision='C', updated_by=self.manager,
+            project=prj, name=prj.name,
+            revision_scheme='alphabetic', revision='C',
+            updated_by=self.manager,
         )
         log = AuditLog.objects.filter(
             action='update_project_metadata',
             object_id=str(prj.pk),
         ).first()
         self.assertIsNotNone(log)
-        self.assertEqual(log.changes.get('version'), '3')
+        self.assertEqual(log.changes.get('revision_scheme'), 'alphabetic')
         self.assertEqual(log.changes.get('revision'), 'C')
 
     # ------------------------------------------------------------------
     # UI — form creazione e modifica
     # ------------------------------------------------------------------
-    def test_create_form_has_version_field(self):
-        """ProjectCreateForm espone il campo version."""
+    def test_create_form_has_revision_scheme_field(self):
+        """ProjectCreateForm espone il campo revision_scheme."""
         from projects.forms import ProjectCreateForm
         form = ProjectCreateForm()
-        self.assertIn('version', form.fields)
+        self.assertIn('revision_scheme', form.fields)
 
     def test_create_form_has_revision_field(self):
         """ProjectCreateForm espone il campo revision."""
@@ -4265,11 +4255,11 @@ class ProjectVersionRevisionTests(TestCase):
         form = ProjectCreateForm()
         self.assertIn('revision', form.fields)
 
-    def test_update_form_has_version_field(self):
-        """ProjectUpdateForm espone il campo version."""
+    def test_update_form_has_revision_scheme_field(self):
+        """ProjectUpdateForm espone il campo revision_scheme."""
         from projects.forms import ProjectUpdateForm
         form = ProjectUpdateForm()
-        self.assertIn('version', form.fields)
+        self.assertIn('revision_scheme', form.fields)
 
     def test_update_form_has_revision_field(self):
         """ProjectUpdateForm espone il campo revision."""
@@ -4277,54 +4267,52 @@ class ProjectVersionRevisionTests(TestCase):
         form = ProjectUpdateForm()
         self.assertIn('revision', form.fields)
 
-    def test_project_detail_shows_version_revision(self):
-        """project_detail mostra versione e revisione."""
-        prj = self._make_project(version='2', revision='B')
+    def test_project_detail_shows_revision(self):
+        """project_detail mostra la revisione corrente."""
+        prj = self._make_project(revision='B')
         self.client.force_login(self.manager)
         response = self.client.get(reverse('project_detail', args=[prj.pk]))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Ver. 2')
         self.assertContains(response, 'Rev. B')
 
-    def test_project_list_shows_version_revision(self):
-        """project_list mostra versione e revisione in colonna."""
-        prj = self._make_project(version='3', revision='C')
+    def test_project_list_shows_revision(self):
+        """project_list mostra la revisione in colonna."""
+        prj = self._make_project(revision='C')
         self.client.force_login(self.manager)
         response = self.client.get(reverse('project_list'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '3')
         self.assertContains(response, 'C')
 
-    def test_project_edit_shows_version_revision_fields(self):
-        """project_edit mostra i campi version e revision nel form."""
+    def test_project_edit_shows_revision_scheme_and_revision_fields(self):
+        """project_edit mostra i campi revision_scheme e revision nel form."""
         prj = self._make_project()
         self.client.force_login(self.manager)
         response = self.client.get(reverse('project_edit', args=[prj.pk]))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'id_version')
+        self.assertContains(response, 'id_revision_scheme')
         self.assertContains(response, 'id_revision')
 
-    def test_project_create_shows_version_revision_fields(self):
-        """project_create mostra i campi version e revision nel form."""
+    def test_project_create_shows_revision_scheme_and_revision_fields(self):
+        """project_create mostra i campi revision_scheme e revision nel form."""
         self.client.force_login(self.manager)
         response = self.client.get(reverse('project_create'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'id_version')
+        self.assertContains(response, 'id_revision_scheme')
         self.assertContains(response, 'id_revision')
 
-    def test_unauthorized_user_cannot_edit_version_via_post(self):
-        """Utente non autorizzato non può modificare version via POST."""
+    def test_unauthorized_user_cannot_edit_revision_via_post(self):
+        """Utente non autorizzato non può modificare revision via POST."""
         normal = User.objects.create_user('prj_normal', password='pw')
-        prj = self._make_project(version='0')
+        prj = self._make_project()
         self.client.force_login(normal)
         self.client.post(reverse('project_edit', args=[prj.pk]), {
-            'name': prj.name, 'version': '99', 'revision': '99',
+            'name': prj.name, 'revision_scheme': 'numeric', 'revision': '99',
         })
         prj.refresh_from_db()
-        self.assertNotEqual(prj.version, '99')
+        self.assertNotEqual(prj.revision, '99')
 
     # ------------------------------------------------------------------
-    # Demo — version e revision del progetto demo
+    # Demo — revision_scheme e revision del progetto demo
     # ------------------------------------------------------------------
     @override_settings(DEBUG=True, DATABASES={
         'default': {
@@ -4332,13 +4320,13 @@ class ProjectVersionRevisionTests(TestCase):
             'NAME': ':memory:',
         }
     })
-    def test_demo_creates_project_with_version_zero(self):
-        """demo_company crea PRJ-DEMO-001 con version='0'."""
+    def test_demo_creates_project_with_numeric_scheme(self):
+        """demo_company crea PRJ-DEMO-001 con revision_scheme='numeric'."""
         from io import StringIO
         from django.core.management import call_command
         call_command('demo_company', reset=True, no_email=True, stdout=StringIO(), stderr=StringIO())
         prj = Project.objects.get(code='PRJ-DEMO-001')
-        self.assertEqual(prj.version, '0')
+        self.assertEqual(prj.revision_scheme, 'numeric')
 
     @override_settings(DEBUG=True, DATABASES={
         'default': {
@@ -4347,12 +4335,26 @@ class ProjectVersionRevisionTests(TestCase):
         }
     })
     def test_demo_creates_project_with_revision_zero(self):
-        """demo_company crea PRJ-DEMO-001 con revision='0'."""
+        """demo_company crea PRJ-DEMO-001 con revision='00'."""
         from io import StringIO
         from django.core.management import call_command
         call_command('demo_company', reset=True, no_email=True, stdout=StringIO(), stderr=StringIO())
         prj = Project.objects.get(code='PRJ-DEMO-001')
-        self.assertEqual(prj.revision, '0')
+        self.assertEqual(prj.revision, '00')
+
+    @override_settings(DEBUG=True, DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    })
+    def test_demo_creates_alpha_project_with_alphabetic_scheme(self):
+        """demo_company crea PRJ-DEMO-ALPHA con revision_scheme='alphabetic'."""
+        from io import StringIO
+        from django.core.management import call_command
+        call_command('demo_company', reset=True, no_email=True, stdout=StringIO(), stderr=StringIO())
+        prj = Project.objects.get(code='PRJ-DEMO-ALPHA')
+        self.assertEqual(prj.revision_scheme, 'alphabetic')
 
     @override_settings(DEBUG=True, DATABASES={
         'default': {
@@ -4361,7 +4363,7 @@ class ProjectVersionRevisionTests(TestCase):
         }
     })
     def test_demo_reset_continues_to_work(self):
-        """demo_company --reset continua a funzionare dopo Step B."""
+        """demo_company --reset continua a funzionare dopo Step C."""
         from io import StringIO
         from django.core.management import call_command
         try:

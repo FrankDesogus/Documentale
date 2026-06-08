@@ -169,7 +169,7 @@ def update_project_metadata(
     name: str,
     description: str = '',
     manager=None,
-    version: str = None,
+    revision_scheme: str = None,
     revision: str = None,
     updated_by=None,
 ) -> 'Project':
@@ -178,8 +178,7 @@ def update_project_metadata(
 
     Sincronizza anche il nome della root folder col nome del progetto.
     Codice progetto e root folder non vengono mai modificati.
-    version e revision sono metadati stringa modificabili manualmente;
-    non vengono incrementati automaticamente.
+    revision_scheme e revision sono metadati modificabili manualmente.
     """
     from .models import Project, ProjectFolder
 
@@ -192,12 +191,9 @@ def update_project_metadata(
     project.description = description
     project.manager = manager
 
-    if version is not None:
-        version = version.strip()
-        if not version:
-            raise ValidationError("La versione non può essere vuota.")
-        project.version = version
-        update_fields.append('version')
+    if revision_scheme is not None:
+        project.revision_scheme = revision_scheme
+        update_fields.append('revision_scheme')
 
     if revision is not None:
         revision = revision.strip()
@@ -218,8 +214,8 @@ def update_project_metadata(
             'project_code': project.code,
             'name': name,
         }
-        if version is not None:
-            changes['version'] = version
+        if revision_scheme is not None:
+            changes['revision_scheme'] = revision_scheme
         if revision is not None:
             changes['revision'] = revision
         AuditLog.objects.create(
@@ -247,8 +243,8 @@ def create_project_with_root_folder(
     project_type: str = 'other',
     manager=None,
     created_by=None,
-    version: str = '0',
-    revision: str = '0',
+    revision_scheme: str = 'numeric',
+    revision: str = '00',
 ) -> 'Project':
     """
     Crea atomicamente un progetto con la propria root folder dedicata.
@@ -302,8 +298,8 @@ def create_project_with_root_folder(
         manager=manager,
         created_by=created_by,
         root_folder=root_folder,
-        version=version.strip() if version else '0',
-        revision=revision.strip() if revision else '0',
+        revision_scheme=revision_scheme or 'numeric',
+        revision=revision.strip() if revision else '00',
     )
     project.full_clean()  # Esegue clean() per validare coerenza root_folder
     project.save()

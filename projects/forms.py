@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
+from documents.versioning import SequenceScheme, normalize_sequence_value, validate_sequence_value
 from projects.models import Project, ProjectFolder, ProjectRevision
 
 
@@ -24,13 +25,10 @@ class ProjectFolderForm(forms.ModelForm):
 
 
 class ProjectUpdateForm(forms.ModelForm):
-    """
-    Form per la modifica dei metadati di un progetto esistente.
-    Codice, root folder e parent non sono modificabili.
-    """
+    """Form per la modifica dei metadati di un progetto esistente."""
     class Meta:
         model = Project
-        fields = ['name', 'description', 'manager', 'version', 'revision']
+        fields = ['name', 'description', 'manager', 'revision_scheme', 'revision']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),
         }
@@ -42,18 +40,27 @@ class ProjectUpdateForm(forms.ModelForm):
         ).order_by('last_name', 'first_name', 'username')
         self.fields['manager'].required = False
         self.fields['manager'].empty_label = '— nessuno —'
+        self.fields['revision_scheme'].label = 'Schema revisione'
+        self.fields['revision'].label = 'Revisione'
+        self.fields['revision'].help_text = (
+            'Numerica: 00, 01… — Alfabetica: A, B… '
+            'Modificabile manualmente. Cambiando schema inserire un valore coerente.'
+        )
 
-    def clean_version(self):
-        v = self.cleaned_data.get('version', '').strip()
-        if not v:
-            raise forms.ValidationError('La versione non può essere vuota.')
-        return v
-
-    def clean_revision(self):
-        r = self.cleaned_data.get('revision', '').strip()
-        if not r:
-            raise forms.ValidationError('La revisione non può essere vuota.')
-        return r
+    def clean(self):
+        cleaned = super().clean()
+        scheme = cleaned.get('revision_scheme', SequenceScheme.NUMERIC)
+        revision = cleaned.get('revision', '')
+        if revision:
+            try:
+                revision = normalize_sequence_value(revision, scheme)
+                validate_sequence_value(revision, scheme)
+                cleaned['revision'] = revision
+            except Exception as exc:
+                self.add_error('revision', str(exc))
+        elif 'revision' in cleaned:
+            self.add_error('revision', 'La revisione non può essere vuota.')
+        return cleaned
 
 
 # Mantenuto per compatibilità: usato dai test legacy che importano ProjectForm
@@ -94,19 +101,19 @@ class ProjectCreateForm(forms.Form):
         label='Responsabile',
         empty_label='— nessuno —',
     )
-    version = forms.CharField(
-        max_length=32,
-        initial='0',
+    revision_scheme = forms.ChoiceField(
+        choices=SequenceScheme.choices,
+        initial=SequenceScheme.NUMERIC,
         required=True,
-        label='Versione',
-        help_text='Es. 0, 1, 2.1, A — modificabile manualmente in qualsiasi momento.',
+        label='Schema revisione',
+        help_text='Numerica (00, 01…) o Alfabetica (A, B…).',
     )
     revision = forms.CharField(
         max_length=32,
-        initial='0',
+        initial='00',
         required=True,
         label='Revisione',
-        help_text='Es. 0, 1, A, Rev. C — modificabile manualmente in qualsiasi momento.',
+        help_text='Numerica: 00. Alfabetica: A.',
     )
 
     def __init__(self, *args, allowed_parent_folders=None, **kwargs):
@@ -129,17 +136,20 @@ class ProjectCreateForm(forms.Form):
             )
         return code
 
-    def clean_version(self):
-        v = self.cleaned_data.get('version', '').strip()
-        if not v:
-            raise forms.ValidationError('La versione non può essere vuota.')
-        return v
-
-    def clean_revision(self):
-        r = self.cleaned_data.get('revision', '').strip()
-        if not r:
-            raise forms.ValidationError('La revisione non può essere vuota.')
-        return r
+    def clean(self):
+        cleaned = super().clean()
+        scheme = cleaned.get('revision_scheme', SequenceScheme.NUMERIC)
+        revision = cleaned.get('revision', '')
+        if revision:
+            try:
+                revision = normalize_sequence_value(revision, scheme)
+                validate_sequence_value(revision, scheme)
+                cleaned['revision'] = revision
+            except Exception as exc:
+                self.add_error('revision', str(exc))
+        elif 'revision' in cleaned:
+            self.add_error('revision', 'La revisione non può essere vuota.')
+        return cleaned
 
 
 class ProjectRevisionForm(forms.ModelForm):

@@ -2,6 +2,8 @@ from django.db import models
 from django.db.models import Q
 from django.contrib.auth.models import User
 
+from documents.versioning import SequenceScheme
+
 
 class DocumentFile(models.Model):
     file = models.FileField(upload_to='documents/files/%Y/%m/', verbose_name='File')
@@ -120,6 +122,13 @@ class Document(models.Model):
         QUALITY = 'QUALITY', 'Documento di qualità'
         PROJECT = 'PROJECT', 'Documento di progetto'
 
+    revision_scheme = models.CharField(
+        max_length=20,
+        choices=SequenceScheme.choices,
+        default=SequenceScheme.NUMERIC,
+        verbose_name='Schema revisione',
+        help_text='Schema usato per le etichette di revisione future. Non modifica lo storico.',
+    )
     code = models.CharField(max_length=50, unique=True, verbose_name='Codice')
     title = models.CharField(max_length=255, verbose_name='Titolo')
     description = models.TextField(blank=True, verbose_name='Descrizione')
