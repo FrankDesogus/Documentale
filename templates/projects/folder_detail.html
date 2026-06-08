@@ -11,7 +11,7 @@
     <a href="{% url 'folder_detail' folder.parent.pk %}">{{ folder.parent.name }}</a>
     {% endif %}
     <span class="breadcrumb-sep">›</span>
-    <span class="font-semibold text-gray-700">{{ folder.name }}</span>
+    <span class="font-semibold text-slate-200">{{ folder.name }}</span>
   </nav>
   <div class="flex gap-2 flex-wrap">
     {% if can_create %}
@@ -27,8 +27,8 @@
 <div class="flex items-center gap-3 mb-4">
   <span class="text-3xl">📁</span>
   <div>
-    <h1 class="text-2xl font-bold text-brand-900 mb-0">{{ folder.name }}</h1>
-    <div class="flex items-center gap-3 mt-1 text-sm text-gray-500 flex-wrap">
+    <h1 class="text-2xl font-bold text-elt-white mb-0">{{ folder.name }}</h1>
+    <div class="flex items-center gap-3 mt-1 text-sm text-slate-400 flex-wrap">
       <span class="font-mono">{{ folder.code }}</span>
       <span class="badge badge-folder">{{ folder.get_folder_kind_display }}</span>
       {% with s=folder.status %}
@@ -44,7 +44,7 @@
       {% endif %}
     </div>
     {% if folder.description %}
-    <p class="text-sm text-gray-600 mt-1">{{ folder.description }}</p>
+    <p class="text-sm text-slate-300 mt-1">{{ folder.description }}</p>
     {% endif %}
   </div>
 </div>
@@ -64,9 +64,9 @@
   </div>
   <div class="filter-group flex-row items-center gap-2 flex pt-4">
     <input type="checkbox" name="recursive" value="1" id="id_recursive"
-           class="rounded border-gray-300 text-brand-600"
+           class="rounded"
            {% if recursive %}checked{% endif %}>
-    <label for="id_recursive" class="text-sm text-gray-600 cursor-pointer font-normal">Cerca nelle sottocartelle</label>
+    <label for="id_recursive" class="text-sm text-slate-300 cursor-pointer font-normal">Cerca nelle sottocartelle</label>
   </div>
   <div class="filter-actions">
     <button type="submit" class="btn-primary btn-sm">🔍 Cerca</button>
@@ -80,7 +80,7 @@
 {% if search_q and not is_navigation_only %}
 <!-- Risultati ricerca -->
 <div class="flex items-center gap-2 mb-3">
-  <h2 class="text-lg font-semibold text-brand-900">Risultati{% if recursive %} (ricorsiva){% endif %} per "{{ search_q }}"</h2>
+  <h2 class="section-title mb-0">Risultati{% if recursive %} (ricorsiva){% endif %} per "{{ search_q }}"</h2>
   {% if search_page_obj %}
   <span class="meta">{{ search_page_obj.paginator.count }} risultat{% if search_page_obj.paginator.count == 1 %}o{% else %}i{% endif %}</span>
   {% endif %}
@@ -143,21 +143,21 @@
 
 <!-- Explorer: sottocartelle + progetti + documenti -->
 {% if explorer_items %}
-<h2 class="text-lg font-semibold text-brand-900 mb-3">Contenuto</h2>
+<h2 class="section-title">Contenuto</h2>
 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
   {% for kind, item in explorer_items %}
 
   {% if kind == 'project' %}
   <!-- Tile PROGETTO -->
   <a href="{% url 'project_detail' item.pk %}" class="no-underline block">
-    <div class="bg-white rounded-lg border-l-4 border-brand-700 border border-l-brand-700 p-3.5 hover:shadow-md transition-shadow cursor-pointer flex items-start gap-2.5" style="border-left-color: #1a3a5c !important; border-left-width: 4px !important;">
+    <div class="project-tile border-l-4 border-l-elt-cyan-500 p-3.5 flex items-start gap-2.5">
       <span class="text-2xl flex-shrink-0">🗂️</span>
       <div class="min-w-0 flex-1">
-        <div class="font-bold text-brand-900 text-sm mb-0.5">{{ item.code }}</div>
-        <div class="text-sm text-gray-700 leading-snug break-words">{{ item.name }}</div>
+        <div class="font-bold text-elt-white text-sm mb-0.5">{{ item.code }}</div>
+        <div class="text-sm text-slate-300 leading-snug break-words">{{ item.name }}</div>
         <span class="badge badge-project mt-1.5">Progetto</span>
         {% if item.manager %}
-        <div class="text-xs text-gray-400 mt-1">{{ item.manager.get_full_name|default:item.manager.username }}</div>
+        <div class="text-xs text-slate-400 mt-1">{{ item.manager.get_full_name|default:item.manager.username }}</div>
         {% endif %}
       </div>
     </div>
@@ -166,11 +166,11 @@
   {% elif kind == 'orphan_project_folder' %}
   <!-- Tile cartella PROJECT orfana -->
   <a href="{% url 'folder_detail' item.pk %}" class="no-underline block">
-    <div class="bg-amber-50 rounded-lg border-l-4 border-amber-400 border p-3.5 hover:shadow-md transition-shadow cursor-pointer flex items-start gap-2.5">
+    <div class="project-tile border-l-4 border-l-amber-300/60 p-3.5 flex items-start gap-2.5">
       <span class="text-2xl flex-shrink-0">🗂️</span>
       <div class="min-w-0">
-        <div class="font-semibold text-amber-900 text-sm mb-0.5">{{ item.code }}</div>
-        <div class="text-xs text-amber-800 mb-1">{{ item.name }}</div>
+        <div class="font-semibold text-amber-100 text-sm mb-0.5">{{ item.code }}</div>
+        <div class="text-xs text-amber-200/80 mb-1">{{ item.name }}</div>
         <span class="badge badge-orphan">Progetto non collegato</span>
       </div>
     </div>
@@ -193,7 +193,7 @@
 {% if not is_navigation_only %}
 <!-- Sezione Documenti -->
 <div class="flex items-center justify-between mb-3">
-  <h2 class="text-lg font-semibold text-brand-900">Documenti</h2>
+  <h2 class="section-title mb-0">Documenti</h2>
   {% if can_create %}
   <a href="{% url 'document_new' %}" class="btn-primary btn-sm">+ Nuovo documento</a>
   {% endif %}

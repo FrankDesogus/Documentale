@@ -8,17 +8,22 @@
 <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
 {% block extra_head %}{% endblock %}
 </head>
-<body class="h-full bg-gray-50 text-gray-900">
+<body class="theme-elt h-full bg-elt-navy-950 text-slate-100">
 
 <div class="flex h-screen overflow-hidden">
 
   <!-- ─── Sidebar ──────────────────────────────────── -->
-  <aside class="w-56 flex-shrink-0 bg-brand-900 flex flex-col overflow-y-auto">
+  <aside class="sidebar-shell">
 
     <!-- Brand -->
-    <a href="{% url 'dashboard' %}" class="flex items-center gap-2 px-5 py-4 text-white font-bold text-sm border-b border-white/10 hover:bg-white/5 transition-colors">
-      <span class="text-lg">📋</span>
-      <span>Documentale</span>
+    <a href="{% url 'dashboard' %}" class="sidebar-brand hover:opacity-95 transition-opacity">
+      <div class="flex items-center gap-3">
+        <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-elt-cyan-500/18 ring-1 ring-elt-cyan-300/25 text-lg">📋</span>
+        <div>
+          <div class="text-sm font-bold tracking-wide">Documentale</div>
+          <div class="text-xs text-elt-cyan-300/80">ELT Group workflow</div>
+        </div>
+      </div>
     </a>
 
     <!-- Navigation -->
@@ -32,93 +37,103 @@
     {% user_can_quality_workspace user as sb_can_quality %}
 
     {% with p=request.path %}
-    <nav class="flex-1 py-3 space-y-0.5 px-2">
+    <nav class="flex-1 py-3 px-3">
 
-      <div class="pt-1 pb-1 px-3 text-xs font-semibold uppercase tracking-widest text-blue-400/70">Dashboard</div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Dashboard</div>
+        <a href="{% url 'dashboard' %}"
+           class="sidebar-link {% if p == '/' or p == '/dashboard/' %}sidebar-link-active{% endif %}">
+          <span>🏠</span> Dashboard
+        </a>
+      </div>
 
-      <a href="{% url 'dashboard' %}"
-         class="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm {% if p == '/' or p == '/dashboard/' %}bg-white/15 text-white font-semibold border-l-2 border-sky-400 pl-[calc(0.75rem-2px)]{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
-        <span>🏠</span> Dashboard
-      </a>
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+        <div class="sidebar-section-title">Archivio</div>
+        <a href="{% url 'document_list' %}"
+           class="sidebar-link {% if p|slice:':11' == '/documents/' %}sidebar-link-active{% endif %}">
+          <span>📄</span> Documenti
+        </a>
 
-      <div class="pt-3 pb-1 px-3 text-xs font-semibold uppercase tracking-widest text-blue-400/70">Archivio</div>
+        <a href="{% url 'folder_list' %}"
+           class="sidebar-link {% if p|slice:':9' == '/folders/' %}sidebar-link-active{% endif %}">
+          <span>📁</span> Cartelle
+        </a>
 
-      <a href="{% url 'document_list' %}"
-         class="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm {% if p|slice:':11' == '/documents/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
-        <span>📄</span> Documenti
-      </a>
+        <a href="{% url 'project_list' %}"
+           class="sidebar-link {% if p|slice:':10' == '/projects/' %}sidebar-link-active{% endif %}">
+          <span>🗂️</span> Progetti
+        </a>
+      </div>
 
-      <a href="{% url 'folder_list' %}"
-         class="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm {% if p|slice:':9' == '/folders/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
-        <span>📁</span> Cartelle
-      </a>
-
-      <a href="{% url 'project_list' %}"
-         class="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm {% if p|slice:':10' == '/projects/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
-        <span>🗂️</span> Progetti
-      </a>
-
-      <div class="pt-3 pb-1 px-3 text-xs font-semibold uppercase tracking-widest text-blue-400/70">Workflow</div>
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+        <div class="sidebar-section-title">Workflow</div>
 
       <a href="{% url 'approval_queue' %}"
-         class="flex items-center justify-between gap-2.5 px-3 py-2 rounded-md text-sm {% if p|slice:':11' == '/approvals/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
+         class="sidebar-link justify-between {% if p|slice:':11' == '/approvals/' %}sidebar-link-active{% endif %}">
         <span class="flex items-center gap-2.5"><span>✅</span> Approvazioni</span>
-        {% if sb_n_appr %}<span class="text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 font-bold min-w-[1.25rem] text-center">{{ sb_n_appr }}</span>{% endif %}
+        {% if sb_n_appr %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_appr }}</span>{% endif %}
       </a>
 
       <a href="{% url 'ecn:ecn_list' %}"
-         class="flex items-center justify-between gap-2.5 px-3 py-2 rounded-md text-sm {% if p|slice:':5' == '/ecn/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
+         class="sidebar-link justify-between {% if p|slice:':5' == '/ecn/' %}sidebar-link-active{% endif %}">
         <span class="flex items-center gap-2.5"><span>🔄</span> ECN / Varianti</span>
-        {% if sb_n_ecn %}<span class="text-xs bg-sky-500 text-white rounded-full px-1.5 py-0.5 font-bold min-w-[1.25rem] text-center">{{ sb_n_ecn }}</span>{% endif %}
+        {% if sb_n_ecn %}<span class="sidebar-count">{{ sb_n_ecn }}</span>{% endif %}
       </a>
+      </div>
 
-      <div class="pt-3 pb-1 px-3 text-xs font-semibold uppercase tracking-widest text-blue-400/70">Attività</div>
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+        <div class="sidebar-section-title">Attività</div>
 
       <a href="{% url 'workspace_my_work' %}"
-         class="flex items-center justify-between gap-2.5 px-3 py-2 rounded-md text-sm {% if p == '/workspace/my-work/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
+         class="sidebar-link justify-between {% if p == '/workspace/my-work/' %}sidebar-link-active{% endif %}">
         <span class="flex items-center gap-2.5"><span>✏️</span> Il mio lavoro</span>
         {% with sb_n_tot=sb_n_appr|add:sb_n_ccb|add:sb_n_drafts %}
-          {% if sb_n_tot %}<span class="text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 font-bold min-w-[1.25rem] text-center">{{ sb_n_tot }}</span>{% endif %}
+          {% if sb_n_tot %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_tot }}</span>{% endif %}
         {% endwith %}
       </a>
 
       <a href="{% url 'my_drafts' %}"
-         class="flex items-center justify-between gap-2.5 px-3 py-2 rounded-md text-sm {% if p == '/my-drafts/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
+         class="sidebar-link justify-between {% if p == '/my-drafts/' %}sidebar-link-active{% endif %}">
         <span class="flex items-center gap-2.5"><span>📝</span> Mie bozze</span>
-        {% if sb_n_drafts %}<span class="text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 font-bold min-w-[1.25rem] text-center">{{ sb_n_drafts }}</span>{% endif %}
+        {% if sb_n_drafts %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_drafts }}</span>{% endif %}
       </a>
+      </div>
 
       {% if sb_can_quality %}
-      <div class="pt-3 pb-1 px-3 text-xs font-semibold uppercase tracking-widest text-blue-400/70">Qualità</div>
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+      <div class="sidebar-section-title">Qualità</div>
       <a href="{% url 'workspace_quality' %}"
-         class="flex items-center justify-between gap-2.5 px-3 py-2 rounded-md text-sm {% if p == '/workspace/quality/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
+         class="sidebar-link justify-between {% if p == '/workspace/quality/' %}sidebar-link-active{% endif %}">
         <span class="flex items-center gap-2.5"><span>⚙️</span> Workspace Qualità</span>
         {% with sb_n_q=sb_n_ecn_review|add:sb_n_ecn_close|add:sb_n_ccb %}
-          {% if sb_n_q %}<span class="text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 font-bold min-w-[1.25rem] text-center">{{ sb_n_q }}</span>{% endif %}
+          {% if sb_n_q %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_q }}</span>{% endif %}
         {% endwith %}
       </a>
       <a href="{% url 'ecn:ecn_dashboard' %}"
-         class="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm {% if p == '/ecn/dashboard/' %}bg-white/15 text-white font-semibold{% else %}text-blue-200 hover:bg-white/10 hover:text-white{% endif %} transition-colors">
+         class="sidebar-link {% if p == '/ecn/dashboard/' %}sidebar-link-active{% endif %}">
         <span>📊</span> Cruscotto ECN
       </a>
+      </div>
       {% endif %}
 
       {% if user.is_staff %}
-      <div class="pt-3 pb-1 px-3 text-xs font-semibold uppercase tracking-widest text-blue-400/70">Sistema</div>
-      <a href="/admin/" class="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-blue-200 hover:bg-white/10 hover:text-white transition-colors">
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+      <div class="sidebar-section-title">Sistema</div>
+      <a href="/admin/" class="sidebar-link">
         <span>🔧</span> Amministrazione
       </a>
+      </div>
       {% endif %}
 
     </nav>
     {% endwith %}
 
     <!-- Footer utente -->
-    <div class="px-4 py-3 border-t border-white/10 text-xs text-blue-300">
+    <div class="px-4 py-3 border-t border-white/10 text-xs text-slate-400 bg-black/10">
       <div class="font-medium text-white truncate">{{ user.get_full_name|default:user.username }}</div>
-      <form method="post" action="{% url 'logout' %}" style="display:inline;margin:0">
+      <form method="post" action="{% url 'logout' %}" class="inline m-0">
         {% csrf_token %}
-        <button type="submit" class="mt-1 text-blue-400 hover:text-white transition-colors bg-transparent border-0 cursor-pointer p-0 text-xs">Esci →</button>
+        <button type="submit" class="mt-1 text-elt-cyan-300 hover:text-white transition-colors bg-transparent border-0 cursor-pointer p-0 text-xs">Esci →</button>
       </form>
     </div>
     {% endif %}
@@ -126,26 +141,26 @@
   </aside>
 
   <!-- ─── Area principale ──────────────────────────── -->
-  <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
+  <div class="flex-1 flex flex-col min-w-0 overflow-y-auto bg-elt-app">
 
     <!-- Topbar -->
-    <header class="flex-shrink-0 h-11 bg-brand-800 flex items-center justify-end px-5 gap-4 text-sm text-blue-200">
+    <header class="topbar">
 
       {% if user.is_authenticated %}
       <!-- Campanella notifiche -->
       <div class="relative">
-        <a href="{% url 'notifications:list' %}" class="flex items-center gap-1 hover:text-white transition-colors" title="Notifiche">
+        <a href="{% url 'notifications:list' %}" class="notification-button" title="Notifiche">
           <span class="text-base">🔔</span>
           {% if unread_notifications_count > 0 %}
-          <span class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full min-w-[1rem] h-4 flex items-center justify-center px-1 font-bold leading-none">
+          <span class="notification-badge">
             {{ unread_notifications_count }}
           </span>
           {% endif %}
         </a>
       </div>
 
-      <span class="text-blue-400">|</span>
-      <span class="text-blue-300">{{ user.get_full_name|default:user.username }}</span>
+      <span class="h-5 w-px bg-white/10"></span>
+      <span class="text-slate-300">{{ user.get_full_name|default:user.username }}</span>
       {% else %}
       <a href="{% url 'login' %}" class="hover:text-white transition-colors">Accedi</a>
       {% endif %}

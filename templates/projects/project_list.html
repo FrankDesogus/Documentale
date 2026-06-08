@@ -2,9 +2,9 @@
 {% block title %}Progetti — Documentale{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6 flex-wrap gap-2">
+<div class="page-header flex items-start justify-between flex-wrap gap-2">
   <div>
-    <h1 class="text-2xl font-bold text-brand-900 mb-1">Progetti</h1>
+    <h1>Progetti</h1>
     {% if total_count is not None %}
     <p class="page-header-sub">{{ total_count }} progett{% if total_count == 1 %}o{% else %}i{% endif %}</p>
     {% endif %}
