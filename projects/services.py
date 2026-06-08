@@ -328,6 +328,23 @@ def create_project_with_root_folder(
     return project
 
 
+_IMMUTABLE_STATUSES = frozenset({
+    ProjectRevision.Status.ISSUED,
+    ProjectRevision.Status.SUPERSEDED,
+    ProjectRevision.Status.ARCHIVED,
+})
+
+
+def assert_snapshot_mutable(snapshot: ProjectRevision) -> None:
+    """Solleva ValueError se lo snapshot non è modificabile (emesso, superato, archiviato)."""
+    if snapshot.status in _IMMUTABLE_STATUSES:
+        status_label = snapshot.get_status_display()
+        raise ValueError(
+            f'Lo snapshot {snapshot.revision_label} è in stato "{status_label}" '
+            f'e non può essere modificato.'
+        )
+
+
 def create_project_revision(
     project: Project,
     created_by: User,
@@ -421,8 +438,7 @@ def create_project_revision(
 def populate_project_revision_from_current_documents(project_revision: ProjectRevision) -> int:
     from documents.models import Document
 
-    if project_revision.status != ProjectRevision.Status.DRAFT:
-        raise ValueError('Solo i snapshot in bozza possono essere popolati automaticamente.')
+    assert_snapshot_mutable(project_revision)
 
     folders = get_project_document_folders(project_revision.project)
     if not folders:
@@ -470,8 +486,7 @@ def populate_project_revision_from_current_documents(project_revision: ProjectRe
 
 @transaction.atomic
 def issue_project_revision(project_revision: ProjectRevision, issued_by: User) -> ProjectRevision:
-    if project_revision.status != ProjectRevision.Status.DRAFT:
-        raise ValueError('Solo i snapshot in bozza possono essere emessi.')
+    assert_snapshot_mutable(project_revision)
 
     # Marca come superato il precedente snapshot corrente dello stesso tipo
     ProjectRevision.objects.filter(

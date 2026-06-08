@@ -4844,3 +4844,102 @@ class ProjectSnapshotViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Versione')
         self.assertContains(resp, snap.revision_label)
+
+
+class ProjectSnapshotImmutabilityTests(TestCase):
+    """VH-4: snapshot ISSUED/SUPERSEDED/ARCHIVED sono immutabili."""
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        self.manager = User.objects.create_user('vh4_mgr', password='pw', is_staff=True)
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.manager)
+        parent = make_folder(code='VH4-P', owner=self.manager)
+        from projects.services import create_project_with_root_folder
+        self.project = create_project_with_root_folder(
+            parent_folder=parent, code='VH4', name='VH4 Progetto', created_by=self.manager,
+        )
+
+    def _make_snap(self, label='00', snap_type='revision', status='draft'):
+        snap = ProjectRevision.objects.create(
+            project=self.project,
+            snapshot_type=snap_type,
+            revision_label=label,
+            revision_number=int(label),
+            title=f'Snap {label}',
+            status=status,
+            is_current=(status == 'issued'),
+            created_by=self.manager,
+        )
+        return snap
+
+    # 1–3: populate bloccato per tutti e tre gli stati immutabili
+    def test_populate_raises_for_issued(self):
+        from projects.services import populate_project_revision_from_current_documents
+        snap = self._make_snap('10', status='issued')
+        with self.assertRaises(ValueError) as ctx:
+            populate_project_revision_from_current_documents(snap)
+        self.assertIn('non può essere modificato', str(ctx.exception))
+
+    def test_populate_raises_for_superseded(self):
+        from projects.services import populate_project_revision_from_current_documents
+        snap = self._make_snap('20', status='superseded')
+        with self.assertRaises(ValueError):
+            populate_project_revision_from_current_documents(snap)
+
+    def test_populate_raises_for_archived(self):
+        from projects.services import populate_project_revision_from_current_documents
+        snap = self._make_snap('30', status='archived')
+        with self.assertRaises(ValueError):
+            populate_project_revision_from_current_documents(snap)
+
+    # 4–6: issue bloccato per tutti e tre gli stati immutabili
+    def test_issue_raises_for_issued(self):
+        from projects.services import issue_project_revision
+        snap = self._make_snap('40', status='issued')
+        with self.assertRaises(ValueError) as ctx:
+            issue_project_revision(snap, self.manager)
+        self.assertIn('non può essere modificato', str(ctx.exception))
+
+    def test_issue_raises_for_superseded(self):
+        from projects.services import issue_project_revision
+        snap = self._make_snap('50', status='superseded')
+        with self.assertRaises(ValueError):
+            issue_project_revision(snap, self.manager)
+
+    def test_issue_raises_for_archived(self):
+        from projects.services import issue_project_revision
+        snap = self._make_snap('60', status='archived')
+        with self.assertRaises(ValueError):
+            issue_project_revision(snap, self.manager)
+
+    # 7: la view mostra messaggio di errore (non 500) se si tenta di emettere non-DRAFT
+    def test_view_issue_non_draft_shows_error(self):
+        snap = self._make_snap('70', status='issued')
+        self.client.login(username='vh4_mgr', password='pw')
+        resp = self.client.post(
+            reverse('project_revision_issue', kwargs={'revision_id': snap.pk}),
+        )
+        self.assertEqual(resp.status_code, 302)
+        # Segue il redirect e verifica che ci sia un messaggio di errore nel contesto
+        resp2 = self.client.get(
+            reverse('project_revision_detail', kwargs={'revision_id': snap.pk})
+        )
+        messages_list = list(resp2.context['messages'])
+        self.assertTrue(any('non può essere modificato' in str(m) for m in messages_list))
+
+    # 8: draft rimane modificabile
+    def test_populate_allowed_for_draft(self):
+        from projects.services import populate_project_revision_from_current_documents
+        snap = self._make_snap('80', status='draft')
+        # Nessun documento → restituisce 0 senza sollevare
+        result = populate_project_revision_from_current_documents(snap)
+        self.assertEqual(result, 0)
+
+    # 9: assert_snapshot_mutable helper direttamente
+    def test_assert_snapshot_mutable_helper(self):
+        from projects.services import assert_snapshot_mutable
+        draft_snap = self._make_snap('90', status='draft')
+        assert_snapshot_mutable(draft_snap)  # non solleva
+        issued_snap = self._make_snap('91', status='issued')
+        with self.assertRaises(ValueError):
+            assert_snapshot_mutable(issued_snap)

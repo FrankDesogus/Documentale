@@ -817,9 +817,10 @@ def project_revision_issue(request, revision_id):
     if request.method == 'POST':
         try:
             issue_project_revision(revision, request.user)
+            type_label = revision.get_snapshot_type_display()
             messages.success(
                 request,
-                f'Baseline {revision.revision_label} emessa.'
+                f'{type_label} {revision.revision_label} emessa.',
             )
         except ValueError as e:
             messages.error(request, str(e))
