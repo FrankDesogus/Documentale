@@ -102,6 +102,23 @@
     </div>
   </div>
 
+  <!-- Sezione: Governance revisioni -->
+  <div class="form-section">
+    <div class="form-section-title">Governance revisioni</div>
+    <div class="form-group mb-0">
+      <label class="flex items-center gap-2 cursor-pointer">
+        {{ form.ecn_exemption }}
+        <span class="form-label mb-0">{{ form.ecn_exemption.label }}</span>
+      </label>
+      {% if form.ecn_exemption.help_text %}
+      <p class="form-help">{{ form.ecn_exemption.help_text }}</p>
+      {% endif %}
+      {% for error in form.ecn_exemption.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+  </div>
+
   {% include "auditlog/sanatoria_fields.html" %}
 
   <div class="form-actions">

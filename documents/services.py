@@ -35,13 +35,14 @@ def create_new_revision(
 
     # ----------------------------------------------------------------
     # Gate ECN: obbligatorio quando il documento ha una versione corrente
-    # approvata. Garantisce che ogni nuova revisione sia tracciata da un ECN.
+    # approvata E la policy del documento lo richiede (requires_ecn_for_revision).
     # Il bypass è riservato a usi tecnici (admin, test, import).
     # ----------------------------------------------------------------
     if (
         not _bypass_ecn_check
         and document.current_version is not None
         and document.current_version.status == DocumentVersion.Status.APPROVED
+        and document.requires_ecn_for_revision
     ):
         if ecn is None:
             raise ValidationError(

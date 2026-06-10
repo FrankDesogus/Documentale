@@ -101,8 +101,13 @@ eventi storici già avvenuti nel passato, senza modificare il workflow live norm
 $env:DOCUMENTALE_DEMO_MODE = "true"
 ```
 
-L'utente supervisore deve avere `is_superuser=True` e username `supervisor_demo`
-(oppure il flag `is_demo_supervisor` impostato a `True` sull'account).
+L'utente supervisore deve avere `is_superuser=True` e username `supervisor_demo`.
+
+La verifica è interamente runtime in `config/demo_utils.py:is_demo_supervisor()`:
+controlla che `DOCUMENTALE_DEMO_MODE` sia attivo e che `user.username` corrisponda a
+`DOCUMENTALE_DEMO_SUPERVISOR_USERNAME` (default: `'supervisor_demo'`).
+**Non esiste un flag `is_demo_supervisor` sul modello User** — `accounts/models.py` non ha
+estensioni al modello standard Django.
 
 La variabile d'ambiente è verificata da `can_use_sanatoria(user)` in `auditlog/permissions.py`.
 Senza `DOCUMENTALE_DEMO_MODE=true`, il checkbox sanatoria non viene mostrato a nessuno.
@@ -290,12 +295,105 @@ Queste sono esclusivamente credenziali dimostrative locali. Non usarle come cred
 - Non scartare modifiche locali preesistenti.
 - Non usare `git reset --hard`.
 
-## Prossimo passo
+## ECN OPTIONAL POLICY — completato (ECNPOL-1)
 
-Eseguire la suite finale di verifica su tutte le app modificate nel blocco SAN:
+Branch: `feat/ecn-optional-policy` (derivato da `authz-foundation`)
 
-```powershell
-py manage.py test auditlog documents approvals ecn projects --keepdb --failfast --verbosity=1
+### Obiettivo
+
+Rendere il gate ECN configurabile per singolo `Document`. Per default tutti i documenti
+continuano a richiedere ECN. Alcuni documenti possono essere creati con approvazione diretta.
+
+### Campo aggiunto
+
+**`Document.requires_ecn_for_revision`** (BooleanField, default=True)
+- `True`: comportamento standard invariato — ECN approvato obbligatorio per nuova revisione
+- `False`: gate ECN bypassato — revisione creabile direttamente, ciclo di approvazione obbligatorio
+
+Migrazione: `documents/0005_ecn_policy_flag.py` — retrocompatibile, tutti i record esistenti = True.
+
+### Regola di dominio
+
+La protezione è centralizzata nel service `documents/services.py:create_new_revision()`:
+```python
+if (
+    not _bypass_ecn_check
+    and document.current_version is not None
+    and document.current_version.status == DocumentVersion.Status.APPROVED
+    and document.requires_ecn_for_revision   ← nuova condizione
+):
+    validate_approved_unused_ecn(...)
 ```
 
-Poi procedere con eventuali task backlog o la migrazione a PostgreSQL per il deploy.
+### Invarianti
+
+- Il bypass riguarda **solo il gate ECN** — il ciclo DRAFT→IN_APPROVAL→APPROVED rimane obbligatorio
+- La revisione senza ECN nasce come DRAFT, non è corrente finché non è approvata
+- La policy si sceglie alla creazione del documento — **non modificabile** dalla form di modifica metadati
+- Il consumo one-shot degli ECN standard (`executed_version`) resta invariato
+- Audit log traccia `requires_ecn_for_revision` alla creazione del documento (action: DOCUMENT_CREATED)
+
+### UI
+
+- `new_document.html`: sezione "Governance revisioni" con checkbox **`ecn_exemption`** (default=False, non spuntata)
+  - Semantica invertita rispetto al campo modello: spuntare = esentare dall'ECN
+  - La view traduce: `requires_ecn_for_revision = not ecn_exemption`
+- `document_detail.html`: badge "Modalità revisione: ECN obbligatorio" o "approvazione diretta senza ECN"
+- `document_detail.html`: pulsante "+ Nuova revisione" mostrato per utenti con `can_create_revision`
+  anche senza `can_create_ecn` se il documento è esente
+- `new_revision.html`: banner informativo "Approvazione diretta" per documenti esenti
+
+### Nota semantica UI vs Modello vs Admin
+
+| Superficie | Campo | Default | Significato "attivo" |
+|---|---|---|---|
+| Model / Service | `requires_ecn_for_revision` | True | ECN obbligatorio |
+| Django Admin | `requires_ecn_for_revision` | True (spuntato) | ECN obbligatorio |
+| Form creazione | `ecn_exemption` | False (non spuntato) | ECN obbligatorio ← **stessa cosa** |
+
+Il campo `ecn_exemption` è form-only (non persistito); la traduzione avviene nella view `new_document`.
+`DocumentMetadataEditForm` non espone né `requires_ecn_for_revision` né `ecn_exemption` (test verifica entrambi).
+
+### Test
+
+`documents/tests.py` — `ECNPolicyServiceTests` (10 test service) + `ECNPolicyViewTests` (13 test view)
+23 test nuovi, tutti verdi.
+
+Copertura view tests:
+- Caso 10: `ecn_exemption` non spuntata di default nel form creazione
+- Caso 11: policy assente in `DocumentMetadataEditForm` (sia `requires_ecn_for_revision` che `ecn_exemption`)
+- Caso 12a/b: badge corretto nel detail (ECN obbligatorio / approvazione diretta)
+- Caso 13: stranger bloccato su documento esente (404)
+- Caso 14: modalità sanatoria non rotta dalla nuova policy
+- Caso 15: audit log registra `requires_ecn_for_revision` alla creazione
+- Caso extra: GET new_revision su doc esente mostra form direttamente (no ECN select)
+- Caso extra: POST new_revision su doc esente crea DRAFT senza ECN
+- Caso 16: pulsante "+ Nuova revisione" (senza "via ECN") visibile nel detail per doc esente
+- Caso 17: context include `show_create_revision=True` per l'autore su doc esente
+
+---
+
+## Stato corrente (2026-06-10)
+
+Suite completa eseguita e verificata verde (1207 test, 0 errori, 2026-06-10).
+Nessuna regressione nei blocchi VH e SAN. ECNPOL-1 incluso (23 test nuovi).
+
+Revisione strutturale completata (2026-06-10):
+- Docstring obsoleta in `projects/resolver.py` corretta — il resolver è integrato in produzione.
+- `PROJECT_HANDOFF.md` aggiornato: rimossa indicazione errata su flag `is_demo_supervisor`
+  (non esiste come campo modello; la verifica è runtime in `config/demo_utils.py`).
+- Sistema permessi: due layer coesistono correttamente (`FolderPermissionGrant` modulare +
+  `ProjectFolderMembership` legacy con fallback). Strategia di migrazione operativa.
+
+## Prossimo passo
+
+Scegliere tra:
+1. **Task backlog** — wizard sanatoria multi-step, admin HistoricalRecord con filtri, export audit trail PDF.
+2. **Deploy prep** — migrazione da SQLite a PostgreSQL, configurazione production settings, ALLOWED_HOSTS, STATIC_ROOT.
+3. **Completare migrazione permessi** — eseguire `backfill_folder_permission_grants` per convertire tutti i ProjectFolderMembership legacy in FolderPermissionGrant modulari, poi rimuovere il fallback legacy.
+
+Comando sviluppo:
+
+```powershell
+py manage.py test auditlog documents approvals ecn projects accounts notifications --keepdb --failfast --verbosity=1
+```

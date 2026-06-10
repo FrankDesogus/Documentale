@@ -130,6 +130,14 @@ class Document(models.Model):
         verbose_name='Schema revisione',
         help_text='Schema usato per le etichette di revisione future. Non modifica lo storico.',
     )
+    requires_ecn_for_revision = models.BooleanField(
+        default=True,
+        verbose_name='Richiedi ECN per le revisioni successive',
+        help_text=(
+            'Se attivo, dopo la prima approvazione sarà necessario approvare un ECN '
+            'prima di creare una nuova revisione.'
+        ),
+    )
     code = models.CharField(max_length=50, unique=True, verbose_name='Codice')
     title = models.CharField(max_length=255, verbose_name='Titolo')
     description = models.TextField(blank=True, verbose_name='Descrizione')

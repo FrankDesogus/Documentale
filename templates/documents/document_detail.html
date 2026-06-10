@@ -44,6 +44,11 @@
       {% if document.project_folder %}
       <span>📁 {{ document.project_folder.code }}</span>
       {% endif %}
+      {% if document.requires_ecn_for_revision %}
+      <span class="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded">Modalità revisione: ECN obbligatorio</span>
+      {% else %}
+      <span class="text-xs text-sky-700 bg-sky-50 px-2 py-0.5 rounded">Modalità revisione: approvazione diretta senza ECN</span>
+      {% endif %}
     </div>
     {% if document.description %}
     <p class="text-sm text-gray-600 mt-2">{{ document.description }}</p>
@@ -54,11 +59,19 @@
   <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
     {% if document.status == 'active' %}
       {% if document.current_version and document.current_version.status == 'approved' %}
-        {% if show_create_ecn %}
-        <a href="{% url 'document_new_revision' document.pk %}" class="btn-primary">+ Nuova revisione (via ECN)</a>
+        {% if document.requires_ecn_for_revision %}
+          {% if show_create_ecn %}
+          <a href="{% url 'document_new_revision' document.pk %}" class="btn-primary">+ Nuova revisione (via ECN)</a>
+          {% endif %}
+        {% else %}
+          {% if show_create_revision %}
+          <a href="{% url 'document_new_revision' document.pk %}" class="btn-primary">+ Nuova revisione</a>
+          {% endif %}
         {% endif %}
       {% else %}
+        {% if show_create_revision %}
         <a href="{% url 'document_new_revision' document.pk %}" class="btn-primary">+ Nuova revisione</a>
+        {% endif %}
       {% endif %}
     {% endif %}
     {% if show_create_ecn %}
