@@ -4141,3 +4141,19 @@ class ECNPolicyViewTests(TestCase):
         self.assertFalse(
             ChangeNotice.objects.filter(document=self.doc_free).exists()
         )
+
+    # Caso 16: detail doc esente mostra pulsante "+ Nuova revisione" (non "via ECN")
+    def test_detail_exempt_doc_shows_plain_new_revision_button(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_detail', args=[self.doc_free.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Nuova revisione')
+        self.assertNotContains(r, 'via ECN')
+
+    # Caso 17: context di document_detail include show_create_revision per doc esente
+    def test_detail_context_has_show_create_revision_for_exempt_doc(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_detail', args=[self.doc_free.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('show_create_revision', r.context)
+        self.assertTrue(r.context['show_create_revision'])
