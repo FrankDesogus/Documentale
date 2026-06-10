@@ -83,6 +83,9 @@ def can_view_ecn(user, change_notice):
     from ecn.models import ChangeNoticeApprover
     if ChangeNoticeApprover.objects.filter(change_notice=change_notice, user=user).exists():
         return True
+    # Coordinatore istruttoria CCB designato
+    if change_notice.ccb_coordinator_id and change_notice.ccb_coordinator_id == user.pk:
+        return True
     # Ruolo per-cartella (auditor o manager)
     if change_notice.document and change_notice.document.project_folder_id:
         from projects.permissions import get_folder_role, AUDIT_ROLES

@@ -3280,3 +3280,124 @@ class CCBAuditTests(TestCase):
         AuditLog.objects.all().delete()
         reject_change_notice(self.ecn, self.ccb1, reason='Non conforme.')
         self.assertTrue(AuditLog.objects.filter(action='ECN_REJECTED').exists())
+
+
+# ---------------------------------------------------------------------------
+# ECN-FIX-1: ccb_coordinator può vedere dettaglio ECN e dossier
+# ---------------------------------------------------------------------------
+
+class ECNCoordinatorViewTests(TestCase):
+    """
+    ECN-FIX-1 — Il coordinatore CCB designato deve poter:
+    - vedere il dettaglio ECN (can_view_ecn)
+    - accedere alla pagina dossier (ecn_ccb_dossier)
+
+    NON deve acquisire automaticamente:
+    - governance (configure, submit, approve, close)
+    - voto CCB
+    """
+
+    def setUp(self):
+        from django.urls import reverse
+        self.reverse = reverse
+
+        self.qm = User.objects.create_user('fix1_qm', password='pw')
+        Group.objects.get_or_create(name='Quality Managers')[0].user_set.add(self.qm)
+
+        self.coordinator = User.objects.create_user('fix1_coord', password='pw')
+        # Il coordinatore non è in nessun gruppo privilegiato
+
+        from documents.models import Document, DocumentVersion
+        from projects.models import ProjectFolder
+        folder = ProjectFolder.objects.create(
+            code='FIX1-FOLDER', name='Fix1 Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.qm,
+        )
+        doc = Document.objects.create(
+            code='FIX1-DOC', title='Fix1 Doc',
+            category=Document.Category.QUALITY,
+            project_folder=folder,
+            owner=self.qm, created_by=self.qm,
+        )
+        version = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED,
+            change_summary='First', created_by=self.qm, is_current=True,
+        )
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+
+        # CCB member minimale (serve almeno un approvatore per configure_ccb)
+        self.ccb_member = User.objects.create_user('fix1_ccb', password='pw')
+        Group.objects.get_or_create(name=GROUP_CCB)[0].user_set.add(self.ccb_member)
+
+        self.ecn = ChangeNotice.objects.create(
+            code='FIX1-ECN-001',
+            title='ECN FIX1',
+            document=doc,
+            document_version=version,
+            proposed_by=self.qm,
+            created_by=self.qm,
+            status=ChangeNotice.Status.DRAFT,
+        )
+        # Assegna il coordinatore (usa anche un approvatore dummy per soddisfare il vincolo)
+        from ecn.services import configure_ccb
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb_member], coordinator=self.coordinator)
+
+    # -----------------------------------------------------------------------
+    # can_view_ecn include il coordinatore
+    # -----------------------------------------------------------------------
+
+    def test_coordinator_can_view_ecn(self):
+        """can_view_ecn restituisce True per il ccb_coordinator designato."""
+        self.assertTrue(can_view_ecn(self.coordinator, self.ecn))
+
+    def test_non_coordinator_cannot_view_ecn(self):
+        """Un utente senza relazione con l'ECN non può vederla."""
+        outsider = User.objects.create_user('fix1_out', password='pw')
+        self.assertFalse(can_view_ecn(outsider, self.ecn))
+
+    # -----------------------------------------------------------------------
+    # Dettaglio ECN accessibile al coordinatore (view HTTP)
+    # -----------------------------------------------------------------------
+
+    def test_coordinator_can_access_ecn_detail(self):
+        """Il coordinatore può accedere al dettaglio ECN (HTTP 200)."""
+        self.client.login(username='fix1_coord', password='pw')
+        response = self.client.get(self.reverse('ecn:ecn_detail', args=[self.ecn.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_coordinator_can_access_ecn_dossier(self):
+        """Il coordinatore può accedere alla pagina dossier (HTTP 200)."""
+        # Deve essere in stato CCB_PREPARATION per accedere al dossier
+        self.ecn.status = ChangeNotice.Status.CCB_PREPARATION
+        self.ecn.save(update_fields=['status'])
+        self.client.login(username='fix1_coord', password='pw')
+        response = self.client.get(self.reverse('ecn:ecn_ccb_dossier', args=[self.ecn.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    # -----------------------------------------------------------------------
+    # Il coordinatore NON acquisisce governance
+    # -----------------------------------------------------------------------
+
+    def test_coordinator_cannot_configure_ccb(self):
+        """Il coordinatore non può configurare la CCB."""
+        from ecn.permissions import can_configure_ccb
+        self.assertFalse(can_configure_ccb(self.coordinator, self.ecn))
+
+    def test_coordinator_cannot_submit_ecn(self):
+        """Il coordinatore non può inviare l'ECN alla CCB."""
+        from ecn.permissions import can_submit_ecn
+        self.assertFalse(can_submit_ecn(self.coordinator, self.ecn))
+
+    def test_coordinator_cannot_review_ecn(self):
+        """Il coordinatore non vota (non è ChangeNoticeApprover)."""
+        from ecn.permissions import can_review_ecn
+        self.assertFalse(can_review_ecn(self.coordinator, self.ecn))
+
+    def test_coordinator_cannot_close_ecn(self):
+        """Il coordinatore non può chiudere l'ECN."""
+        from ecn.permissions import can_close_ecn
+        self.assertFalse(can_close_ecn(self.coordinator, self.ecn))
