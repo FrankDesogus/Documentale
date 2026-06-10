@@ -335,11 +335,24 @@ if (
 
 ### UI
 
-- `new_document.html`: sezione "Governance revisioni" con checkbox (selezionata di default)
+- `new_document.html`: sezione "Governance revisioni" con checkbox **`ecn_exemption`** (default=False, non spuntata)
+  - Semantica invertita rispetto al campo modello: spuntare = esentare dall'ECN
+  - La view traduce: `requires_ecn_for_revision = not ecn_exemption`
 - `document_detail.html`: badge "Modalità revisione: ECN obbligatorio" o "approvazione diretta senza ECN"
 - `document_detail.html`: pulsante "+ Nuova revisione" mostrato per utenti con `can_create_revision`
   anche senza `can_create_ecn` se il documento è esente
 - `new_revision.html`: banner informativo "Approvazione diretta" per documenti esenti
+
+### Nota semantica UI vs Modello vs Admin
+
+| Superficie | Campo | Default | Significato "attivo" |
+|---|---|---|---|
+| Model / Service | `requires_ecn_for_revision` | True | ECN obbligatorio |
+| Django Admin | `requires_ecn_for_revision` | True (spuntato) | ECN obbligatorio |
+| Form creazione | `ecn_exemption` | False (non spuntato) | ECN obbligatorio ← **stessa cosa** |
+
+Il campo `ecn_exemption` è form-only (non persistito); la traduzione avviene nella view `new_document`.
+`DocumentMetadataEditForm` non espone né `requires_ecn_for_revision` né `ecn_exemption` (test verifica entrambi).
 
 ### Test
 
@@ -350,8 +363,8 @@ if (
 
 ## Stato corrente (2026-06-10)
 
-Suite completa `auditlog documents approvals ecn projects accounts notifications` eseguita
-e verificata verde. Nessuna regressione nei blocchi VH e SAN.
+Suite completa eseguita e verificata verde (1205 test, 0 errori, 2026-06-10).
+Nessuna regressione nei blocchi VH e SAN. ECNPOL-1 incluso (19 test nuovi).
 
 Revisione strutturale completata (2026-06-10):
 - Docstring obsoleta in `projects/resolver.py` corretta — il resolver è integrato in produzione.

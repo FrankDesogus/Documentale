@@ -4032,6 +4032,7 @@ class ECNPolicyViewTests(TestCase):
         r = self.client.get(reverse('document_edit_metadata', args=[self.doc_ecn.pk]))
         self.assertEqual(r.status_code, 200)
         self.assertNotIn('requires_ecn_for_revision', r.context['form'].fields)
+        self.assertNotIn('ecn_exemption', r.context['form'].fields)
 
     # Caso 12a: detail mostra "ECN obbligatorio" per doc con policy True
     def test_detail_shows_ecn_required_label(self):
