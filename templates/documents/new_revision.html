@@ -51,6 +51,14 @@
   </div>
 </div>
 
+{% if not document.requires_ecn_for_revision and document.current_version %}
+<div class="alert-info mb-4">
+  <strong>Approvazione diretta.</strong>
+  Questo documento è configurato per revisioni senza ECN obbligatorio.
+  La nuova bozza seguirà il normale ciclo di approvazione (DRAFT → IN_APPROVAL → APPROVED).
+</div>
+{% endif %}
+
 {% if needs_ecn and not ecn %}
 <!-- ECN richiesto: selezione ECN approvato -->
 <div class="alert-danger mb-4">
