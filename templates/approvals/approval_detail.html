@@ -164,7 +164,8 @@
         <label for="id_comment_approve" class="form-label">Commento (opzionale)</label>
         <textarea name="comment" id="id_comment_approve" rows="3" class="w-full rounded-md border-gray-300 text-sm focus:ring-brand-500 focus:border-brand-500"></textarea>
       </div>
-      <button type="submit" name="action" value="approve" class="btn-success">Approva revisione</button>
+      {% include "auditlog/sanatoria_fields.html" %}
+      <button type="submit" name="action" value="approve" class="btn-success mt-3">Approva revisione</button>
     </form>
   </div>
 
@@ -180,7 +181,8 @@
         <label for="id_comment_reject" class="form-label">Commento (opzionale)</label>
         <textarea name="comment" id="id_comment_reject" rows="2" class="w-full rounded-md border-gray-300 text-sm focus:ring-brand-500 focus:border-brand-500"></textarea>
       </div>
-      <button type="submit" name="action" value="reject" class="btn-danger">Rifiuta revisione</button>
+      {% include "auditlog/sanatoria_fields.html" %}
+      <button type="submit" name="action" value="reject" class="btn-danger mt-3">Rifiuta revisione</button>
     </form>
   </div>
 

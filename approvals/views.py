@@ -117,16 +117,38 @@ def approval_detail(request, approval_request_id):
     if not is_assigned and not request.user.is_superuser:
         raise PermissionDenied
 
+    # Sanatoria: legge i campi storici opzionali dal POST
+    from auditlog.historical_forms import SanatoriaStandaloneForm, should_send_notifications
+    from auditlog.permissions import can_use_sanatoria
+    sanatoria_form = None
+
     if request.method == 'POST':
+        # Istanzia il form sanatoria standalone (fa il gate backend automaticamente)
+        sanatoria_form = SanatoriaStandaloneForm(request.POST, current_user=request.user)
+        sanatoria_form.is_valid()  # valida senza propagare errori al flusso principale
+        is_sanatoria = sanatoria_form.is_sanatoria
+
         action = request.POST.get('action')
         comment = request.POST.get('comment', '').strip()
 
         if action == 'approve':
             try:
-                approve_version(ar, request.user, comment=comment)
+                approve_version(
+                    ar, request.user,
+                    comment=comment,
+                    send_notifications=should_send_notifications(sanatoria=is_sanatoria),
+                )
                 ar.refresh_from_db()
+                # Sanatoria: crea HistoricalRecord
+                from auditlog.models import HistoricalRecord
+                sanatoria_form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.DOC_APPROVED,
+                    recorded_by=request.user,
+                    target_instance=ar.document_version,
+                )
                 if ar.status == ApprovalRequest.Status.APPROVED:
-                    messages.success(request, 'Documento approvato.')
+                    san_suffix = ' [sanatoria]' if is_sanatoria else ''
+                    messages.success(request, f'Documento approvato.{san_suffix}')
                 else:
                     messages.info(
                         request,
@@ -147,12 +169,23 @@ def approval_detail(request, approval_request_id):
                         ar, request.user,
                         rejection_reason=rejection_reason,
                         comment=comment,
+                        send_notifications=should_send_notifications(sanatoria=is_sanatoria),
                     )
-                    messages.success(request, 'Revisione rifiutata.')
+                    # Sanatoria: crea HistoricalRecord
+                    from auditlog.models import HistoricalRecord
+                    sanatoria_form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.DOC_REJECTED,
+                        recorded_by=request.user,
+                        target_instance=ar.document_version,
+                    )
+                    san_suffix = ' [sanatoria]' if is_sanatoria else ''
+                    messages.success(request, f'Revisione rifiutata.{san_suffix}')
                     return redirect('approval_queue')
                 except (ValidationError, PermissionDenied) as exc:
                     error = ' '.join(exc.messages) if hasattr(exc, 'messages') else str(exc)
                     messages.error(request, error)
+    else:
+        sanatoria_form = SanatoriaStandaloneForm(current_user=request.user)
 
     version = ar.document_version
     decisions = ar.decisions.select_related('approver').order_by('decided_at')
@@ -171,4 +204,5 @@ def approval_detail(request, approval_request_id):
         'decisions': decisions,
         'approvers': approvers,
         'next_approver': next_approver,
+        'form': sanatoria_form,
     })

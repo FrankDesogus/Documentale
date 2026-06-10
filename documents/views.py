@@ -394,7 +394,12 @@ def new_document(request):
         raise PermissionDenied
 
     if request.method == 'POST':
-        form = DocumentCreateForm(request.POST, request.FILES, user=request.user, fixed_project_folder=fixed_folder)
+        form = DocumentCreateForm(
+            request.POST, request.FILES,
+            user=request.user,
+            fixed_project_folder=fixed_folder,
+            current_user=request.user,
+        )
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -413,7 +418,7 @@ def new_document(request):
                     doc_file = None
                     if d.get('file'):
                         doc_file = create_document_file(d['file'], request.user)
-                    create_new_revision(
+                    first_version = create_new_revision(
                         document=doc,
                         created_by=request.user,
                         revision_label=d['revision_label'],
@@ -421,9 +426,23 @@ def new_document(request):
                         file=doc_file,
                         change_summary=d['change_summary'],
                     )
+                    # Sanatoria: registra evento storico per il documento
+                    from auditlog.models import HistoricalRecord
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.DOC_CREATED,
+                        recorded_by=request.user,
+                        target_instance=doc,
+                    )
+                    if form.is_sanatoria:
+                        form.maybe_create_historical_record(
+                            event_type=HistoricalRecord.EventType.DOC_DRAFT_CREATED,
+                            recorded_by=request.user,
+                            target_instance=first_version,
+                        )
+                san_suffix = ' [sanatoria]' if form.is_sanatoria else ''
                 messages.success(
                     request,
-                    f'Documento {doc.code} creato con prima bozza Rev. {d["revision_label"]}.',
+                    f'Documento {doc.code} creato con prima bozza Rev. {d["revision_label"]}.{san_suffix}',
                 )
                 if from_project:
                     return redirect('document_detail', document_id=doc.pk)
@@ -432,7 +451,11 @@ def new_document(request):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentCreateForm(user=request.user, fixed_project_folder=fixed_folder)
+        form = DocumentCreateForm(
+            user=request.user,
+            fixed_project_folder=fixed_folder,
+            current_user=request.user,
+        )
         if fixed_folder is None and not form.fields['project_folder'].queryset.exists():
             messages.warning(
                 request,
@@ -519,7 +542,11 @@ def new_revision(request, document_id):
         next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
 
     if request.method == 'POST':
-        form = DocumentRevisionCreateForm(request.POST, request.FILES, revision_scheme=scheme)
+        form = DocumentRevisionCreateForm(
+            request.POST, request.FILES,
+            revision_scheme=scheme,
+            current_user=request.user,
+        )
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -536,9 +563,17 @@ def new_revision(request, document_id):
                         change_summary=d['change_summary'],
                         ecn=ecn,
                     )
+                    # Sanatoria: registra evento storico
+                    from auditlog.models import HistoricalRecord
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.DOC_REVISION_CREATED,
+                        recorded_by=request.user,
+                        target_instance=version,
+                    )
+                san_suffix = ' [sanatoria]' if form.is_sanatoria else ''
                 messages.success(
                     request,
-                    f'Revisione Rev. {version.revision_label} creata come bozza.',
+                    f'Revisione Rev. {version.revision_label} creata come bozza.{san_suffix}',
                 )
                 return redirect('my_drafts')
             except ValidationError as exc:
@@ -548,6 +583,7 @@ def new_revision(request, document_id):
         form = DocumentRevisionCreateForm(
             initial={'revision_label': next_label, 'revision_number': next_number},
             revision_scheme=scheme,
+            current_user=request.user,
         )
 
     return render(request, 'documents/new_revision.html', {
@@ -579,7 +615,7 @@ def submit_for_approval(request, version_id):
         return redirect('my_drafts')
 
     if request.method == 'POST':
-        form = SubmitForApprovalForm(request.POST, request.FILES)
+        form = SubmitForApprovalForm(request.POST, request.FILES, current_user=request.user)
         approver_formset = ApproverFormSet(
             request.POST, prefix='approver', current_user=request.user
         )
@@ -591,28 +627,38 @@ def submit_for_approval(request, version_id):
                 if f.cleaned_data and f.cleaned_data.get('approver')
             ]
             try:
+                from auditlog.historical_forms import should_send_notifications
                 approval_request = submit_version_for_approval(
                     version=version,
                     requested_by=request.user,
                     approvers=ordered_approvers,
                     due_date=d.get('due_date'),
                     approval_policy=d['approval_policy'],
+                    send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
                 )
                 sig_file = d.get('signature_template_file')
                 if sig_file:
                     from approvals.services import create_approval_request_attachment
                     create_approval_request_attachment(approval_request, sig_file, request.user)
+                # Sanatoria: registra evento storico
+                from auditlog.models import HistoricalRecord
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.DOC_SUBMITTED,
+                    recorded_by=request.user,
+                    target_instance=version,
+                )
+                san_suffix = ' [sanatoria — nessuna notifica inviata]' if form.is_sanatoria else ''
                 messages.success(
                     request,
                     f'Rev. {version.revision_label} di {version.document.code} '
-                    f'inviata in approvazione.',
+                    f'inviata in approvazione.{san_suffix}',
                 )
                 return redirect('dashboard')
             except ValidationError as exc:
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = SubmitForApprovalForm()
+        form = SubmitForApprovalForm(current_user=request.user)
         approver_formset = ApproverFormSet(
             prefix='approver', initial=[{}], current_user=request.user
         )

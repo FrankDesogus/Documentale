@@ -1,14 +1,14 @@
-{#
+{% comment %}
   Template partial: sezione sanatoria storica
   Incluso nei form che supportano SanatoriaFieldsMixin.
 
   Variabili attese nel context:
-    form          — il form Django che include i campi sanatoria
+    form               — il form Django che include i campi sanatoria
     sanatoria_available — bool (True solo se can_use_sanatoria(user))
 
-  Uso:
-    {% include "auditlog/sanatoria_fields.html" %}
-#}
+  Uso nel template genitore:
+    include "auditlog/sanatoria_fields.html"
+{% endcomment %}
 {% if sanatoria_available %}
 
 <div class="form-section mt-6 border border-amber-400/40 bg-amber-50 dark:bg-amber-900/20 rounded-xl">

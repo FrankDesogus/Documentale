@@ -1,12 +1,13 @@
 from django import forms
 from django.contrib.auth.models import User
 
+from auditlog.historical_forms import SanatoriaFieldsMixin
 from documents.models import Document
 from documents.versioning import SequenceScheme, normalize_sequence_value, validate_sequence_value
 from projects.models import ProjectFolder
 
 
-class DocumentCreateForm(forms.Form):
+class DocumentCreateForm(SanatoriaFieldsMixin, forms.Form):
     code = forms.CharField(
         max_length=50,
         label='Codice documento',
@@ -56,8 +57,8 @@ class DocumentCreateForm(forms.Form):
     )
     file = forms.FileField(required=False, label='File operativo')
 
-    def __init__(self, *args, user=None, fixed_project_folder=None, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, user=None, fixed_project_folder=None, current_user=None, **kwargs):
+        super().__init__(*args, current_user=current_user, **kwargs)
         if fixed_project_folder is not None:
             self.fields['project_folder'].queryset = ProjectFolder.objects.filter(
                 pk=fixed_project_folder.pk
@@ -93,7 +94,7 @@ class DocumentCreateForm(forms.Form):
         return cleaned
 
 
-class DocumentRevisionCreateForm(forms.Form):
+class DocumentRevisionCreateForm(SanatoriaFieldsMixin, forms.Form):
     revision_label = forms.CharField(max_length=20, label='Etichetta revisione')
     revision_number = forms.IntegerField(min_value=0, label='Numero revisione')
     change_summary = forms.CharField(
@@ -103,8 +104,8 @@ class DocumentRevisionCreateForm(forms.Form):
     )
     file = forms.FileField(required=False, label='File operativo')
 
-    def __init__(self, *args, revision_scheme=None, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, revision_scheme=None, current_user=None, **kwargs):
+        super().__init__(*args, current_user=current_user, **kwargs)
         self._revision_scheme = revision_scheme
 
     def clean_revision_label(self):
@@ -224,7 +225,7 @@ ApproverFormSet = forms.formset_factory(
 )
 
 
-class SubmitForApprovalForm(forms.Form):
+class SubmitForApprovalForm(SanatoriaFieldsMixin, forms.Form):
     approval_policy = forms.ChoiceField(
         choices=[
             ('any', 'Basta un approvatore'),

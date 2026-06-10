@@ -134,7 +134,7 @@ def create_new_revision(
     return version
 
 
-def submit_version_for_approval(version, requested_by, approvers, due_date=None, approval_policy='all'):
+def submit_version_for_approval(version, requested_by, approvers, due_date=None, approval_policy='all', send_notifications=True):
     from approvals.models import ApprovalRequest, ApprovalRequestApprover
 
     if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
@@ -184,6 +184,10 @@ def submit_version_for_approval(version, requested_by, approvers, due_date=None,
         )
 
     # Notifiche fuori dalla transazione: un errore email non deve annullare il workflow.
+    # In modalità sanatoria le notifiche sono soppresse.
+    if not send_notifications:
+        return approval_request
+
     from notifications.services import send_approval_request_email
     from approvals.models import ApprovalRequest as AR
     if approval_policy == AR.Policy.SEQUENTIAL:

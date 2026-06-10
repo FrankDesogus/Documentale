@@ -37,9 +37,10 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 
-class SanatoriaFieldsMixin(forms.BaseForm):
+class SanatoriaFieldsMixin:
     """
     Mixin da usare con forms.Form o forms.ModelForm.
+    NON eredita da forms.BaseForm per evitare conflitti MRO e ricorsioni.
 
     Richiede di passare current_user al costruttore:
         form = MioForm(..., current_user=request.user)
@@ -50,18 +51,22 @@ class SanatoriaFieldsMixin(forms.BaseForm):
 
     def __init__(self, *args, current_user=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self._current_user = current_user
-        self._sanatoria_available = self._check_sanatoria_available()
+        # Memorizza solo il flag booleano, NON l'istanza User,
+        # per evitare ricorsioni nel copy() del contesto Django test client.
+        self._sanatoria_available = self._check_sanatoria_available(current_user)
+        # Memorizza il pk per maybe_create_historical_record (lookup lazy).
+        self._sanatoria_user_pk = current_user.pk if current_user else None
 
         if self._sanatoria_available:
             self._add_sanatoria_fields()
         # Se non disponibile, i campi storici non vengono aggiunti → sicurezza backend
 
-    def _check_sanatoria_available(self) -> bool:
-        if self._current_user is None:
+    @staticmethod
+    def _check_sanatoria_available(user) -> bool:
+        if user is None:
             return False
         from auditlog.permissions import can_use_sanatoria
-        return can_use_sanatoria(self._current_user)
+        return can_use_sanatoria(user)
 
     def _add_sanatoria_fields(self):
         """Inserisce i campi sanatoria DOPO i campi normali."""
@@ -183,12 +188,21 @@ class SanatoriaFieldsMixin(forms.BaseForm):
 
         - Se import_batch è None, crea o riutilizza un batch demo attivo.
         - Non invia mai notifiche.
+        - recorded_by può essere un User o un pk; viene risolto qui.
         """
         if not self.is_sanatoria:
             return None
 
+        from django.contrib.auth.models import User
         from auditlog.models import HistoricalImportBatch, HistoricalRecord
         from auditlog.services import create_audit_log
+
+        # Risolvi recorded_by se non è già un'istanza User
+        if not isinstance(recorded_by, User):
+            try:
+                recorded_by = User.objects.get(pk=recorded_by)
+            except User.DoesNotExist:
+                recorded_by = None
 
         # Batch: recupera quello attivo oppure ne crea uno
         if import_batch is None:
@@ -255,6 +269,15 @@ def _get_or_create_demo_batch(user):
         status=HistoricalImportBatch.Status.IN_PROGRESS,
         created_by=user,
     )
+
+
+class SanatoriaStandaloneForm(SanatoriaFieldsMixin, forms.Form):
+    """
+    Form autonomo con soli campi sanatoria.
+
+    Usato in view che non hanno un form principale (es. approval_detail).
+    """
+    pass
 
 
 def should_send_notifications(*, sanatoria: bool) -> bool:

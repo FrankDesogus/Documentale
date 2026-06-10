@@ -46,7 +46,7 @@ def create_approval_request_attachment(approval_request, uploaded_file, uploaded
     return attachment
 
 
-def approve_version(approval_request, approved_by, comment=""):
+def approve_version(approval_request, approved_by, comment="", send_notifications=True):
     from documents.models import DocumentVersion
 
     Policy = ApprovalRequest.Policy
@@ -122,6 +122,9 @@ def approve_version(approval_request, approved_by, comment=""):
                 document=version.document,
                 document_version=version,
             )
+
+    if not send_notifications:
+        return approval_request
 
     if is_final:
         from notifications.services import send_version_approved_email
@@ -219,7 +222,7 @@ def _finalize_approval(approval_request, version, approved_by, now):
     )
 
 
-def reject_version(approval_request, rejected_by, rejection_reason, comment=""):
+def reject_version(approval_request, rejected_by, rejection_reason, comment="", send_notifications=True):
     from documents.models import DocumentVersion
 
     if not rejection_reason or not rejection_reason.strip():
@@ -287,7 +290,11 @@ def reject_version(approval_request, rejected_by, rejection_reason, comment=""):
             document_version=version,
         )
 
-    # Notifica fuori dalla transazione: un errore email non deve annullare il rifiuto.
+    # Notifica fuori dalla transazione.
+    # In modalità sanatoria le notifiche sono soppresse.
+    if not send_notifications:
+        return approval_request
+
     from notifications.services import send_version_rejected_email
     send_version_rejected_email(approval_request, rejection_reason)
     try:
