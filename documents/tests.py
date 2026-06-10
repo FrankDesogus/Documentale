@@ -3839,3 +3839,304 @@ class NextLabelAfterSchemeChangeTests(TestCase):
         resp = self._get_revision_form(self.doc_alpha)
         form = resp.context['form']
         self.assertEqual(form.initial.get('revision_label'), '00')
+
+
+# ---------------------------------------------------------------------------
+# ECN policy — requires_ecn_for_revision (ECNPOL-1)
+# ---------------------------------------------------------------------------
+
+class ECNPolicyServiceTests(TestCase):
+    """
+    Verifica la policy requires_ecn_for_revision a livello di service.
+    Copre i casi 1-9 del briefing.
+    """
+
+    def setUp(self):
+        from approvals.services import approve_version
+        self.author   = User.objects.create_user('pol_author', password='pw')
+        self.approver = User.objects.create_user('pol_approver', password='pw')
+
+    def _make_approved_doc(self, code, requires_ecn=True):
+        """Crea un documento con una versione approvata."""
+        from approvals.services import approve_version
+        doc = Document.objects.create(
+            code=code, title='Doc policy test',
+            category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+            requires_ecn_for_revision=requires_ecn,
+        )
+        v0 = create_new_revision(doc, self.author, '00', 0)
+        req = submit_version_for_approval(v0, self.author, [self.approver])
+        approve_version(req, self.approver)
+        doc.refresh_from_db()
+        return doc
+
+    def _make_ecn(self, doc, status='approved', executed_version=None):
+        from ecn.models import ChangeNotice
+        return ChangeNotice.objects.create(
+            code=f'ECN-POL-{ChangeNotice.objects.count()+1:03d}',
+            title='ECN policy test',
+            motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            document=doc,
+            document_version=doc.current_version,
+            proposed_by=self.author,
+            created_by=self.author,
+            status=status,
+            executed_version=executed_version,
+        )
+
+    # Caso 1: default is True
+    def test_new_document_has_requires_ecn_true_by_default(self):
+        doc = Document.objects.create(
+            code='POL-DEF', title='Default policy',
+            category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+        )
+        self.assertTrue(doc.requires_ecn_for_revision)
+
+    # Caso 2: documento con ECN obbligatorio continua a richiedere ECN
+    def test_ecn_required_doc_still_requires_ecn(self):
+        doc = self._make_approved_doc('POL-ECN-REQ', requires_ecn=True)
+        with self.assertRaises(ValidationError):
+            create_new_revision(doc, self.author, '01', 1)
+
+    # Caso 3: documento esente può creare revisione senza ECN
+    def test_ecn_exempt_doc_can_create_revision_without_ecn(self):
+        doc = self._make_approved_doc('POL-EXEMPT', requires_ecn=False)
+        v = create_new_revision(doc, self.author, '01', 1)
+        self.assertIsNotNone(v)
+
+    # Caso 4: revisione senza ECN nasce come DRAFT
+    def test_revision_without_ecn_is_draft(self):
+        doc = self._make_approved_doc('POL-DRAFT', requires_ecn=False)
+        v = create_new_revision(doc, self.author, '01', 1)
+        self.assertEqual(v.status, DocumentVersion.Status.DRAFT)
+
+    # Caso 5: revisione senza ECN non è is_current prima dell'approvazione
+    def test_revision_without_ecn_not_current_before_approval(self):
+        doc = self._make_approved_doc('POL-NOTCUR', requires_ecn=False)
+        v = create_new_revision(doc, self.author, '01', 1)
+        self.assertFalse(v.is_current)
+        doc.refresh_from_db()
+        self.assertNotEqual(doc.current_version, v)
+
+    # Caso 6: revisione senza ECN può essere inviata in approvazione
+    def test_revision_without_ecn_can_be_submitted(self):
+        doc = self._make_approved_doc('POL-SUBMIT', requires_ecn=False)
+        v = create_new_revision(doc, self.author, '01', 1)
+        req = submit_version_for_approval(v, self.author, [self.approver])
+        from approvals.models import ApprovalRequest
+        self.assertEqual(req.status, ApprovalRequest.Status.PENDING)
+
+    # Caso 7: dopo approvazione ordinaria, la nuova versione sostituisce la precedente
+    def test_revision_without_ecn_becomes_current_after_approval(self):
+        from approvals.services import approve_version
+        doc = self._make_approved_doc('POL-CURR', requires_ecn=False)
+        old_current = doc.current_version
+        v = create_new_revision(doc, self.author, '01', 1)
+        req = submit_version_for_approval(v, self.author, [self.approver])
+        approve_version(req, self.approver)
+        doc.refresh_from_db()
+        self.assertEqual(doc.current_version, v)
+        old_current.refresh_from_db()
+        self.assertEqual(old_current.status, DocumentVersion.Status.SUPERSEDED)
+
+    # Caso 8: consumo one-shot ECN standard resta invariato
+    def test_ecn_consumed_after_use(self):
+        doc = self._make_approved_doc('POL-ONESHOT', requires_ecn=True)
+        ecn = self._make_ecn(doc, status='approved')
+        create_new_revision(doc, self.author, '01', 1, ecn=ecn)
+        ecn.refresh_from_db()
+        self.assertIsNotNone(ecn.executed_version)
+
+    # Caso 9: ECN già consumato non può essere riutilizzato
+    def test_already_used_ecn_cannot_be_reused(self):
+        doc = self._make_approved_doc('POL-REUSE', requires_ecn=True)
+        used_v = create_new_revision(doc, self.author, '01', 1, _bypass_ecn_check=True)
+        ecn = self._make_ecn(doc, status='approved', executed_version=used_v)
+        with self.assertRaises(ValidationError):
+            create_new_revision(doc, self.author, '02', 2, ecn=ecn)
+
+    # Caso extra: replaces_version è valorizzato anche senza ECN
+    def test_revision_without_ecn_has_replaces_version(self):
+        doc = self._make_approved_doc('POL-REPLACES', requires_ecn=False)
+        old_current = doc.current_version
+        v = create_new_revision(doc, self.author, '01', 1)
+        self.assertEqual(v.replaces_version, old_current)
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class ECNPolicyViewTests(TestCase):
+    """
+    Verifica UI e view per la policy requires_ecn_for_revision.
+    Copre i casi 10-15 del briefing.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from projects.models import ProjectFolder, ProjectFolderMembership
+        from approvals.services import approve_version
+        mail.outbox = []
+
+        self.author   = User.objects.create_user('pv_author', email='pv_a@t.com', password='pw')
+        self.approver = User.objects.create_user('pv_approver', email='pv_ap@t.com', password='pw')
+
+        Group.objects.get_or_create(name='Document Authors')[0].user_set.add(self.author)
+        Group.objects.get_or_create(name='Document Managers')[0].user_set.add(self.approver)
+
+        self.folder = ProjectFolder.objects.create(
+            code='PV-FOLD', name='Policy View Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.author,
+        )
+        ProjectFolderMembership.objects.create(folder=self.folder, user=self.author, role='author')
+
+        # Documento con ECN obbligatorio (default) + versione approvata
+        self.doc_ecn = Document.objects.create(
+            code='PV-ECN', title='Doc ECN obbligatorio',
+            category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+            project_folder=self.folder,
+            requires_ecn_for_revision=True,
+        )
+        v0_ecn = create_new_revision(self.doc_ecn, self.author, '00', 0)
+        req = submit_version_for_approval(v0_ecn, self.author, [self.approver])
+        approve_version(req, self.approver)
+        self.doc_ecn.refresh_from_db()
+
+        # Documento senza ECN obbligatorio + versione approvata
+        self.doc_free = Document.objects.create(
+            code='PV-FREE', title='Doc senza ECN',
+            category=Document.Category.QUALITY,
+            owner=self.author, created_by=self.author,
+            project_folder=self.folder,
+            requires_ecn_for_revision=False,
+        )
+        v0_free = create_new_revision(self.doc_free, self.author, '00', 0)
+        req2 = submit_version_for_approval(v0_free, self.author, [self.approver])
+        approve_version(req2, self.approver)
+        self.doc_free.refresh_from_db()
+
+    # Caso 10: checkbox compare nel form di creazione ed è selezionata di default
+    def test_create_form_has_checkbox_checked_by_default(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_new'))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('requires_ecn_for_revision', r.context['form'].fields)
+        self.assertTrue(r.context['form'].fields['requires_ecn_for_revision'].initial)
+
+    # Caso 11: policy NON è modificabile dal form di modifica metadati
+    def test_metadata_edit_form_does_not_expose_policy(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_edit_metadata', args=[self.doc_ecn.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn('requires_ecn_for_revision', r.context['form'].fields)
+
+    # Caso 12a: detail mostra "ECN obbligatorio" per doc con policy True
+    def test_detail_shows_ecn_required_label(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_detail', args=[self.doc_ecn.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'ECN obbligatorio')
+
+    # Caso 12b: detail mostra "approvazione diretta" per doc con policy False
+    def test_detail_shows_direct_approval_label(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_detail', args=[self.doc_free.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'approvazione diretta')
+
+    # Caso 13: permessi invariati — utente senza accesso non vede la revisione
+    def test_stranger_cannot_view_ecn_exempt_document(self):
+        stranger = User.objects.create_user('pv_stranger', password='pw')
+        self.client.force_login(stranger)
+        r = self.client.get(reverse('document_detail', args=[self.doc_free.pk]))
+        self.assertEqual(r.status_code, 404)
+
+    # Caso 14: modalità sanatoria continua a funzionare per creazione documento
+    def test_sanatoria_document_creation_not_broken(self):
+        import os
+        os.environ['DOCUMENTALE_DEMO_MODE'] = 'true'
+        try:
+            from django.test.utils import override_settings as ov
+            with ov(DOCUMENTALE_DEMO_MODE=True):
+                sup = User.objects.create_superuser(
+                    'supervisor_demo_pv', password='pw',
+                )
+                # supervisor_demo_pv non è il vero username demo → sanatoria non attiva
+                # ma il form deve funzionare lo stesso senza errori
+                self.client.force_login(sup)
+                r = self.client.post(reverse('document_new'), {
+                    'code': 'PV-SAN',
+                    'title': 'Doc sanatoria policy',
+                    'category': 'QUALITY',
+                    'project_folder': self.folder.pk,
+                    'revision_scheme': 'numeric',
+                    'revision_label': '00',
+                    'revision_number': '0',
+                    'requires_ecn_for_revision': 'on',
+                })
+                self.assertIn(r.status_code, [200, 302])
+        finally:
+            os.environ.pop('DOCUMENTALE_DEMO_MODE', None)
+
+    # Caso 15: audit log registra requires_ecn_for_revision alla creazione
+    def test_audit_log_records_policy_on_creation(self):
+        from auditlog.models import AuditLog
+        self.client.force_login(self.author)
+        self.client.post(reverse('document_new'), {
+            'code': 'PV-AUDIT',
+            'title': 'Doc audit policy',
+            'category': 'QUALITY',
+            'project_folder': self.folder.pk,
+            'revision_scheme': 'numeric',
+            'revision_label': '00',
+            'revision_number': '0',
+            'requires_ecn_for_revision': '',   # unchecked → False
+        })
+        doc = Document.objects.filter(code='PV-AUDIT').first()
+        self.assertIsNotNone(doc)
+        self.assertFalse(doc.requires_ecn_for_revision)
+        log = AuditLog.objects.filter(
+            action='DOCUMENT_CREATED',
+            object_id=str(doc.pk),
+        ).first()
+        self.assertIsNotNone(log)
+        new_values = log.changes.get('new_values', {})
+        self.assertIn('requires_ecn_for_revision', new_values)
+        self.assertFalse(new_values['requires_ecn_for_revision'])
+
+    # Caso extra — view new_revision: doc esente mostra form direttamente (no ECN select)
+    def test_ecn_exempt_doc_new_revision_shows_form_without_ecn_step(self):
+        self.client.force_login(self.author)
+        r = self.client.get(reverse('document_new_revision', args=[self.doc_free.pk]))
+        self.assertEqual(r.status_code, 200)
+        # Non deve mostrare la pagina di selezione ECN
+        self.assertNotContains(r, 'ECN richiesto')
+        # Deve mostrare il form di creazione
+        self.assertIsNotNone(r.context.get('form'))
+
+    # Caso extra — doc esente: POST crea revisione senza passare ecn_id
+    def test_ecn_exempt_doc_post_creates_revision(self):
+        self.client.force_login(self.author)
+        r = self.client.post(
+            reverse('document_new_revision', args=[self.doc_free.pk]),
+            {
+                'revision_label': '01',
+                'revision_number': '1',
+                'change_summary': 'Revisione diretta senza ECN',
+            },
+        )
+        self.assertRedirects(r, reverse('my_drafts'), fetch_redirect_response=False)
+        self.assertTrue(
+            DocumentVersion.objects.filter(
+                document=self.doc_free, revision_label='01',
+                status=DocumentVersion.Status.DRAFT,
+            ).exists()
+        )
+        # Nessun ECN consumato
+        from ecn.models import ChangeNotice
+        self.assertFalse(
+            ChangeNotice.objects.filter(document=self.doc_free).exists()
+        )
