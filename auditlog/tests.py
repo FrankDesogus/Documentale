@@ -1,8 +1,9 @@
 """
-Test per l'app auditlog — SAN-1: modelli sanatoria storica.
+Test per l'app auditlog — SAN-1/SAN-2: modelli e form sanatoria storica.
 """
 import datetime
 
+from django import forms
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
@@ -348,3 +349,247 @@ class SanatoriaPermissionsTests(TestCase):
     @override_settings(DOCUMENTALE_DEMO_MODE=False)
     def test_can_verify_normal_user_false(self):
         self.assertFalse(can_verify_historical_records(self.normal_user))
+
+
+# ---------------------------------------------------------------------------
+# SAN-2: SanatoriaFieldsMixin — form gate e validazione
+# ---------------------------------------------------------------------------
+
+from auditlog.historical_forms import SanatoriaFieldsMixin, should_send_notifications
+
+
+class _TestForm(SanatoriaFieldsMixin, forms.Form):
+    """Form minimo per testare il mixin."""
+    title = forms.CharField()
+
+
+class SanatoriaFormGateTests(TestCase):
+    """
+    Verifica che il gate demo mode funzioni correttamente sul mixin.
+    """
+
+    def _make_supervisor(self):
+        return User.objects.create_user(
+            username='supervisor_demo',
+            password='demo1234',
+            is_superuser=True,
+        )
+
+    def _make_normal(self):
+        return User.objects.create_user('user_norm', password='pass')
+
+    # --- Test 1: demo mode OFF → nessun campo sanatoria nel form ---
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=False)
+    def test_demo_mode_off_no_sanatoria_field(self):
+        """Demo mode OFF → campo 'sanatoria' non presente nel form."""
+        user = self._make_supervisor()
+        form = _TestForm(current_user=user)
+        self.assertNotIn('sanatoria', form.fields)
+
+    # --- Test 2: demo mode ON + utente normale → no sanatoria ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_demo_mode_on_normal_user_no_sanatoria(self):
+        """Demo mode ON + utente normale → campo sanatoria assente."""
+        user = self._make_normal()
+        form = _TestForm(current_user=user)
+        self.assertNotIn('sanatoria', form.fields)
+
+    # --- Test 3: demo mode ON + supervisor_demo → sanatoria presente ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_demo_mode_on_supervisor_has_sanatoria(self):
+        """Demo mode ON + supervisor_demo → campo sanatoria presente."""
+        user = self._make_supervisor()
+        form = _TestForm(current_user=user)
+        self.assertIn('sanatoria', form.fields)
+
+    # --- Test 4: POST forgiato da utente normale con sanatoria=true → ignorato ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_forged_post_sanatoria_ignored_for_normal_user(self):
+        """POST forgiato con sanatoria=true da utente normale → is_sanatoria False."""
+        user = self._make_normal()
+        form = _TestForm({'title': 'test', 'sanatoria': 'on'}, current_user=user)
+        form.is_valid()
+        self.assertFalse(form.is_sanatoria)
+
+    # --- Test 5: default checkbox → False ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_default_sanatoria_false(self):
+        """Senza POST, sanatoria default è False."""
+        user = self._make_supervisor()
+        form = _TestForm({'title': 'test'}, current_user=user)
+        self.assertTrue(form.is_valid())
+        self.assertFalse(form.is_sanatoria)
+
+    # --- Validazione: data futura rifiutata ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_historical_date_future_rejected(self):
+        """Data storica nel futuro → errore di validazione."""
+        user = self._make_supervisor()
+        future = (datetime.date.today() + datetime.timedelta(days=5)).isoformat()
+        form = _TestForm({
+            'title': 'test',
+            'sanatoria': 'on',
+            'historical_actor_name': 'Mario Rossi',
+            'historical_date': future,
+            'date_precision': 'exact_date',
+        }, current_user=user)
+        self.assertFalse(form.is_valid())
+        self.assertIn('historical_date', form.errors)
+
+    # --- Validazione: senza attore → errore ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_sanatoria_without_actor_invalid(self):
+        """Sanatoria selezionata senza attore → errore."""
+        user = self._make_supervisor()
+        form = _TestForm({
+            'title': 'test',
+            'sanatoria': 'on',
+            'historical_date': '2021-03-15',
+            'date_precision': 'exact_date',
+        }, current_user=user)
+        self.assertFalse(form.is_valid())
+        self.assertIn('historical_actor_name', form.errors)
+
+    # --- Validazione: anno senza data esatta → valido con YEAR precision ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_year_precision_without_exact_date_valid(self):
+        """Precisione YEAR senza data esatta → valido."""
+        user = self._make_supervisor()
+        form = _TestForm({
+            'title': 'test',
+            'sanatoria': 'on',
+            'historical_actor_name': 'Mario Rossi',
+            'date_precision': 'year',
+            # historical_date assente
+        }, current_user=user)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.is_sanatoria)
+
+    # --- maybe_create_historical_record: sanatoria false → None ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_maybe_create_no_record_when_sanatoria_false(self):
+        """Sanatoria False → nessun HistoricalRecord creato."""
+        from auditlog.models import HistoricalRecord
+        user = self._make_supervisor()
+        form = _TestForm({'title': 'test'}, current_user=user)
+        form.is_valid()
+        result = form.maybe_create_historical_record(
+            event_type=HistoricalRecord.EventType.GENERIC,
+            recorded_by=user,
+        )
+        self.assertIsNone(result)
+        self.assertEqual(HistoricalRecord.objects.count(), 0)
+
+    # --- maybe_create_historical_record: sanatoria true → HistoricalRecord creato ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_maybe_create_record_when_sanatoria_true(self):
+        """Sanatoria True → HistoricalRecord creato."""
+        from auditlog.models import HistoricalRecord
+        user = self._make_supervisor()
+        form = _TestForm({
+            'title': 'test',
+            'sanatoria': 'on',
+            'historical_actor_name': 'Mario Rossi',
+            'date_precision': 'year',
+        }, current_user=user)
+        self.assertTrue(form.is_valid(), form.errors)
+        result = form.maybe_create_historical_record(
+            event_type=HistoricalRecord.EventType.GENERIC,
+            recorded_by=user,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(HistoricalRecord.objects.count(), 1)
+        self.assertEqual(result.recorded_by, user)
+        self.assertEqual(result.historical_actor_name, 'Mario Rossi')
+
+    # --- recorded_by è sempre l'utente corrente ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_recorded_by_is_current_user(self):
+        """recorded_by deve essere l'utente che esegue il backfill, non l'attore storico."""
+        from auditlog.models import HistoricalRecord
+        user = self._make_supervisor()
+        form = _TestForm({
+            'title': 'test',
+            'sanatoria': 'on',
+            'historical_actor_name': 'Ex Dipendente',
+            'date_precision': 'unknown',
+        }, current_user=user)
+        form.is_valid()
+        result = form.maybe_create_historical_record(
+            event_type=HistoricalRecord.EventType.GENERIC,
+            recorded_by=user,
+        )
+        self.assertEqual(result.recorded_by, user)
+        self.assertEqual(result.historical_actor_name, 'Ex Dipendente')
+
+    # --- actor testuale senza account è valido ---
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_actor_name_without_account_valid(self):
+        """Nome libero senza FK User è valido."""
+        user = self._make_supervisor()
+        form = _TestForm({
+            'title': 'test',
+            'sanatoria': 'on',
+            'historical_actor_name': 'Giovanni Bianchi (ex 2015)',
+            'date_precision': 'unknown',
+        }, current_user=user)
+        self.assertTrue(form.is_valid(), form.errors)
+
+
+# ---------------------------------------------------------------------------
+# SAN-2b: should_send_notifications helper
+# ---------------------------------------------------------------------------
+
+class ShouldSendNotificationsTests(TestCase):
+    def test_sanatoria_false_sends(self):
+        """sanatoria=False → notifiche attive."""
+        self.assertTrue(should_send_notifications(sanatoria=False))
+
+    def test_sanatoria_true_no_send(self):
+        """sanatoria=True → nessuna notifica."""
+        self.assertFalse(should_send_notifications(sanatoria=True))
