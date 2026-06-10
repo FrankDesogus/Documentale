@@ -1923,7 +1923,8 @@ class ECNViewTests(TestCase):
     def test_document_detail_shows_create_ecn_button_to_manager(self):
         self.client.force_login(self.manager)
         r = self.client.get(f'/documents/{self.document.pk}/')
-        self.assertContains(r, 'Richiedi variante / ECN')
+        # Il template usa "+ Richiedi ECN" (testo aggiornato nel restyling Tailwind)
+        self.assertContains(r, 'Richiedi ECN')
 
     def test_document_detail_hides_create_ecn_button_to_stranger(self):
         self.client.force_login(self.stranger)

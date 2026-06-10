@@ -65,6 +65,8 @@
     </div>
   </div>
 
+  {% include "auditlog/sanatoria_fields.html" %}
+
   <div class="form-actions">
     <button type="submit" class="btn-success">Conferma chiusura ECN</button>
     <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary">Annulla</a>

@@ -8,6 +8,10 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
+from auditlog.historical_forms import should_send_notifications
+from auditlog.models import HistoricalRecord
+from auditlog.permissions import can_use_sanatoria
+
 from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeAttachment, ChangeNoticeDecision
 from ecn.permissions import (
     can_add_ecn_attachment,
@@ -57,12 +61,10 @@ def ecn_list(request):
             .values_list('change_notice_id', flat=True)
         )
         assigned_filter = Q(pk__in=assigned_ecn_ids)
-        # ECN su documenti in cartelle dove l'utente ha un ruolo auditor/manager
-        from projects.permissions import get_visible_folder_ids
-        visible_folder_ids = get_visible_folder_ids(user)
-        folder_filter = Q(document__project_folder_id__in=visible_folder_ids)
+        # ECN dove l'utente è coordinatore CCB
+        coordinator_filter = Q(ccb_coordinator=user)
         qs = ChangeNotice.objects.filter(
-            own_filter | assigned_filter | folder_filter
+            own_filter | assigned_filter | coordinator_filter
         ).select_related(
             'document', 'proposed_by', 'document_version',
         ).distinct().order_by('-proposed_at')
@@ -235,7 +237,7 @@ def ecn_create(request):
         raise PermissionDenied
 
     if request.method == 'POST':
-        form = ChangeNoticeForm(request.POST)
+        form = ChangeNoticeForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             # project opzionale passato come hidden input (intero pk)
@@ -258,6 +260,12 @@ def ecn_create(request):
                     motivation_detail=d.get('motivation_detail', ''),
                     commessa=d.get('commessa', ''),
                     project=project,
+                    send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                )
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.ECN_CREATED,
+                    target_instance=ecn,
+                    recorded_by=request.user,
                 )
                 messages.success(
                     request,
@@ -269,11 +277,12 @@ def ecn_create(request):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = ChangeNoticeForm()
+        form = ChangeNoticeForm(current_user=request.user)
 
     return render(request, 'ecn/ecn_form.html', {
         'form': form,
         'document': document,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -335,6 +344,12 @@ def ecn_configure_ccb(request, ecn_id):
                         users=selected_users,
                         policy=form.cleaned_data['ccb_policy'],
                         coordinator=coordinator,
+                        send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                    )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_CCB_CONFIGURED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
                     )
                     messages.success(
                         request,
@@ -369,6 +384,7 @@ def ecn_configure_ccb(request, ecn_id):
         'ecn': ecn,
         'is_under_review': ecn.status == ChangeNotice.Status.UNDER_REVIEW,
         'is_ccb_preparation': ecn.status == ChangeNotice.Status.CCB_PREPARATION,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -406,7 +422,7 @@ def ecn_ccb_dossier(request, ecn_id):
         if not dossier_editable:
             raise PermissionDenied
 
-        form = ChangeNoticeDossierForm(request.POST)
+        form = ChangeNoticeDossierForm(request.POST, current_user=request.user)
         action = request.POST.get('dossier_action', 'save')  # 'save' | 'submit'
 
         if form.is_valid():
@@ -434,9 +450,18 @@ def ecn_ccb_dossier(request, ecn_id):
                         ccb_other_impact=d.get('ccb_other_impact', ''),
                         ccb_notes=d.get('ccb_notes', ''),
                     )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_DOSSIER_COMPILED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
+                    )
 
                     if action == 'submit':
-                        submit_change_notice(ecn, request.user)
+                        submit_change_notice(
+                            ecn,
+                            request.user,
+                            send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                        )
                         messages.success(
                             request,
                             f'{ecn.code}: dossier inviato alla CCB. La votazione è avviata.',
@@ -452,16 +477,19 @@ def ecn_ccb_dossier(request, ecn_id):
                         messages.error(request, msg)
     else:
         # Pre-popola con i dati esistenti
-        form = ChangeNoticeDossierForm(initial={
-            'ccb_class':           ecn.ccb_class or '',
-            'ccb_requirements':    ecn.ccb_requirements,
-            'ccb_technical_impact': ecn.ccb_technical_impact,
-            'ccb_cost_impact':     ecn.ccb_cost_impact,
-            'ccb_time_impact':     ecn.ccb_time_impact,
-            'ccb_quality_impact':  ecn.ccb_quality_impact,
-            'ccb_other_impact':    ecn.ccb_other_impact,
-            'ccb_notes':           ecn.ccb_notes,
-        })
+        form = ChangeNoticeDossierForm(
+            initial={
+                'ccb_class':           ecn.ccb_class or '',
+                'ccb_requirements':    ecn.ccb_requirements,
+                'ccb_technical_impact': ecn.ccb_technical_impact,
+                'ccb_cost_impact':     ecn.ccb_cost_impact,
+                'ccb_time_impact':     ecn.ccb_time_impact,
+                'ccb_quality_impact':  ecn.ccb_quality_impact,
+                'ccb_other_impact':    ecn.ccb_other_impact,
+                'ccb_notes':           ecn.ccb_notes,
+            },
+            current_user=request.user,
+        )
 
     approvers = ecn.approvers.order_by('order', 'id').select_related('user')
 
@@ -471,6 +499,7 @@ def ecn_ccb_dossier(request, ecn_id):
         'dossier_editable': dossier_editable,
         'approvers': approvers,
         'can_submit': can_submit_ecn(request.user, ecn),
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -532,7 +561,7 @@ def ecn_review(request, ecn_id):
         return redirect('ecn:ecn_detail', ecn_id=ecn_id)
 
     if request.method == 'POST':
-        form = ChangeNoticeReviewForm(request.POST)
+        form = ChangeNoticeReviewForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -543,6 +572,12 @@ def ecn_review(request, ecn_id):
                         ecn,
                         request.user,
                         comment=d.get('comment', ''),
+                        send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                    )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_VOTE_APPROVED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
                     )
                     ecn.refresh_from_db()
                     if ecn.status == ChangeNotice.Status.APPROVED:
@@ -559,6 +594,12 @@ def ecn_review(request, ecn_id):
                         request.user,
                         reason=d['ccb_notes'],
                         comment=d.get('comment', ''),
+                        send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                    )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_VOTE_REJECTED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
                     )
                     messages.success(request, f'{ecn.code} rifiutato dalla CCB.')
                 return redirect('ecn:ecn_detail', ecn_id=ecn_id)
@@ -569,7 +610,7 @@ def ecn_review(request, ecn_id):
                     for msg in exc.messages:
                         messages.error(request, msg)
     else:
-        form = ChangeNoticeReviewForm()
+        form = ChangeNoticeReviewForm(current_user=request.user)
 
     approvers = ecn.approvers.order_by('order', 'id').select_related('user')
 
@@ -577,6 +618,7 @@ def ecn_review(request, ecn_id):
         'form': form,
         'ecn': ecn,
         'approvers': approvers,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -609,11 +651,21 @@ def ecn_close(request, ecn_id):
     warn_no_version = ecn.executed_version is None
 
     if request.method == 'POST':
-        form = ChangeNoticeCloseForm(request.POST)
+        form = ChangeNoticeCloseForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
-                close_change_notice(ecn, request.user, close_notes=d.get('close_notes', ''))
+                close_change_notice(
+                    ecn,
+                    request.user,
+                    close_notes=d.get('close_notes', ''),
+                    send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                )
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.ECN_CLOSED,
+                    target_instance=ecn,
+                    recorded_by=request.user,
+                )
                 messages.success(request, f'{ecn.code} chiuso.')
                 return redirect('ecn:ecn_detail', ecn_id=ecn_id)
             except (PermissionDenied, ValidationError) as exc:
@@ -623,12 +675,13 @@ def ecn_close(request, ecn_id):
                     for msg in exc.messages:
                         messages.error(request, msg)
     else:
-        form = ChangeNoticeCloseForm()
+        form = ChangeNoticeCloseForm(current_user=request.user)
 
     return render(request, 'ecn/ecn_close_form.html', {
         'form': form,
         'ecn': ecn,
         'warn_no_version': warn_no_version,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 

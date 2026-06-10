@@ -3,10 +3,11 @@
 from django import forms
 from django.contrib.auth.models import User
 
+from auditlog.historical_forms import SanatoriaFieldsMixin
 from ecn.models import ChangeNotice
 
 
-class ChangeNoticeForm(forms.Form):
+class ChangeNoticeForm(SanatoriaFieldsMixin, forms.Form):
     """Form per la creazione di un nuovo ECN da parte del proponente.
 
     Non include la selezione degli approvatori CCB: quella è responsabilità
@@ -125,7 +126,7 @@ CCBMemberFormSet = forms.formset_factory(
 # Form configurazione CCB (mantiene la versione legacy per backward compat)
 # ---------------------------------------------------------------------------
 
-class ChangeNoticeCCBConfigForm(forms.Form):
+class ChangeNoticeCCBConfigForm(SanatoriaFieldsMixin, forms.Form):
     """Form principale per la configurazione CCB: policy + coordinator.
 
     I componenti CCB sono gestiti da CCBMemberFormSet.
@@ -156,13 +157,13 @@ class ChangeNoticeCCBConfigForm(forms.Form):
     )
 
     def __init__(self, *args, current_user=None, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, current_user=current_user, **kwargs)
         candidate_qs = _ccb_candidate_queryset(current_user)
         self.fields['approvers'].queryset = candidate_qs
         self.fields['coordinator'].queryset = candidate_qs
 
 
-class ChangeNoticeReviewForm(forms.Form):
+class ChangeNoticeReviewForm(SanatoriaFieldsMixin, forms.Form):
     """
     Form di decisione individuale del membro CCB.
 
@@ -219,7 +220,7 @@ class ChangeNoticeReviewForm(forms.Form):
 # Form dossier istruttorio CCB (STEP I)
 # ---------------------------------------------------------------------------
 
-class ChangeNoticeDossierForm(forms.Form):
+class ChangeNoticeDossierForm(SanatoriaFieldsMixin, forms.Form):
     """
     Form per la compilazione del dossier istruttorio CCB.
     Compilato dal responsabile istruttoria (ccb_coordinator) prima dell'invio ai votanti.
@@ -287,7 +288,7 @@ class ChangeNoticeDossierForm(forms.Form):
             raise forms.ValidationError(errors)
 
 
-class ChangeNoticeCloseForm(forms.Form):
+class ChangeNoticeCloseForm(SanatoriaFieldsMixin, forms.Form):
     """Form per la chiusura di un ECN approvato (Responsabile Qualità)."""
 
     close_notes = forms.CharField(

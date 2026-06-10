@@ -41,6 +41,7 @@ def create_change_notice(
     document_version=None,
     code=None,
     created_by=None,
+    send_notifications=True,
 ):
     """
     Crea un ECN in stato DRAFT.
@@ -87,12 +88,13 @@ def create_change_notice(
         new_status=ecn.status,
     )
 
-    _notify_silently('notify_ecn_created', ecn)
-    try:
-        from notifications.inbox import notify_ecn_created_inapp
-        notify_ecn_created_inapp(ecn)
-    except Exception:
-        pass
+    if send_notifications:
+        _notify_silently('notify_ecn_created', ecn)
+        try:
+            from notifications.inbox import notify_ecn_created_inapp
+            notify_ecn_created_inapp(ecn)
+        except Exception:
+            pass
 
     return ecn
 
@@ -302,7 +304,7 @@ def set_change_notice_approvers(change_notice, users, policy=None, actor=None):
             pass
 
 
-def submit_change_notice(change_notice, user):
+def submit_change_notice(change_notice, user, send_notifications=True):
     """
     Invia l'ECN alla CCB: DRAFT → UNDER_REVIEW.
 
@@ -364,23 +366,24 @@ def submit_change_notice(change_notice, user):
         new_status=change_notice.status,
     )
 
-    _notify_silently('notify_ecn_submitted', change_notice)
+    if send_notifications:
+        _notify_silently('notify_ecn_submitted', change_notice)
 
-    # Notifiche in-app ai membri CCB
-    try:
-        from notifications.inbox import notify_ccb_vote_required
-        from ecn.models import ChangeNotice as _CN
-        ccb_policy = change_notice.ccb_policy
-        approvers_qs = change_notice.approvers.order_by('order')
-        if ccb_policy == _CN.CCBPolicy.SEQUENTIAL:
-            first_app = approvers_qs.first()
-            if first_app:
-                notify_ccb_vote_required(change_notice, first_app.user)
-        else:
-            for app in approvers_qs:
-                notify_ccb_vote_required(change_notice, app.user)
-    except Exception:
-        pass
+        # Notifiche in-app ai membri CCB
+        try:
+            from notifications.inbox import notify_ccb_vote_required
+            from ecn.models import ChangeNotice as _CN
+            ccb_policy = change_notice.ccb_policy
+            approvers_qs = change_notice.approvers.order_by('order')
+            if ccb_policy == _CN.CCBPolicy.SEQUENTIAL:
+                first_app = approvers_qs.first()
+                if first_app:
+                    notify_ccb_vote_required(change_notice, first_app.user)
+            else:
+                for app in approvers_qs:
+                    notify_ccb_vote_required(change_notice, app.user)
+        except Exception:
+            pass
 
     return change_notice
 
@@ -397,6 +400,7 @@ def approve_change_notice(
     ccb_other_impact='',
     ccb_notes='',
     comment='',
+    send_notifications=True,
 ):
     """
     Un approvatore CCB approva l'ECN.
@@ -502,21 +506,22 @@ def approve_change_notice(
                 old_status=old_status,
                 new_status=change_notice.status,
             )
-            _notify_silently('notify_ecn_approved', change_notice)
-            try:
-                from notifications.inbox import notify_ecn_outcome_inapp
-                notify_ecn_outcome_inapp(change_notice, approved=True)
-            except Exception:
-                pass
+            if send_notifications:
+                _notify_silently('notify_ecn_approved', change_notice)
+                try:
+                    from notifications.inbox import notify_ecn_outcome_inapp
+                    notify_ecn_outcome_inapp(change_notice, approved=True)
+                except Exception:
+                    pass
 
         else:
             # Per SEQUENTIAL: notifica il prossimo approvatore
-            if change_notice.ccb_policy == ChangeNotice.CCBPolicy.SEQUENTIAL:
+            if send_notifications and change_notice.ccb_policy == ChangeNotice.CCBPolicy.SEQUENTIAL:
                 _notify_next_sequential(change_notice)
 
     # Per approvazioni parziali (non finali), notifica tutti i membri CCB del voto espresso.
     # Per il caso finale notify_ecn_approved ha già inviato le email rilevanti.
-    if not finalized:
+    if send_notifications and not finalized:
         try:
             from ecn.notifications import notify_ecn_vote_cast
             notify_ecn_vote_cast(change_notice, user, 'approve', comment)
@@ -526,7 +531,7 @@ def approve_change_notice(
     return change_notice
 
 
-def reject_change_notice(change_notice, user, reason, comment=None):
+def reject_change_notice(change_notice, user, reason, comment=None, send_notifications=True):
     """
     Un approvatore CCB rifiuta l'ECN: UNDER_REVIEW → REJECTED.
 
@@ -603,25 +608,26 @@ def reject_change_notice(change_notice, user, reason, comment=None):
         old_status=old_status,
         new_status=change_notice.status,
     )
-    # notify_ecn_rejected invia email a tutti i destinatari rilevanti
-    _notify_silently('notify_ecn_rejected', change_notice)
-    try:
-        from notifications.inbox import notify_ecn_outcome_inapp
-        notify_ecn_outcome_inapp(change_notice, approved=False)
-    except Exception:
-        pass
+    if send_notifications:
+        # notify_ecn_rejected invia email a tutti i destinatari rilevanti
+        _notify_silently('notify_ecn_rejected', change_notice)
+        try:
+            from notifications.inbox import notify_ecn_outcome_inapp
+            notify_ecn_outcome_inapp(change_notice, approved=False)
+        except Exception:
+            pass
 
-    # Notifica anche i membri CCB del voto individuale (informativo)
-    try:
-        from ecn.notifications import notify_ecn_vote_cast
-        notify_ecn_vote_cast(change_notice, user, 'reject', decision_comment)
-    except Exception:
-        pass
+        # Notifica anche i membri CCB del voto individuale (informativo)
+        try:
+            from ecn.notifications import notify_ecn_vote_cast
+            notify_ecn_vote_cast(change_notice, user, 'reject', decision_comment)
+        except Exception:
+            pass
 
     return change_notice
 
 
-def close_change_notice(change_notice, user, close_notes=''):
+def close_change_notice(change_notice, user, close_notes='', send_notifications=True):
     """
     Il Responsabile Qualità chiude l'ECN: APPROVED → CLOSED.
 
@@ -667,12 +673,13 @@ def close_change_notice(change_notice, user, close_notes=''):
         old_status=old_status,
         new_status=change_notice.status,
     )
-    _notify_silently('notify_ecn_closed', change_notice)
-    try:
-        from notifications.inbox import notify_ecn_closed_inapp
-        notify_ecn_closed_inapp(change_notice)
-    except Exception:
-        pass
+    if send_notifications:
+        _notify_silently('notify_ecn_closed', change_notice)
+        try:
+            from notifications.inbox import notify_ecn_closed_inapp
+            notify_ecn_closed_inapp(change_notice)
+        except Exception:
+            pass
 
     return change_notice
 
@@ -681,7 +688,7 @@ def close_change_notice(change_notice, user, close_notes=''):
 # Nuovi service STEP I — separazione istruttoria / voto
 # ---------------------------------------------------------------------------
 
-def configure_ccb(change_notice, actor, users, policy=None, coordinator=None):
+def configure_ccb(change_notice, actor, users, policy=None, coordinator=None, send_notifications=True):
     """
     Configura la CCB: assegna coordinator, members, policy.
     Transizione DRAFT → CCB_PREPARATION (se già in CCB_PREPARATION rimane).
@@ -753,7 +760,7 @@ def configure_ccb(change_notice, actor, users, policy=None, coordinator=None):
 
     # Notifica il coordinatore se è stato appena assegnato o è cambiato
     new_coordinator = change_notice.ccb_coordinator
-    if new_coordinator and (old_coordinator is None or old_coordinator.pk != new_coordinator.pk):
+    if send_notifications and new_coordinator and (old_coordinator is None or old_coordinator.pk != new_coordinator.pk):
         _notify_silently('notify_ecn_coordinator_assigned', change_notice)
         try:
             from notifications.inbox import notify_ccb_dossier_assigned
