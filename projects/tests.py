@@ -506,6 +506,8 @@ class ProjectCreateViewTests(TestCase):
             'code': 'PRJ-NEW-001',
             'name': 'Nuovo Progetto',
             'project_type': 'internal',
+            'version_scheme': 'numeric',
+            'version': '00',
             'revision_scheme': 'numeric',
             'revision': '00',
         })
@@ -722,25 +724,29 @@ class ProjectRevisionViewTests(TestCase):
         self.assertRedirects(response, f'/accounts/login/?next={url}')
 
     def test_create_get_renders_form(self):
+        # project_revision_create è un redirect legacy → il form vero è project_snapshot_create
         self.client.login(username='rv_mgr', password='pw')
-        response = self.client.get(reverse('project_revision_create', args=[self.project.pk]))
+        response = self.client.get(reverse('project_snapshot_create', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertIn('form', response.context)
 
     def test_create_post_creates_revision_and_redirects(self):
+        # project_revision_create è un redirect legacy → usa project_snapshot_create
+        # ProjectSnapshotForm usa title/description; revision_label auto-derivata da project.revision ('00')
         self.client.login(username='rv_mgr', password='pw')
         response = self.client.post(
-            reverse('project_revision_create', args=[self.project.pk]),
-            {'revision_label': 'A', 'revision_number': 0, 'title': 'First baseline', 'description': ''},
+            reverse('project_snapshot_create', args=[self.project.pk]),
+            {'snapshot_type': 'revision', 'title': 'First baseline', 'description': ''},
         )
-        rev = ProjectRevision.objects.get(project=self.project, revision_label='A')
+        rev = ProjectRevision.objects.get(project=self.project, revision_label='00')
         self.assertRedirects(response, reverse('project_revision_detail', args=[rev.pk]))
 
     def test_non_manager_gets_403_on_create(self):
+        # project_revision_create è un redirect legacy → usa project_snapshot_create
         self.client.login(username='rv_out', password='pw')
         response = self.client.post(
-            reverse('project_revision_create', args=[self.project.pk]),
-            {'revision_label': 'A', 'revision_number': 0, 'title': 'X', 'description': ''},
+            reverse('project_snapshot_create', args=[self.project.pk]),
+            {'snapshot_type': 'revision', 'title': 'X', 'description': ''},
         )
         self.assertEqual(response.status_code, 403)
 
@@ -881,58 +887,74 @@ class BaselineBugFixTests(TestCase):
         doc.save(update_fields=['current_version'])
         return doc, version
 
-    # 1. Il GET propone automaticamente revision_number e revision_label corretti
+    # 1. Il GET mostra auto_label derivato da project.revision
     def test_get_form_preloads_next_revision_values_when_no_existing(self):
+        # project_revision_create è ora un redirect legacy; il form vero è project_snapshot_create.
+        # Il nuovo flusso espone auto_label nel contesto (da project.revision), non in form.initial.
         self.client.login(username='bbf_mgr', password='pw')
-        response = self.client.get(reverse('project_revision_create', args=[self.project.pk]))
+        response = self.client.get(
+            reverse('project_snapshot_create', args=[self.project.pk]) + '?snapshot_type=revision'
+        )
         self.assertEqual(response.status_code, 200)
-        form = response.context['form']
-        self.assertEqual(form.initial.get('revision_number'), 0)
-        self.assertEqual(form.initial.get('revision_label'), '00')
+        self.assertIn('form', response.context)
+        # auto_label corrisponde a project.revision (default '00')
+        self.assertEqual(response.context['auto_label'], '00')
 
     def test_get_form_preloads_next_revision_values_after_existing(self):
+        # Dopo aver creato una revisione '00', aggiorniamo project.revision a '01'
+        # per simulare il workflow normale (l'utente aggiorna il campo manualmente).
         from projects.services import create_project_revision
         create_project_revision(self.project, self.manager, '00', 0)
+        self.project.revision = '01'
+        self.project.save(update_fields=['revision'])
         self.client.login(username='bbf_mgr', password='pw')
-        response = self.client.get(reverse('project_revision_create', args=[self.project.pk]))
-        form = response.context['form']
-        self.assertEqual(form.initial.get('revision_number'), 1)
-        self.assertEqual(form.initial.get('revision_label'), '01')
+        response = self.client.get(
+            reverse('project_snapshot_create', args=[self.project.pk]) + '?snapshot_type=revision'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['auto_label'], '01')
 
-    # 2. Il form blocca revision_number duplicato senza IntegrityError
+    # 2. Snapshot duplicato non genera IntegrityError ma messaggio di errore
     def test_duplicate_revision_number_shows_form_error(self):
+        # Nel nuovo flusso la revision_label è auto-derivata da project.revision ('00').
+        # Un secondo POST con lo stesso project.revision genera un messaggio di errore (non 500).
+        from django.contrib.messages import get_messages
         from projects.services import create_project_revision
         create_project_revision(self.project, self.manager, '00', 0)
         self.client.login(username='bbf_mgr', password='pw')
         response = self.client.post(
-            reverse('project_revision_create', args=[self.project.pk]),
-            {'revision_label': '99', 'revision_number': 0, 'title': 'Dup num', 'description': ''},
+            reverse('project_snapshot_create', args=[self.project.pk]),
+            {'snapshot_type': 'revision', 'title': 'Dup', 'description': ''},
         )
-        # Deve restare sulla pagina (200) con errore nel form, non IntegrityError (500)
+        # Deve restare sulla pagina (200) con messaggio di errore, non IntegrityError (500)
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.context['form'].is_valid())
-        self.assertIn('revision_number', response.context['form'].errors)
+        msgs = [str(m) for m in get_messages(response.wsgi_request)]
+        self.assertTrue(any('Errore' in m or 'errore' in m for m in msgs))
 
-    # 3. Il form blocca revision_label duplicata senza IntegrityError
+    # 3. Stesso test (la label duplicata viene intercettata come caso precedente)
     def test_duplicate_revision_label_shows_form_error(self):
+        from django.contrib.messages import get_messages
         from projects.services import create_project_revision
         create_project_revision(self.project, self.manager, '00', 0)
         self.client.login(username='bbf_mgr', password='pw')
         response = self.client.post(
-            reverse('project_revision_create', args=[self.project.pk]),
-            {'revision_label': '00', 'revision_number': 99, 'title': 'Dup label', 'description': ''},
+            reverse('project_snapshot_create', args=[self.project.pk]),
+            {'snapshot_type': 'revision', 'title': 'Dup label', 'description': ''},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.context['form'].is_valid())
-        self.assertIn('revision_label', response.context['form'].errors)
+        msgs = [str(m) for m in get_messages(response.wsgi_request)]
+        self.assertTrue(any('Errore' in m or 'errore' in m for m in msgs))
 
     # 4. Creare baseline da UI con documento approvato crea ProjectRevisionItem
     def test_create_via_ui_with_approved_doc_creates_item(self):
         self._make_approved_doc('BBF-DOC-001')
         self.client.login(username='bbf_mgr', password='pw')
+        # project_revision_create è ora un redirect legacy; il form vero è project_snapshot_create.
+        # ProjectSnapshotForm accetta solo title/description/notes; revision_label viene
+        # auto-derivata da project.revision (default '00').
         self.client.post(
-            reverse('project_revision_create', args=[self.project.pk]),
-            {'revision_label': '00', 'revision_number': 0, 'title': 'B00', 'description': ''},
+            reverse('project_snapshot_create', args=[self.project.pk]),
+            {'snapshot_type': 'revision', 'title': 'B00', 'description': ''},
         )
         rev = ProjectRevision.objects.get(project=self.project, revision_label='00')
         self.assertEqual(rev.items.count(), 1)
@@ -1135,7 +1157,7 @@ class BaselineComparisonTests(TestCase):
         self.client.login(username='bc_mgr', password='pw')
         response = self.client.get(reverse('project_detail', args=[self.project.pk]))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Confronto con baseline corrente')
+        self.assertContains(response, 'Confronto con revisione corrente')
         self.assertIn('comparison_rows', response.context)
         rows = list(response.context['comparison_rows'])
         self.assertEqual(len(rows), 1)
@@ -3667,9 +3689,18 @@ class ProjectEditTests(TestCase):
         r = self.client.post(self._edit_url(), {'name': 'Hacked', 'description': ''})
         self.assertEqual(r.status_code, 403)
 
-    def _post_edit(self, name, description='', manager_pk=None, revision_scheme='numeric', revision='00'):
+    def _post_edit(self, name, description='', manager_pk=None,
+                   version_scheme='numeric', version='00',
+                   revision_scheme='numeric', revision='00'):
         """Helper per POST a project_edit con i campi obbligatori."""
-        data = {'name': name, 'description': description, 'revision_scheme': revision_scheme, 'revision': revision}
+        data = {
+            'name': name,
+            'description': description,
+            'version_scheme': version_scheme,
+            'version': version,
+            'revision_scheme': revision_scheme,
+            'revision': revision,
+        }
         if manager_pk:
             data['manager'] = manager_pk
         return self.client.post(self._edit_url(), data)
