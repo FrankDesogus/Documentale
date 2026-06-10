@@ -4,18 +4,23 @@
 
 Branch di lavoro: `authz-foundation`
 
-Checkpoint stabile: `fe32980 fix(ecn): allow assigned coordinator to view dossier (ECN-FIX-1)`
+Checkpoint stabile: `d5c7f69 feat(documents): add configurable ECN policy per document (ECNPOL-1)`
 
 Commit recenti (dal più recente):
 ```
+d5c7f69 feat(documents): add configurable ECN policy per document (ECNPOL-1)  ← merge ECNPOL-1
+4a56b96 docs(ecnpol): update handoff with final test count and coverage detail
+c1ed8cb test(ecnpol): add button visibility and context tests for exempt documents
+5e9f2ba docs(ecnpol): document ui/model semantic inversion and tighten policy test
+b577bb8 refactor(documents): invert ecn policy checkbox semantics in creation form
+57467a4 docs: document ecn optional policy (ECNPOL-1)
+c61dcee test(documents): add ECNPolicyServiceTests and ECNPolicyViewTests
+9d4caff feat(documents): update templates for ecn policy
+69856a1 feat(documents): wire ecn policy to form and views
+4877bed feat(documents): enforce ecn policy in create_new_revision service
+e981b77 feat(documents): add requires_ecn_for_revision policy to Document
+b0c878e docs: update sanatoria mode handoff (SAN-6)
 fe32980 fix(ecn): allow assigned coordinator to view dossier (ECN-FIX-1)
-3d0cdcd feat(projects): integrate optional sanatoria tracking (SAN-5)
-3f2d812 test(projects): update legacy snapshot creation tests
-eadcc05 feat(ecn): integrate optional sanatoria tracking (SAN-4)
-29279db feat(documents): integrate optional sanatoria tracking (SAN-3)
-737dd02 feat(auditlog): add reusable sanatoria form support
-79f779b feat(auditlog): add historical backfill models
-4bf6568 feat(projects): add save-version and save-revision UI
 ```
 
 ## Blocchi principali già completati
