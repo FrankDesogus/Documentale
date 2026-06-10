@@ -4974,3 +4974,316 @@ class ProjectSnapshotImmutabilityTests(TestCase):
         issued_snap = self._make_snap('91', status='issued')
         with self.assertRaises(ValueError):
             assert_snapshot_mutable(issued_snap)
+
+
+# ---------------------------------------------------------------------------
+# SAN-5: sanatoria opzionale nei progetti
+# ---------------------------------------------------------------------------
+
+class ProjectSanatoriaTests(TestCase):
+    """
+    SAN-5 — Integrazione sanatoria opzionale nelle operazioni progetto.
+
+    Verifica che:
+    - la checkbox compaia solo per supervisor_demo con DOCUMENTALE_DEMO_MODE=True
+    - il comportamento live sia invariato
+    - i HistoricalRecord vengano creati nelle operazioni sanatoria
+    - le notifiche siano soppresse (i servizi progetto non inviano notifiche)
+    - il POST forgiato da utente normale venga respinto silenziosamente
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from documents.permissions import GROUP_MANAGERS
+
+        # Supervisor demo (può usare sanatoria)
+        self.supervisor = User.objects.create_user(
+            username='supervisor_demo',
+            password='demo1234',
+            is_superuser=True,
+        )
+        # Document Manager normale (non può usare sanatoria)
+        self.manager = User.objects.create_user('san5_mgr', password='pw')
+        Group.objects.get_or_create(name=GROUP_MANAGERS)[0].user_set.add(self.manager)
+
+        # Cartella padre per i progetti
+        self.parent_folder = make_folder(code='SAN5-PARENT', owner=self.manager)
+
+        # Progetto preesistente per test edit/snapshot/issue
+        from projects.services import create_project_with_root_folder
+        self.project = create_project_with_root_folder(
+            parent_folder=self.parent_folder,
+            code='SAN5-PRJ-001',
+            name='Progetto SAN-5',
+            project_type='internal',
+            created_by=self.manager,
+        )
+
+    # -----------------------------------------------------------------------
+    # Helper
+    # -----------------------------------------------------------------------
+
+    def _sanatoria_post_data(self, **extra):
+        """POST data valido per una sanatoria (attore + data esatta)."""
+        data = {
+            'sanatoria': 'on',
+            'historical_actor_name': 'Mario Rossi',
+            'historical_date': '2021-06-15',
+            'date_precision': 'exact_date',
+            'source_description': 'Verbale di test',
+        }
+        data.update(extra)
+        return data
+
+    def _create_post_data(self, **extra):
+        """Dati validi per project_create."""
+        data = {
+            'parent_folder': self.parent_folder.pk,
+            'code': 'SAN5-NEW-001',
+            'name': 'Progetto Sanatoria',
+            'project_type': 'internal',
+            'version_scheme': 'numeric',
+            'version': '00',
+            'revision_scheme': 'numeric',
+            'revision': '00',
+        }
+        data.update(extra)
+        return data
+
+    def _edit_post_data(self, **extra):
+        """Dati validi per project_edit."""
+        data = {
+            'name': 'Progetto SAN-5 Aggiornato',
+            'description': '',
+            'version_scheme': 'numeric',
+            'version': '00',
+            'revision_scheme': 'numeric',
+            'revision': '00',
+        }
+        data.update(extra)
+        return data
+
+    # -----------------------------------------------------------------------
+    # Gate: visibilità checkbox sanatoria
+    # -----------------------------------------------------------------------
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=False)
+    def test_demo_mode_off_create_no_checkbox(self):
+        """Demo mode OFF → checkbox assente nel form project_create."""
+        self.client.login(username='supervisor_demo', password='demo1234')
+        response = self.client.get(reverse('project_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'sanatoria')
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_demo_mode_on_normal_user_no_checkbox(self):
+        """Demo mode ON + utente normale → checkbox assente."""
+        self.client.login(username='san5_mgr', password='pw')
+        response = self.client.get(reverse('project_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('sanatoria', response.context['form'].fields)
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_demo_mode_on_supervisor_checkbox_present(self):
+        """Demo mode ON + supervisor_demo → checkbox presente."""
+        self.client.login(username='supervisor_demo', password='demo1234')
+        response = self.client.get(reverse('project_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('sanatoria', response.context['form'].fields)
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_forged_post_sanatoria_ignored_for_normal_user(self):
+        """POST forgiato con sanatoria=on da utente normale → nessun HistoricalRecord."""
+        from auditlog.models import HistoricalRecord
+        self.client.login(username='san5_mgr', password='pw')
+        data = self._create_post_data(code='SAN5-FORGED', **self._sanatoria_post_data())
+        self.client.post(reverse('project_create'), data)
+        # Nessun HistoricalRecord deve essere stato creato
+        self.assertEqual(HistoricalRecord.objects.count(), 0)
+        # Il progetto è stato creato (operazione live normale)
+        self.assertTrue(Project.objects.filter(code='SAN5-FORGED').exists())
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_sanatoria_default_false(self):
+        """La checkbox sanatoria è False di default nel GET."""
+        self.client.login(username='supervisor_demo', password='demo1234')
+        response = self.client.get(reverse('project_create'))
+        form = response.context['form']
+        self.assertIn('sanatoria', form.fields)
+        self.assertFalse(form.fields['sanatoria'].initial)
+
+    # -----------------------------------------------------------------------
+    # Live workflow invariato (senza sanatoria)
+    # -----------------------------------------------------------------------
+
+    @override_settings(DOCUMENTALE_DEMO_MODE=False)
+    def test_create_project_live_unchanged(self):
+        """Creazione progetto live: comportamento invariato."""
+        from auditlog.models import HistoricalRecord
+        self.client.login(username='san5_mgr', password='pw')
+        data = self._create_post_data(code='SAN5-LIVE-001')
+        response = self.client.post(reverse('project_create'), data)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Project.objects.filter(code='SAN5-LIVE-001').exists())
+        self.assertEqual(HistoricalRecord.objects.count(), 0)
+
+    # -----------------------------------------------------------------------
+    # Sanatoria: project_create → HistoricalRecord
+    # -----------------------------------------------------------------------
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_create_project_sanatoria_creates_historical_record(self):
+        """Creazione progetto in sanatoria → HistoricalRecord PROJECT_CREATED."""
+        from auditlog.models import HistoricalRecord
+        self.client.login(username='supervisor_demo', password='demo1234')
+        data = self._create_post_data(code='SAN5-SAN-001', **self._sanatoria_post_data())
+        response = self.client.post(reverse('project_create'), data)
+        self.assertEqual(response.status_code, 302)
+        rec = HistoricalRecord.objects.filter(
+            event_type=HistoricalRecord.EventType.PROJECT_CREATED,
+        ).first()
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.historical_actor_name, 'Mario Rossi')
+        self.assertEqual(str(rec.historical_date), '2021-06-15')
+
+    # -----------------------------------------------------------------------
+    # Sanatoria: project_edit → HistoricalRecord
+    # -----------------------------------------------------------------------
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_edit_project_sanatoria_creates_historical_record(self):
+        """Modifica progetto in sanatoria → HistoricalRecord PROJECT_METADATA_UPDATED."""
+        from auditlog.models import HistoricalRecord
+        self.client.login(username='supervisor_demo', password='demo1234')
+        data = self._edit_post_data(**self._sanatoria_post_data())
+        response = self.client.post(reverse('project_edit', args=[self.project.pk]), data)
+        self.assertEqual(response.status_code, 302)
+        rec = HistoricalRecord.objects.filter(
+            event_type=HistoricalRecord.EventType.PROJECT_METADATA_UPDATED,
+        ).first()
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.historical_actor_name, 'Mario Rossi')
+
+    # -----------------------------------------------------------------------
+    # Sanatoria: project_snapshot_create (version) → HistoricalRecord
+    # -----------------------------------------------------------------------
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_save_version_sanatoria_creates_historical_record(self):
+        """Salva versione in sanatoria → HistoricalRecord PROJECT_VERSION_SAVED."""
+        from auditlog.models import HistoricalRecord
+        self.client.login(username='supervisor_demo', password='demo1234')
+        data = {
+            'snapshot_type': 'version',
+            'title': 'Versione storica',
+            'description': '',
+            **self._sanatoria_post_data(),
+        }
+        response = self.client.post(
+            reverse('project_snapshot_create', args=[self.project.pk]),
+            data,
+        )
+        self.assertEqual(response.status_code, 302)
+        rec = HistoricalRecord.objects.filter(
+            event_type=HistoricalRecord.EventType.PROJECT_VERSION_SAVED,
+        ).first()
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.historical_actor_name, 'Mario Rossi')
+
+    # -----------------------------------------------------------------------
+    # Sanatoria: project_snapshot_create (revision) → HistoricalRecord
+    # -----------------------------------------------------------------------
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_save_revision_sanatoria_creates_historical_record(self):
+        """Salva revisione in sanatoria → HistoricalRecord PROJECT_REVISION_SAVED."""
+        from auditlog.models import HistoricalRecord
+        self.client.login(username='supervisor_demo', password='demo1234')
+        data = {
+            'snapshot_type': 'revision',
+            'title': 'Revisione storica',
+            'description': '',
+            **self._sanatoria_post_data(),
+        }
+        response = self.client.post(
+            reverse('project_snapshot_create', args=[self.project.pk]),
+            data,
+        )
+        self.assertEqual(response.status_code, 302)
+        rec = HistoricalRecord.objects.filter(
+            event_type=HistoricalRecord.EventType.PROJECT_REVISION_SAVED,
+        ).first()
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.historical_actor_name, 'Mario Rossi')
+
+    # -----------------------------------------------------------------------
+    # Sanatoria: project_revision_issue → HistoricalRecord
+    # -----------------------------------------------------------------------
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_issue_snapshot_sanatoria_creates_historical_record(self):
+        """Emissione snapshot in sanatoria → HistoricalRecord PROJECT_SNAPSHOT_ISSUED."""
+        from auditlog.models import HistoricalRecord
+        from projects.services import create_project_revision
+        snap = create_project_revision(self.project, self.manager, '00', 0, 'Snap test')
+        self.client.login(username='supervisor_demo', password='demo1234')
+        data = self._sanatoria_post_data()
+        response = self.client.post(
+            reverse('project_revision_issue', args=[snap.pk]),
+            data,
+        )
+        self.assertEqual(response.status_code, 302)
+        rec = HistoricalRecord.objects.filter(
+            event_type=HistoricalRecord.EventType.PROJECT_SNAPSHOT_ISSUED,
+        ).first()
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.historical_actor_name, 'Mario Rossi')
+
+    # -----------------------------------------------------------------------
+    # Sanatoria → nessuna notifica (i servizi progetto non inviano notifiche)
+    # -----------------------------------------------------------------------
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    )
+    def test_sanatoria_no_notifications_sent(self):
+        """In sanatoria progetto nessuna email viene inviata (i servizi non hanno notifiche)."""
+        from django.core.mail import outbox
+        from auditlog.models import HistoricalRecord
+        self.client.login(username='supervisor_demo', password='demo1234')
+        data = self._create_post_data(code='SAN5-NOMAIL', **self._sanatoria_post_data())
+        self.client.post(reverse('project_create'), data)
+        self.assertEqual(len(outbox), 0)
+        # HistoricalRecord creato
+        self.assertTrue(HistoricalRecord.objects.filter(
+            event_type=HistoricalRecord.EventType.PROJECT_CREATED,
+        ).exists())

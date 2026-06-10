@@ -64,6 +64,8 @@
     {% endfor %}
   </div>
 
+  {% include "auditlog/sanatoria_fields.html" %}
+
   <div class="form-actions">
     <button type="submit" class="btn-primary">Salva {{ type_label }}</button>
     <a href="{% url 'project_detail' project.pk %}" class="btn-secondary">Annulla</a>

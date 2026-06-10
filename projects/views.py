@@ -4,6 +4,8 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
+from auditlog.models import HistoricalRecord
+from auditlog.permissions import can_use_sanatoria
 from projects.models import Project, ProjectFolder, ProjectRevision
 from projects.permissions import can_manage_folder, can_view_folder
 
@@ -593,7 +595,7 @@ def project_edit(request, project_id):
         raise PermissionDenied
 
     if request.method == 'POST':
-        form = ProjectUpdateForm(request.POST, instance=project)
+        form = ProjectUpdateForm(request.POST, instance=project, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -609,11 +611,16 @@ def project_edit(request, project_id):
                     updated_by=request.user,
                 )
                 messages.success(request, f'Progetto "{project.name}" aggiornato.')
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.PROJECT_METADATA_UPDATED,
+                    target_instance=project,
+                    recorded_by=request.user,
+                )
                 return redirect('project_detail', project_id=project.pk)
             except Exception as exc:
                 messages.error(request, f'Errore: {exc}')
     else:
-        form = ProjectUpdateForm(instance=project)
+        form = ProjectUpdateForm(instance=project, current_user=request.user)
 
     from django.urls import reverse as _reverse
     _base = _reverse('project_snapshot_create', kwargs={'project_id': project.pk})
@@ -624,6 +631,7 @@ def project_edit(request, project_id):
         'snapshot_urls_available': True,
         'save_version_url': _base + '?snapshot_type=version',
         'save_revision_url': _base + '?snapshot_type=revision',
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -656,7 +664,7 @@ def project_create(request):
     ).order_by('code')
 
     if request.method == 'POST':
-        form = ProjectCreateForm(request.POST, allowed_parent_folders=allowed_parents)
+        form = ProjectCreateForm(request.POST, allowed_parent_folders=allowed_parents, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -675,6 +683,11 @@ def project_create(request):
                     revision=d.get('revision', '00'),
                 )
                 messages.success(request, f'Progetto "{project.name}" creato.')
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.PROJECT_CREATED,
+                    target_instance=project,
+                    recorded_by=request.user,
+                )
                 return redirect('project_detail', project_id=project.pk)
             except (DjVE, Exception) as exc:
                 err = getattr(exc, 'message', str(exc))
@@ -683,11 +696,12 @@ def project_create(request):
         initial = {}
         if prefill_folder:
             initial['parent_folder'] = prefill_folder.pk
-        form = ProjectCreateForm(initial=initial, allowed_parent_folders=allowed_parents)
+        form = ProjectCreateForm(initial=initial, allowed_parent_folders=allowed_parents, current_user=request.user)
 
     return render(request, 'projects/project_form.html', {
         'form': form,
         'prefill_folder': prefill_folder,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -720,7 +734,7 @@ def project_snapshot_create(request, project_id):
     auto_label = project.version if snapshot_type == 'version' else project.revision
 
     if request.method == 'POST':
-        form = ProjectSnapshotForm(request.POST)
+        form = ProjectSnapshotForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -745,11 +759,21 @@ def project_snapshot_create(request, project_id):
                         request,
                         f'{type_label} {snap.revision_label} salvata con {added} documenti.',
                     )
+                event_type = (
+                    HistoricalRecord.EventType.PROJECT_VERSION_SAVED
+                    if snapshot_type == 'version'
+                    else HistoricalRecord.EventType.PROJECT_REVISION_SAVED
+                )
+                form.maybe_create_historical_record(
+                    event_type=event_type,
+                    target_instance=snap,
+                    recorded_by=request.user,
+                )
                 return redirect('project_revision_detail', revision_id=snap.pk)
             except Exception as exc:
                 messages.error(request, f'Errore: {exc}')
     else:
-        form = ProjectSnapshotForm()
+        form = ProjectSnapshotForm(current_user=request.user)
 
     return render(request, 'projects/project_snapshot_form.html', {
         'form': form,
@@ -757,6 +781,7 @@ def project_snapshot_create(request, project_id):
         'snapshot_type': snapshot_type,
         'type_label': type_label,
         'auto_label': auto_label,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -802,11 +827,13 @@ def project_revision_detail(request, revision_id):
         'items': items,
         'can_issue': can_issue,
         'can_manage': _can_manage_project(request.user),
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
 @login_required
 def project_revision_issue(request, revision_id):
+    from projects.forms import ProjectRevisionIssueForm
     from projects.services import issue_project_revision
 
     revision = get_object_or_404(ProjectRevision, pk=revision_id)
@@ -815,6 +842,8 @@ def project_revision_issue(request, revision_id):
         raise PermissionDenied
 
     if request.method == 'POST':
+        form = ProjectRevisionIssueForm(request.POST, current_user=request.user)
+        sanatoria_valid = form.is_valid()
         try:
             issue_project_revision(revision, request.user)
             type_label = revision.get_snapshot_type_display()
@@ -822,6 +851,12 @@ def project_revision_issue(request, revision_id):
                 request,
                 f'{type_label} {revision.revision_label} emessa.',
             )
+            if sanatoria_valid:
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.PROJECT_SNAPSHOT_ISSUED,
+                    target_instance=revision,
+                    recorded_by=request.user,
+                )
         except ValueError as e:
             messages.error(request, str(e))
 

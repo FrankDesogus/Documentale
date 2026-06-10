@@ -36,6 +36,7 @@
   {% if can_issue %}
   <form method="post" action="{% url 'project_revision_issue' revision.pk %}">
     {% csrf_token %}
+    {% include "auditlog/sanatoria_fields.html" %}
     <button type="submit" class="btn-primary"
       onclick="return confirm('Emettere lo snapshot {{ revision.revision_label }}? Gli snapshot precedenti dello stesso tipo verranno marcati come superati.')">
       Emetti snapshot

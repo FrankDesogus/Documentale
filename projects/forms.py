@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
+from auditlog.historical_forms import SanatoriaFieldsMixin
 from documents.versioning import SequenceScheme, normalize_sequence_value, validate_sequence_value
 from projects.models import Project, ProjectFolder, ProjectRevision
 
@@ -24,7 +25,7 @@ class ProjectFolderForm(forms.ModelForm):
         self.fields['parent'].required = False
 
 
-class ProjectUpdateForm(forms.ModelForm):
+class ProjectUpdateForm(SanatoriaFieldsMixin, forms.ModelForm):
     """Form per la modifica dei metadati di un progetto esistente."""
     class Meta:
         model = Project
@@ -80,7 +81,7 @@ class ProjectForm(ProjectUpdateForm):
     pass
 
 
-class ProjectCreateForm(forms.Form):
+class ProjectCreateForm(SanatoriaFieldsMixin, forms.Form):
     """
     Form per la CREAZIONE di un nuovo progetto con root folder atomica.
     NON include root_folder: viene creata automaticamente dal service.
@@ -182,7 +183,7 @@ class ProjectCreateForm(forms.Form):
         return cleaned
 
 
-class ProjectSnapshotForm(forms.Form):
+class ProjectSnapshotForm(SanatoriaFieldsMixin, forms.Form):
     """
     Form semplificato per creare uno snapshot (VERSION o REVISION).
 
@@ -258,3 +259,11 @@ class ProjectRevisionForm(forms.ModelForm):
                     f'Esiste già uno snapshot con numero progressivo {number} per questo progetto.'
                 )
         return number
+
+
+class ProjectRevisionIssueForm(SanatoriaFieldsMixin, forms.Form):
+    """
+    Form minimo per l'emissione di uno snapshot con supporto opzionale sanatoria.
+    Non ha campi propri: serve solo a trasportare i campi storici opzionali.
+    """
+    pass
