@@ -356,15 +356,27 @@ Il campo `ecn_exemption` è form-only (non persistito); la traduzione avviene ne
 
 ### Test
 
-`documents/tests.py` — `ECNPolicyServiceTests` (10 test service) + `ECNPolicyViewTests` (9 test view)
-19 test nuovi, tutti verdi.
+`documents/tests.py` — `ECNPolicyServiceTests` (10 test service) + `ECNPolicyViewTests` (13 test view)
+23 test nuovi, tutti verdi.
+
+Copertura view tests:
+- Caso 10: `ecn_exemption` non spuntata di default nel form creazione
+- Caso 11: policy assente in `DocumentMetadataEditForm` (sia `requires_ecn_for_revision` che `ecn_exemption`)
+- Caso 12a/b: badge corretto nel detail (ECN obbligatorio / approvazione diretta)
+- Caso 13: stranger bloccato su documento esente (404)
+- Caso 14: modalità sanatoria non rotta dalla nuova policy
+- Caso 15: audit log registra `requires_ecn_for_revision` alla creazione
+- Caso extra: GET new_revision su doc esente mostra form direttamente (no ECN select)
+- Caso extra: POST new_revision su doc esente crea DRAFT senza ECN
+- Caso 16: pulsante "+ Nuova revisione" (senza "via ECN") visibile nel detail per doc esente
+- Caso 17: context include `show_create_revision=True` per l'autore su doc esente
 
 ---
 
 ## Stato corrente (2026-06-10)
 
-Suite completa eseguita e verificata verde (1205 test, 0 errori, 2026-06-10).
-Nessuna regressione nei blocchi VH e SAN. ECNPOL-1 incluso (19 test nuovi).
+Suite completa eseguita e verificata verde (1207 test, 0 errori, 2026-06-10).
+Nessuna regressione nei blocchi VH e SAN. ECNPOL-1 incluso (23 test nuovi).
 
 Revisione strutturale completata (2026-06-10):
 - Docstring obsoleta in `projects/resolver.py` corretta — il resolver è integrato in produzione.
