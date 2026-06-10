@@ -4018,13 +4018,13 @@ class ECNPolicyViewTests(TestCase):
         approve_version(req2, self.approver)
         self.doc_free.refresh_from_db()
 
-    # Caso 10: checkbox compare nel form di creazione ed è selezionata di default
-    def test_create_form_has_checkbox_checked_by_default(self):
+    # Caso 10: checkbox "ecn_exemption" compare nel form di creazione ed è DEselezionata di default
+    def test_create_form_has_ecn_exemption_unchecked_by_default(self):
         self.client.force_login(self.author)
         r = self.client.get(reverse('document_new'))
         self.assertEqual(r.status_code, 200)
-        self.assertIn('requires_ecn_for_revision', r.context['form'].fields)
-        self.assertTrue(r.context['form'].fields['requires_ecn_for_revision'].initial)
+        self.assertIn('ecn_exemption', r.context['form'].fields)
+        self.assertFalse(r.context['form'].fields['ecn_exemption'].initial)
 
     # Caso 11: policy NON è modificabile dal form di modifica metadati
     def test_metadata_edit_form_does_not_expose_policy(self):
@@ -4075,7 +4075,7 @@ class ECNPolicyViewTests(TestCase):
                     'revision_scheme': 'numeric',
                     'revision_label': '00',
                     'revision_number': '0',
-                    'requires_ecn_for_revision': 'on',
+                    # ecn_exemption assente → requires_ecn_for_revision=True (default)
                 })
                 self.assertIn(r.status_code, [200, 302])
         finally:
@@ -4093,7 +4093,7 @@ class ECNPolicyViewTests(TestCase):
             'revision_scheme': 'numeric',
             'revision_label': '00',
             'revision_number': '0',
-            'requires_ecn_for_revision': '',   # unchecked → False
+            'ecn_exemption': 'on',   # spuntato → requires_ecn_for_revision=False
         })
         doc = Document.objects.filter(code='PV-AUDIT').first()
         self.assertIsNotNone(doc)

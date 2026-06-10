@@ -107,13 +107,13 @@
     <div class="form-section-title">Governance revisioni</div>
     <div class="form-group mb-0">
       <label class="flex items-center gap-2 cursor-pointer">
-        {{ form.requires_ecn_for_revision }}
-        <span class="form-label mb-0">{{ form.requires_ecn_for_revision.label }}</span>
+        {{ form.ecn_exemption }}
+        <span class="form-label mb-0">{{ form.ecn_exemption.label }}</span>
       </label>
-      {% if form.requires_ecn_for_revision.help_text %}
-      <p class="form-help">{{ form.requires_ecn_for_revision.help_text }}</p>
+      {% if form.ecn_exemption.help_text %}
+      <p class="form-help">{{ form.ecn_exemption.help_text }}</p>
       {% endif %}
-      {% for error in form.requires_ecn_for_revision.errors %}
+      {% for error in form.ecn_exemption.errors %}
       <p class="form-error">{{ error }}</p>
       {% endfor %}
     </div>

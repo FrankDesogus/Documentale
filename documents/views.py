@@ -413,7 +413,7 @@ def new_document(request):
                         document_type=d['document_type'],
                         project_folder=d['project_folder'],
                         revision_scheme=d.get('revision_scheme', 'numeric'),
-                        requires_ecn_for_revision=d.get('requires_ecn_for_revision', True),
+                        requires_ecn_for_revision=not d.get('ecn_exemption', False),
                         owner=request.user,
                         created_by=request.user,
                     )

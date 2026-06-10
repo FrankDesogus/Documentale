@@ -55,13 +55,13 @@ class DocumentCreateForm(SanatoriaFieldsMixin, forms.Form):
         required=False,
         label='Sommario modifiche',
     )
-    requires_ecn_for_revision = forms.BooleanField(
+    ecn_exemption = forms.BooleanField(
         required=False,
-        initial=True,
-        label='Richiedi ECN per le revisioni successive',
+        initial=False,
+        label='Consenti revisioni senza ECN obbligatorio',
         help_text=(
-            'Se attivo, dopo la prima approvazione sarà necessario approvare un ECN '
-            'prima di creare una nuova revisione.'
+            'Se spuntato, le revisioni successive potranno essere create senza un ECN approvato. '
+            'Il normale ciclo di approvazione rimane obbligatorio.'
         ),
     )
     file = forms.FileField(required=False, label='File operativo')
