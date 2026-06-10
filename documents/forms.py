@@ -55,6 +55,15 @@ class DocumentCreateForm(SanatoriaFieldsMixin, forms.Form):
         required=False,
         label='Sommario modifiche',
     )
+    requires_ecn_for_revision = forms.BooleanField(
+        required=False,
+        initial=True,
+        label='Richiedi ECN per le revisioni successive',
+        help_text=(
+            'Se attivo, dopo la prima approvazione sarà necessario approvare un ECN '
+            'prima di creare una nuova revisione.'
+        ),
+    )
     file = forms.FileField(required=False, label='File operativo')
 
     def __init__(self, *args, user=None, fixed_project_folder=None, current_user=None, **kwargs):

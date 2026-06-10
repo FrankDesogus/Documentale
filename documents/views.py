@@ -359,6 +359,7 @@ def document_detail(request, document_id):
         'latest_approval_attachments': latest_approval_attachments,
         'doc_ecns': doc_ecns,
         'show_create_ecn': show_create_ecn,
+        'show_create_revision': can_create_revision(request.user, doc),
         'show_edit_metadata': can_edit_document_metadata(request.user, doc),
     })
 
@@ -412,8 +413,21 @@ def new_document(request):
                         document_type=d['document_type'],
                         project_folder=d['project_folder'],
                         revision_scheme=d.get('revision_scheme', 'numeric'),
+                        requires_ecn_for_revision=d.get('requires_ecn_for_revision', True),
                         owner=request.user,
                         created_by=request.user,
+                    )
+                    from auditlog.services import create_audit_log as _cal
+                    _cal(
+                        user=request.user,
+                        action='DOCUMENT_CREATED',
+                        instance=doc,
+                        new_values={
+                            'code': doc.code,
+                            'category': doc.category,
+                            'requires_ecn_for_revision': doc.requires_ecn_for_revision,
+                        },
+                        document=doc,
                     )
                     doc_file = None
                     if d.get('file'):
@@ -478,10 +492,12 @@ def new_revision(request, document_id):
     if not can_create_revision(request.user, doc):
         raise PermissionDenied
 
-    # Gate ECN: se il documento ha una versione corrente approvata è necessario un ECN.
+    # Gate ECN: richiesto solo se il documento ha una versione corrente approvata
+    # E la policy del documento lo impone (requires_ecn_for_revision=True).
     needs_ecn = (
         doc.current_version is not None
         and doc.current_version.status == DocumentVersion.Status.APPROVED
+        and doc.requires_ecn_for_revision
     )
 
     ecn = None
