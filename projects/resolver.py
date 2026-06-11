@@ -1,10 +1,19 @@
 """
-Shadow PermissionResolver per FolderPermissionGrant.
+PermissionResolver per FolderPermissionGrant.
 
-Questo modulo è completamente shadow: non è importato da alcuna view,
-URL conf, middleware o codice applicativo esistente.
-Il sistema legacy (ProjectFolderMembership + projects/permissions.py)
-resta invariato e governa tutte le view in produzione.
+Valuta i permessi per cartella con due layer sovrapposti:
+  1. FolderPermissionGrant — grant modulari granulari (permission_code, effect ALLOW/DENY)
+  2. ProjectFolderMembership — legacy, usato come fallback se include_legacy_fallback=True
+
+Il resolver è integrato in produzione da:
+  - documents/permissions.py (_resolve_folder_perm)
+  - projects/permissions.py (can_view_folder, can_write_folder, get_visible_folder_ids, …)
+  - projects/views.py (verifiche inline su visibilità cartella)
+
+Strategia di migrazione: i grant modulari hanno precedenza; se nessun grant decide,
+il fallback legacy legge ProjectFolderMembership con conversione _LEGACY_ROLE_PERMISSIONS.
+Il management command backfill_folder_permission_grants converte i membership legacy
+in grant modulari equivalenti.
 """
 
 from __future__ import annotations
