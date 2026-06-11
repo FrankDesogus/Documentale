@@ -2,93 +2,96 @@
 {% block title %}Modifica {{ ecn.code }} — ECN — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
-</p>
+<nav class="breadcrumb">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Modifica</span>
+</nav>
 
-<h1>Modifica {{ ecn.code }} — {{ ecn.title }}</h1>
-
-<div class="card" style="background:#fff3cd;border-left:4px solid #ffc107;margin-bottom:1rem;padding:.75rem 1rem">
-  <strong style="color:#856404">Attenzione:</strong>
-  <span style="color:#856404">
-    Stai modificando i dati base di questo ECN. Il documento e la revisione di riferimento
-    non possono essere cambiati dopo la creazione.
-  </span>
+<div class="page-header">
+  <h1>Modifica {{ ecn.code }}</h1>
+  <p class="page-header-sub">{{ ecn.title }}</p>
 </div>
 
-<div class="card">
-  <form method="post">
-    {% csrf_token %}
+<div class="alert-warning mb-4">
+  <strong>Attenzione:</strong>
+  Stai modificando i dati base di questo ECN. Il documento e la revisione di riferimento
+  non possono essere cambiati dopo la creazione.
+</div>
 
-    <fieldset>
-      <legend>Dati base</legend>
+<form method="post">
+  {% csrf_token %}
 
-      <div style="margin-bottom:.75rem">
-        <label for="id_title">{{ form.title.label }}</label>
-        {{ form.title }}
-        {% if form.title.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.title.errors|join:", " }}</p>
-        {% endif %}
-      </div>
+  <!-- Dati base -->
+  <div class="form-section">
+    <div class="form-section-title">Dati base</div>
 
-      <div style="margin-bottom:.75rem">
-        <label for="id_motivation">{{ form.motivation.label }}</label>
-        <select name="motivation" id="id_motivation" style="width:100%;border:1px solid #ccc;border-radius:3px;padding:.4rem .6rem;font-size:.95rem">
-          {% for val, lbl in form.fields.motivation.choices %}
-          <option value="{{ val }}"{% if form.motivation.value == val %} selected{% endif %}>{{ lbl }}</option>
-          {% endfor %}
-        </select>
-        {% if form.motivation.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.motivation.errors|join:", " }}</p>
-        {% endif %}
-      </div>
-
-      <div style="margin-bottom:.75rem">
-        <label for="id_motivation_detail">{{ form.motivation_detail.label }}</label>
-        {{ form.motivation_detail }}
-        {% if form.motivation_detail.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.motivation_detail.errors|join:", " }}</p>
-        {% endif %}
-      </div>
-
-      <div style="margin-bottom:.75rem">
-        <label for="id_description">{{ form.description.label }}</label>
-        {{ form.description }}
-        {% if form.description.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.description.errors|join:", " }}</p>
-        {% endif %}
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Informazioni aggiuntive</legend>
-
-      <div style="margin-bottom:.75rem">
-        <label for="id_commessa">{{ form.commessa.label }}</label>
-        {{ form.commessa }}
-        {% if form.commessa.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.commessa.errors|join:", " }}</p>
-        {% endif %}
-      </div>
-
-      <div style="margin-bottom:.75rem">
-        <label for="id_project">{{ form.project.label }}</label>
-        <select name="project" id="id_project" style="width:100%;border:1px solid #ccc;border-radius:3px;padding:.4rem .6rem;font-size:.95rem">
-          <option value="">— nessun progetto —</option>
-          {% for proj in form.fields.project.queryset %}
-          <option value="{{ proj.pk }}"{% if form.project.value == proj.pk|stringformat:"s" %} selected{% endif %}>{{ proj.code }} — {{ proj.name }}</option>
-          {% endfor %}
-        </select>
-        {% if form.project.errors %}
-          <p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.project.errors|join:", " }}</p>
-        {% endif %}
-      </div>
-    </fieldset>
-
-    <div style="display:flex;gap:.5rem;margin-top:1rem">
-      <button type="submit" class="btn btn-primary">Salva modifiche</button>
-      <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary">Annulla</a>
+    <div class="form-group">
+      <label class="form-label" for="id_title">{{ form.title.label }}</label>
+      {{ form.title }}
+      {% if form.title.errors %}
+      <p class="form-error">{{ form.title.errors|join:", " }}</p>
+      {% endif %}
     </div>
-  </form>
-</div>
+
+    <div class="form-group">
+      <label class="form-label" for="id_motivation">{{ form.motivation.label }}</label>
+      <select name="motivation" id="id_motivation" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+        {% for val, lbl in form.fields.motivation.choices %}
+        <option value="{{ val }}"{% if form.motivation.value == val %} selected{% endif %}>{{ lbl }}</option>
+        {% endfor %}
+      </select>
+      {% if form.motivation.errors %}
+      <p class="form-error">{{ form.motivation.errors|join:", " }}</p>
+      {% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="id_motivation_detail">{{ form.motivation_detail.label }}</label>
+      {{ form.motivation_detail }}
+      {% if form.motivation_detail.errors %}
+      <p class="form-error">{{ form.motivation_detail.errors|join:", " }}</p>
+      {% endif %}
+    </div>
+
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_description">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% if form.description.errors %}
+      <p class="form-error">{{ form.description.errors|join:", " }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Informazioni aggiuntive -->
+  <div class="form-section">
+    <div class="form-section-title">Informazioni aggiuntive</div>
+
+    <div class="form-group">
+      <label class="form-label" for="id_commessa">{{ form.commessa.label }}</label>
+      {{ form.commessa }}
+      {% if form.commessa.errors %}
+      <p class="form-error">{{ form.commessa.errors|join:", " }}</p>
+      {% endif %}
+    </div>
+
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_project">{{ form.project.label }}</label>
+      <select name="project" id="id_project" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+        <option value="">— nessun progetto —</option>
+        {% for proj in form.fields.project.queryset %}
+        <option value="{{ proj.pk }}"{% if form.project.value == proj.pk|stringformat:"s" %} selected{% endif %}>{{ proj.code }} — {{ proj.name }}</option>
+        {% endfor %}
+      </select>
+      {% if form.project.errors %}
+      <p class="form-error">{{ form.project.errors|join:", " }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Salva modifiche</button>
+    <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary">Annulla</a>
+  </div>
+</form>
 {% endblock %}

@@ -120,3 +120,49 @@ Procedi per piccoli step.
 
 Dopo ogni step, indica cosa hai modificato e come testarlo.
 
+## Current handoff
+
+Prima di iniziare nuovi task, leggere `PROJECT_HANDOFF.md` per il checkpoint corrente, i comandi di avvio e la roadmap immediata.
+
+## Modalità Sanatoria
+
+La modalità sanatoria è una funzionalità opzionale per il backfill di dati storici.
+Non modifica il workflow live. Non invia notifiche. Non usa firma digitale.
+
+Attivazione: variabile d'ambiente `DOCUMENTALE_DEMO_MODE=true`.
+Accesso: solo utenti con `is_demo_supervisor=True` (o `is_superuser` con username `supervisor_demo`).
+Controllo: `can_use_sanatoria(user)` in `auditlog/permissions.py`.
+
+Principio:
+
+\- Il checkbox "Sanatoria" nei form è opzionale e default False.
+
+\- Se spuntato, la vista chiama `form.maybe_create_historical_record(event_type, target_instance, recorded_by)`.
+
+\- Viene creato un `HistoricalRecord` con data storica, attore storico e sorgente forniti dall'utente.
+
+\- L'operazione principale (salvataggio documento, approvazione, ecc.) avviene normalmente.
+
+\- Le notifiche email NON vengono soppresse esplicitamente — le viste con sanatoria semplicemente non le attivano.
+
+Regole:
+
+\- NON modificare retroattivamente timestamp tecnici (`created_at`, `updated_at`).
+
+\- NON usare raw SQL.
+
+\- NON introdurre impersonazione silenziosa.
+
+\- NON mostrare diciture come "Firmato digitalmente da X" se non esiste firma digitale verificabile.
+
+\- NON costruire wizard massivi o import CSV/Excel senza richiesta esplicita.
+
+Il mixin `SanatoriaFieldsMixin` deve essere PRIMO nell'MRO:
+
+```python
+class MyForm(SanatoriaFieldsMixin, forms.ModelForm): ...
+```
+
+Partial template: `{% include "auditlog/sanatoria_fields.html" %}` (richiede `sanatoria_available` nel context).
+
+Dettagli completi in `PROJECT_HANDOFF.md` — sezione "SANATORIA MODE".

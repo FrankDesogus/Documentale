@@ -6,7 +6,12 @@ from approvals.models import ApprovalDecision, ApprovalRequest
 from approvals.services import approve_version, reject_version
 from auditlog.models import AuditLog
 from documents.models import Document, DocumentVersion
-from documents.permissions import GROUP_APPROVERS, GROUP_AUTHORS, GROUP_READERS
+from documents.permissions import (
+    GROUP_APPROVERS,
+    GROUP_AUTHORS,
+    GROUP_QUALITY_MANAGER,
+    GROUP_READERS,
+)
 from ecn.permissions import GROUP_CCB
 from projects.models import Project, ProjectFolder, ProjectFolderMembership
 from projects.services import create_project_revision, issue_project_revision, populate_project_revision_from_current_documents
@@ -92,13 +97,16 @@ class Command(BaseCommand):
         approvatore = self._get_or_create_user('approvatore_demo', 'Approvatore', 'Demo', 'approvatore_demo@example.local')
         lettore = self._get_or_create_user('lettore_demo', 'Lettore', 'Demo', 'lettore_demo@example.local')
         ccb = self._get_or_create_user('ccb_demo', 'CCB', 'Demo', 'ccb_demo@example.local')
+        quality_mgr = self._get_or_create_user('quality_mgr_demo', 'Quality', 'Manager', 'quality_mgr_demo@example.local')
 
         # Assegna i gruppi documentali agli utenti demo
         Group.objects.get_or_create(name=GROUP_AUTHORS)[0].user_set.add(autore)
         Group.objects.get_or_create(name=GROUP_APPROVERS)[0].user_set.add(approvatore)
         Group.objects.get_or_create(name=GROUP_READERS)[0].user_set.add(lettore)
         Group.objects.get_or_create(name=GROUP_CCB)[0].user_set.add(ccb)
-        self._step('Gruppi assegnati: autore->Authors, approvatore->Approvers, lettore->Readers, ccb->Change Control Board')
+        Group.objects.get_or_create(name=GROUP_QUALITY_MANAGER)[0].user_set.add(quality_mgr)
+        self._step('Gruppi assegnati: autore->Authors, approvatore->Approvers, lettore->Readers, '
+                   'ccb->Change Control Board, quality_mgr_demo->Quality Manager')
 
         # 2. Cartelle demo
         cartella_ing, _ = ProjectFolder.objects.get_or_create(
@@ -135,24 +143,20 @@ class Command(BaseCommand):
         )
         self._step(f'Cartelle: {cartella_ing} -> {cartella_std}, {cartella_prj}')
 
-        # 2b. Progetto demo
-        # La cartella usata è cartella_std: anche il documento demo è in cartella_std,
-        # così populate_project_revision_from_current_documents trova i documenti.
-        progetto, created = Project.objects.get_or_create(
-            code='PRJ-DEMO-001',
-            defaults={
-                'name': 'Progetto Demo Documentale',
-                'status': Project.Status.ACTIVE,
-                'project_type': Project.ProjectType.INTERNAL,
-                'folder': cartella_std,
-                'manager': autore,
-                'created_by': autore,
-            },
-        )
-        if not created and progetto.folder_id != cartella_std.pk:
-            progetto.folder = cartella_std
-            progetto.save(update_fields=['folder'])
-        self._step(f'Progetto: {progetto}')
+        # 2b. Progetto demo — crea con root folder dedicata (nuova semantica)
+        from projects.services import create_project_with_root_folder
+        try:
+            progetto = Project.objects.get(code='PRJ-DEMO-001')
+        except Project.DoesNotExist:
+            progetto = create_project_with_root_folder(
+                parent_folder=cartella_ing,
+                code='PRJ-DEMO-001',
+                name='Progetto Demo Documentale',
+                project_type='internal',
+                manager=autore,
+                created_by=autore,
+            )
+        self._step(f'Progetto: {progetto} root_folder={progetto.root_folder}')
 
         # 3. Membership per-cartella su ING-STD
         ProjectFolderMembership.objects.get_or_create(
@@ -179,12 +183,14 @@ class Command(BaseCommand):
             )
             return
 
+        # Il documento demo va nella root folder del progetto (nuova semantica)
+        doc_folder = progetto.root_folder if progetto.root_folder else cartella_std
         doc = Document.objects.create(
             code=DEMO_DOCUMENT_CODE,
             title='Procedura demo gestione qualità',
             category=Document.Category.QUALITY,
             document_type='Procedura',
-            project_folder=cartella_std,
+            project_folder=doc_folder,
             owner=autore,
             created_by=autore,
         )
@@ -282,6 +288,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  ApprovalRequest    : {req_count}')
         self.stdout.write(f'  ApprovalDecision   : {dec_count}')
         self.stdout.write(f'  Utente CCB demo    : ccb_demo ({ccb.email}) - gruppo {GROUP_CCB}')
+        self.stdout.write(f'  Quality Manager    : quality_mgr_demo ({quality_mgr.email}) - gruppo {GROUP_QUALITY_MANAGER}')
         self.stdout.write(self.style.SUCCESS('\nDemo completata con successo.'))
 
     # ------------------------------------------------------------------

@@ -2,62 +2,137 @@
 {% block title %}Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %} — Documentale{% endblock %}
 
 {% block content %}
-
-{# Breadcrumb #}
-<p class="meta">
+<nav class="breadcrumb">
   {% if prefill_folder %}
-  <a href="{% url 'folder_list' %}">Cartelle</a>
-  &nbsp;/&nbsp;<a href="{% url 'folder_detail' prefill_folder.pk %}">{{ prefill_folder.name }}</a>
-  &nbsp;/&nbsp;<strong>Nuovo progetto</strong>
+  <a href="{% url 'folder_list' %}">Archivio</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'folder_detail' prefill_folder.pk %}">{{ prefill_folder.name }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuovo progetto</span>
   {% else %}
-  <a href="{% url 'project_list' %}">← Progetti</a>
+  <a href="{% url 'project_list' %}">Progetti</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuovo progetto</span>
   {% endif %}
-</p>
+</nav>
 
-<h1>Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %}</h1>
-
-{% if prefill_folder %}
-<div class="card" style="background:#cce5ff;border-left:4px solid #004085;margin-bottom:1rem;padding:.75rem 1rem">
-  <strong style="color:#004085">Cartella documentale:</strong>
-  <span style="color:#004085">
-    Stai creando un progetto associato alla cartella
-    <a href="{% url 'folder_detail' prefill_folder.pk %}" style="color:#004085;font-weight:600">{{ prefill_folder.code }} — {{ prefill_folder.name }}</a>.
-    Il campo "Cartella" è già precompilato.
-  </span>
+<div class="page-header">
+  <h1>Nuovo progetto{% if prefill_folder %} in {{ prefill_folder.name }}{% endif %}</h1>
 </div>
-{% endif %}
+
+<div class="alert-info mb-4">
+  <strong>Come funziona:</strong>
+  Il progetto riceverà automaticamente una <strong>cartella radice dedicata</strong>
+  con lo stesso codice. La cartella sarà creata come sottocartella della cartella padre selezionata.
+</div>
 
 <form method="post">
   {% csrf_token %}
   {% if prefill_folder %}
-  <input type="hidden" name="_folder_prefill" value="{{ prefill_folder.pk }}">
+  <input type="hidden" name="_parent_prefill" value="{{ prefill_folder.pk }}">
   {% endif %}
 
-  <div class="card">
-
-    {% for field in form %}
-    <div style="margin-bottom:1.1rem">
-      <label for="{{ field.id_for_label }}">
-        {{ field.label }}
-        {% if field.field.required %}<span style="color:#dc3545"> *</span>{% endif %}
+  <!-- Collocazione -->
+  <div class="form-section">
+    <div class="form-section-title">Collocazione</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.parent_folder.id_for_label }}">
+        {{ form.parent_folder.label }} <span class="text-red-500">*</span>
       </label>
-      {{ field }}
-      {% if field.help_text %}
-      <div class="meta" style="margin-top:.2rem">{{ field.help_text }}</div>
+      {{ form.parent_folder }}
+      {% if form.parent_folder.help_text %}
+      <p class="form-help">{{ form.parent_folder.help_text }}</p>
       {% endif %}
-      {% for error in field.errors %}
-      <div style="color:#dc3545;font-size:.85rem;margin-top:.25rem">{{ error }}</div>
+      {% for error in form.parent_folder.errors %}
+      <p class="form-error">{{ error }}</p>
       {% endfor %}
     </div>
-    {% endfor %}
-
   </div>
 
-  <button type="submit" class="btn btn-primary">Crea progetto</button>
-  {% if prefill_folder %}
-  <a href="{% url 'folder_detail' prefill_folder.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
-  {% else %}
-  <a href="{% url 'project_list' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
-  {% endif %}
+  <!-- Dati progetto -->
+  <div class="form-section">
+    <div class="form-section-title">Progetto</div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.code.id_for_label }}">
+        {{ form.code.label }} <span class="text-red-500">*</span>
+      </label>
+      {{ form.code }}
+      {% if form.code.help_text %}
+      <p class="form-help">{{ form.code.help_text }}</p>
+      {% endif %}
+      {% for error in form.code.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.name.id_for_label }}">
+        {{ form.name.label }} <span class="text-red-500">*</span>
+      </label>
+      {{ form.name }}
+      {% for error in form.name.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.project_type.id_for_label }}">{{ form.project_type.label }}</label>
+      {{ form.project_type }}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.manager.id_for_label }}">{{ form.manager.label }}</label>
+      {{ form.manager }}
+    </div>
+
+    <!-- Schema versione e Versione -->
+    <div class="grid grid-cols-2 gap-4 mb-0">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.version_scheme.id_for_label }}">{{ form.version_scheme.label }}</label>
+        {{ form.version_scheme }}
+        {% if form.version_scheme.help_text %}<p class="form-help">{{ form.version_scheme.help_text }}</p>{% endif %}
+        {% for error in form.version_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.version.id_for_label }}">{{ form.version.label }}</label>
+        {{ form.version }}
+        {% if form.version.help_text %}<p class="form-help">{{ form.version.help_text }}</p>{% endif %}
+        {% for error in form.version.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+    </div>
+
+    <!-- Schema revisione e Revisione -->
+    <div class="grid grid-cols-2 gap-4 mb-0 mt-4">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_scheme.id_for_label }}">{{ form.revision_scheme.label }}</label>
+        {{ form.revision_scheme }}
+        {% if form.revision_scheme.help_text %}<p class="form-help">{{ form.revision_scheme.help_text }}</p>{% endif %}
+        {% for error in form.revision_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision.id_for_label }}">{{ form.revision.label }}</label>
+        {{ form.revision }}
+        {% if form.revision.help_text %}<p class="form-help">{{ form.revision.help_text }}</p>{% endif %}
+        {% for error in form.revision.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Crea progetto</button>
+    {% if prefill_folder %}
+    <a href="{% url 'folder_detail' prefill_folder.pk %}" class="btn-secondary">Annulla</a>
+    {% else %}
+    <a href="{% url 'project_list' %}" class="btn-secondary">Annulla</a>
+    {% endif %}
+  </div>
 </form>
 {% endblock %}

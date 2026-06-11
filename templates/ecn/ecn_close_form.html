@@ -2,43 +2,74 @@
 {% block title %}Chiudi ECN — {{ ecn.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
-</p>
-<h1>Chiudi ECN — {{ ecn.code }}</h1>
-<p class="meta">{{ ecn.title }}</p>
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'ecn:ecn_list' %}">ECN / Varianti</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Chiudi ECN</span>
+</nav>
+
+<div class="page-header">
+  <h1>Chiudi ECN — {{ ecn.code }}</h1>
+  <p class="page-header-sub">{{ ecn.title }}</p>
+</div>
 
 {% if warn_no_version %}
-<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:3px;padding:.75rem 1rem;margin-bottom:1rem;color:#856404">
+<div class="alert-warning mb-4">
   <strong>Attenzione:</strong> non risulta ancora collegata una revisione di esecuzione a questo ECN.
   Puoi procedere con la chiusura, ma la revisione eseguita dovrà essere collegata successivamente.
 </div>
 {% endif %}
 
-<div class="card" style="margin-bottom:1rem">
-  <dl class="dl-grid">
-    <dt>Documento</dt>         <dd>{{ ecn.document.code }} — {{ ecn.document.title }}</dd>
-    <dt>Rev. riferimento</dt>  <dd>Rev. {{ ecn.document_version.revision_label }}</dd>
+<!-- Riepilogo ECN -->
+<div class="form-section">
+  <div class="form-section-title">Riepilogo ECN</div>
+  <div class="detail-grid">
+    <div class="detail-item">
+      <span class="detail-label">Documento</span>
+      <span class="detail-value">{{ ecn.document.code }} — {{ ecn.document.title }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Revisione di riferimento</span>
+      <span class="detail-value">Rev. {{ ecn.document_version.revision_label }}</span>
+    </div>
     {% if ecn.executed_version %}
-    <dt>Revisione eseguita</dt><dd>Rev. {{ ecn.executed_version.revision_label }}</dd>
+    <div class="detail-item">
+      <span class="detail-label">Revisione eseguita</span>
+      <span class="detail-value">Rev. {{ ecn.executed_version.revision_label }}</span>
+    </div>
     {% endif %}
-    <dt>Stato</dt>             <dd><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></dd>
-  </dl>
+    <div class="detail-item">
+      <span class="detail-label">Stato</span>
+      <span class="detail-value">
+        {% if ecn.status == 'approved' %}<span class="badge-ecn-approved">Approvata</span>
+        {% else %}<span>{{ ecn.get_status_display }}</span>
+        {% endif %}
+      </span>
+    </div>
+  </div>
 </div>
 
 <form method="post">
   {% csrf_token %}
 
-  <div class="card">
-    <div style="margin-bottom:1rem">
-      <label for="id_close_notes">{{ form.close_notes.label }}</label>
+  <div class="form-section">
+    <div class="form-section-title">Note di chiusura</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_close_notes">{{ form.close_notes.label }}</label>
       {{ form.close_notes }}
-      <p class="meta" style="margin:.2rem 0 0">{{ form.close_notes.help_text }}</p>
-      {% if form.close_notes.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.close_notes.errors.as_text }}</p>{% endif %}
+      {% if form.close_notes.help_text %}<p class="form-help">{{ form.close_notes.help_text }}</p>{% endif %}
+      {% if form.close_notes.errors %}<p class="form-error">{{ form.close_notes.errors.as_text }}</p>{% endif %}
     </div>
   </div>
 
-  <button type="submit" class="btn btn-success">Conferma chiusura ECN</button>
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn-success">Conferma chiusura ECN</button>
+    <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 {% endblock %}

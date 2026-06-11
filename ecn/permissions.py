@@ -1,13 +1,22 @@
-"""Permessi per l'app ECN / Varianti.
+"""
+Permessi per l'app ECN / Varianti — MB1.
 
-Struttura:
-  - Superuser/staff: possono tutto.
-  - Change Control Board (gruppo): possono vedere e revisionare ECN.
-  - Document Managers (gruppo globale): possono vedere, revisionare e chiudere.
-  - Document Auditors (gruppo globale): possono vedere.
-  - Document Authors (gruppo globale): possono creare ECN.
-  - Proponente / created_by: può vedere e inviare il proprio ECN.
-  - Per-cartella: ruoli author/manager possono creare; auditor/manager possono vedere.
+Regole generali:
+  is_superuser       → bypass completo
+  is_staff           → NON bypass applicativo (solo Django Admin)
+
+Governance ECN (configura CCB, invia, chiude):
+  solo Quality Manager oppure superuser.
+
+Visibilità ECN:
+  Quality Manager    → tutte le ECN (governance completa)
+  Quality Operator   → tutte le ECN (sola consultazione)
+  Direction          → tutte le ECN (sola consultazione)
+  proposed_by / created_by → proprie ECN
+  ChangeNoticeApprover assegnato → ECN specifiche assegnate
+  ruolo cartella auditor/manager → ECN su documenti nella cartella
+  Change Control Board (gruppo) → pool candidati, NESSUNA visibilità automatica
+  Document Manager / Document Auditor → NESSUNA visibilità automatica sulle ECN
 """
 
 GROUP_CCB = 'Change Control Board'
@@ -21,11 +30,27 @@ def _is_superuser_or_staff(user):
     return user.is_superuser or user.is_staff
 
 
-def _is_global_manager(user):
-    if _is_superuser_or_staff(user):
+def _is_quality_manager(user):
+    """Solo Quality Manager e superuser possono fare governance ECN."""
+    if user.is_superuser:
         return True
-    from documents.permissions import GROUP_MANAGERS
-    return _in_group(user, GROUP_MANAGERS)
+    from documents.permissions import GROUP_QUALITY_MANAGER
+    return _in_group(user, GROUP_QUALITY_MANAGER)
+
+
+def _can_consult_all_ecn(user):
+    """
+    Quality Manager, Quality Operator, Direction, superuser possono vedere
+    tutte le ECN. Nessun bypass per is_staff o Document Manager/Auditor.
+    """
+    if user.is_superuser:
+        return True
+    from documents.permissions import (
+        GROUP_QUALITY_MANAGER,
+        GROUP_QUALITY_OPERATOR,
+        GROUP_DIRECTION,
+    )
+    return _in_group(user, GROUP_QUALITY_MANAGER, GROUP_QUALITY_OPERATOR, GROUP_DIRECTION)
 
 
 # ---------------------------------------------------------------------------
@@ -35,28 +60,36 @@ def _is_global_manager(user):
 def can_view_ecn(user, change_notice):
     """
     Può vedere l'ECN:
-      - superuser/staff
-      - Document Managers globali
-      - Document Auditors globali
-      - Membri CCB
-      - Proponente o created_by dell'ECN
-      - Utenti con ruolo auditor/manager sulla cartella del documento
+      - superuser
+      - Quality Manager / Quality Operator / Direction (visibilità globale)
+      - proposed_by / created_by dell'ECN
+      - ChangeNoticeApprover assegnato a questa specifica ECN
+      - Utenti con ruolo auditor/manager sulla cartella del documento dell'ECN
+
+    NON ricevono visibilità automatica:
+      - is_staff (senza essere superuser)
+      - gruppo Change Control Board
+      - Document Manager
+      - Document Auditor
     """
     if not user.is_authenticated:
         return False
-    if _is_superuser_or_staff(user):
-        return True
-    from documents.permissions import GROUP_MANAGERS, GROUP_AUDITORS
-    if _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS, GROUP_CCB):
+    if _can_consult_all_ecn(user):
         return True
     # Proponente / creatore
     if change_notice.proposed_by_id == user.pk or change_notice.created_by_id == user.pk:
         return True
-    # Ruolo per-cartella
-    folder = change_notice.document.project_folder
-    if folder is not None:
+    # Approvatore assegnato a questa specifica ECN
+    from ecn.models import ChangeNoticeApprover
+    if ChangeNoticeApprover.objects.filter(change_notice=change_notice, user=user).exists():
+        return True
+    # Coordinatore istruttoria CCB designato
+    if change_notice.ccb_coordinator_id and change_notice.ccb_coordinator_id == user.pk:
+        return True
+    # Ruolo per-cartella (auditor o manager)
+    if change_notice.document and change_notice.document.project_folder_id:
         from projects.permissions import get_folder_role, AUDIT_ROLES
-        if get_folder_role(user, folder) in AUDIT_ROLES:
+        if get_folder_role(user, change_notice.document.project_folder) in AUDIT_ROLES:
             return True
     return False
 
@@ -64,21 +97,21 @@ def can_view_ecn(user, change_notice):
 def can_create_ecn(user, document):
     """
     Può proporre un ECN su un documento:
-      - superuser/staff
-      - Document Managers globali
-      - Document Authors globali
+      - superuser
+      - Quality Manager
+      - ECN Proposers (gruppo globale)
       - Utenti con ruolo author/manager sulla cartella del documento
-    Non verifica lo stato del documento: la validazione business
-    è nel service (il documento deve avere una versione corrente approvata).
     """
     if not user.is_authenticated:
         return False
-    if _is_superuser_or_staff(user):
+    if user.is_superuser:
         return True
-    from documents.permissions import GROUP_MANAGERS, GROUP_AUTHORS
-    if _in_group(user, GROUP_MANAGERS):
+    from documents.permissions import GROUP_QUALITY_MANAGER, GROUP_ECN_PROPOSERS, GROUP_AUTHORS, GROUP_MANAGERS
+    if _in_group(user, GROUP_QUALITY_MANAGER, GROUP_ECN_PROPOSERS):
         return True
-    if _in_group(user, GROUP_AUTHORS):
+    # Compatibilità legacy: Document Managers e Authors possono ancora creare ECN
+    # (da rivedere in MB5 con il grant request_ecn per-cartella)
+    if _in_group(user, GROUP_AUTHORS, GROUP_MANAGERS):
         return True
     # Ruolo per-cartella
     folder = document.project_folder
@@ -91,58 +124,38 @@ def can_create_ecn(user, document):
 
 def can_configure_ccb(user, change_notice):
     """
-    Può configurare la CCB (selezionare approvatori e policy) per un ECN in bozza:
-      - superuser/staff
-      - Document Managers globali
-
-    Il proponente non può configurare la CCB: questa responsabilità spetta
-    al Responsabile Qualità / Document Manager.
+    Può configurare la CCB: solo Quality Manager e superuser.
+    MB1: rimosso bypass Document Manager e is_staff.
     """
     if not user.is_authenticated:
         return False
-    if _is_superuser_or_staff(user):
-        return True
-    if _is_global_manager(user):
-        return True
-    return False
+    return _is_quality_manager(user)
 
 
 def can_submit_ecn(user, change_notice):
     """
     Può inviare l'ECN alla CCB (draft → under_review):
-      - superuser/staff
-      - Document Managers globali
-
-    Il proponente NON può inviare direttamente alla CCB: deve prima passare
-    per la configurazione CCB da parte del Responsabile Qualità / Manager.
+    solo Quality Manager e superuser.
     """
     if not user.is_authenticated:
         return False
-    if _is_superuser_or_staff(user):
-        return True
-    if _is_global_manager(user):
-        return True
-    return False
+    return _is_quality_manager(user)
 
 
 def can_review_ecn(user, change_notice):
     """
-    Può approvare o rifiutare l'ECN (under_review → approved/rejected):
-      - superuser/staff (bypass)
-      - Approvatori assegnati all'ECN (ChangeNoticeApprover)
+    Può approvare o rifiutare l'ECN:
+      - superuser (bypass)
+      - ChangeNoticeApprover assegnato a questa specifica ECN
       - Per policy SEQUENTIAL: solo il prossimo nella catena
-
-    Non è più sufficiente appartenere al gruppo CCB o essere Document Manager:
-    l'utente deve essere esplicitamente assegnato come approvatore.
     """
     if not user.is_authenticated:
         return False
-    if _is_superuser_or_staff(user):
+    if user.is_superuser:
         return True
 
     from ecn.models import ChangeNoticeApprover, ChangeNoticeDecision
 
-    # L'utente deve essere un approvatore assegnato
     approver_qs = ChangeNoticeApprover.objects.filter(
         change_notice=change_notice,
         user=user,
@@ -150,7 +163,7 @@ def can_review_ecn(user, change_notice):
     if not approver_qs.exists():
         return False
 
-    # Per SEQUENTIAL: solo il prossimo approvatore che non ha ancora deciso
+    # Policy SEQUENTIAL
     if change_notice.ccb_policy == 'sequential':
         decided_ids = set(
             ChangeNoticeDecision.objects.filter(change_notice=change_notice)
@@ -170,34 +183,56 @@ def can_review_ecn(user, change_notice):
 
 def can_close_ecn(user, change_notice):
     """
-    Può chiudere l'ECN (approved → closed) — Responsabile Qualità:
-      - superuser/staff
-      - Document Managers globali
+    Può chiudere l'ECN: solo Quality Manager e superuser.
     """
     if not user.is_authenticated:
         return False
-    if _is_superuser_or_staff(user):
+    return _is_quality_manager(user)
+
+
+def can_compile_dossier(user, change_notice):
+    """
+    Può compilare/aggiornare il dossier istruttorio CCB:
+      - superuser
+      - Quality Manager
+      - ccb_coordinator (responsabile istruttoria designato)
+
+    Consentito solo in stato DRAFT o CCB_PREPARATION.
+    Dopo l'invio alla CCB (UNDER_REVIEW+) il dossier è congelato.
+    """
+    if not user.is_authenticated:
+        return False
+    from ecn.models import ChangeNotice
+    if change_notice.status not in (
+        ChangeNotice.Status.DRAFT,
+        ChangeNotice.Status.CCB_PREPARATION,
+    ):
+        return False
+    if user.is_superuser:
         return True
-    from documents.permissions import GROUP_MANAGERS
-    return _in_group(user, GROUP_MANAGERS)
+    if _is_quality_manager(user):
+        return True
+    if change_notice.ccb_coordinator_id and change_notice.ccb_coordinator_id == user.pk:
+        return True
+    return False
 
 
 def can_edit_ecn(user, change_notice):
     """
-    Può modificare i dati base (titolo, motivazione, descrizione, commessa, progetto):
-      - Solo se l'ECN è in stato DRAFT
-      - superuser/staff
-      - Document Managers globali
-      - Proponente o created_by dell'ECN
+    Può modificare i dati base (solo DRAFT):
+      - superuser
+      - Quality Manager
+      - proposed_by / created_by dell'ECN
+    MB1: rimosso bypass Document Manager e is_staff.
     """
     if not user.is_authenticated:
         return False
     from ecn.models import ChangeNotice
     if change_notice.status != ChangeNotice.Status.DRAFT:
         return False
-    if _is_superuser_or_staff(user):
+    if user.is_superuser:
         return True
-    if _is_global_manager(user):
+    if _is_quality_manager(user):
         return True
     if change_notice.proposed_by_id == user.pk or change_notice.created_by_id == user.pk:
         return True
@@ -206,18 +241,19 @@ def can_edit_ecn(user, change_notice):
 
 def can_reconfigure_ccb(user, change_notice):
     """
-    Può modificare gli approvatori CCB e la policy:
-      - DRAFT → sempre (equivale a can_configure_ccb)
-      - UNDER_REVIEW senza decisioni → sì, modifica diretta
-      - UNDER_REVIEW con decisioni → no (serve can_reopen_ccb prima)
-      - Solo Manager / staff
+    Può modificare approvatori CCB e policy:
+      - DRAFT, CCB_PREPARATION o UNDER_REVIEW senza decisioni
+      - Solo Quality Manager e superuser
     """
     if not user.is_authenticated:
         return False
-    if not (_is_superuser_or_staff(user) or _is_global_manager(user)):
+    if not _is_quality_manager(user):
         return False
     from ecn.models import ChangeNotice
-    if change_notice.status == ChangeNotice.Status.DRAFT:
+    if change_notice.status in (
+        ChangeNotice.Status.DRAFT,
+        ChangeNotice.Status.CCB_PREPARATION,
+    ):
         return True
     if change_notice.status == ChangeNotice.Status.UNDER_REVIEW:
         return not change_notice.decisions.exists()
@@ -226,14 +262,13 @@ def can_reconfigure_ccb(user, change_notice):
 
 def can_reopen_ccb(user, change_notice):
     """
-    Può riaprire la configurazione CCB di un ECN under_review con decisioni già espresse.
-    L'operazione cancella le decisioni e riporta lo stato a DRAFT.
-      - Solo Manager / staff
-      - Solo se UNDER_REVIEW e ci sono almeno una decisione
+    Può riaprire la configurazione CCB (under_review con decisioni → DRAFT):
+      - Solo Quality Manager e superuser
+      - Solo se UNDER_REVIEW con almeno una decisione
     """
     if not user.is_authenticated:
         return False
-    if not (_is_superuser_or_staff(user) or _is_global_manager(user)):
+    if not _is_quality_manager(user):
         return False
     from ecn.models import ChangeNotice
     if change_notice.status != ChangeNotice.Status.UNDER_REVIEW:
@@ -244,10 +279,48 @@ def can_reopen_ccb(user, change_notice):
 def can_add_ecn_attachment(user, change_notice):
     """
     Può aggiungere allegati a un ECN:
-      - chi può vedere l'ECN (can_view_ecn)
-      - a patto che l'ECN non sia REJECTED né CLOSED (stati terminali/archiviati)
+      - superuser
+      - Quality Manager
+      - proposed_by / created_by
+    NON: Quality Operator, Direction (sola lettura), CCB generico.
     """
-    from ecn.models import ChangeNotice
-    if not can_view_ecn(user, change_notice):
+    if not user.is_authenticated:
         return False
-    return change_notice.status not in (ChangeNotice.Status.REJECTED, ChangeNotice.Status.CLOSED)
+    from ecn.models import ChangeNotice
+    if change_notice.status in (ChangeNotice.Status.REJECTED, ChangeNotice.Status.CLOSED):
+        return False
+    if user.is_superuser:
+        return True
+    if _is_quality_manager(user):
+        return True
+    if change_notice.proposed_by_id == user.pk or change_notice.created_by_id == user.pk:
+        return True
+    return False
+
+
+def can_download_ecn_attachment(user, attachment):
+    """
+    Può scaricare un allegato ECN:
+      - superuser
+      - Quality Manager
+      - proposed_by / created_by dell'ECN
+      - ChangeNoticeApprover assegnato a quella specifica ECN
+
+    Nega automaticamente:
+      - is_staff senza superuser
+      - Document Manager / Document Auditor
+      - Quality Operator / Direction
+      - membro gruppo CCB globale non assegnato
+      - utenti senza relazione con l'ECN
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if _is_quality_manager(user):
+        return True
+    ecn = attachment.change_notice
+    if ecn.proposed_by_id == user.pk or ecn.created_by_id == user.pk:
+        return True
+    from ecn.models import ChangeNoticeApprover
+    return ChangeNoticeApprover.objects.filter(change_notice=ecn, user=user).exists()

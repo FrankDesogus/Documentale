@@ -12,6 +12,7 @@ urlpatterns = [
     path('<int:ecn_id>/', views.ecn_detail, name='ecn_detail'),
     path('<int:ecn_id>/edit/', views.ecn_edit, name='ecn_edit'),
     path('<int:ecn_id>/configure-ccb/', views.ecn_configure_ccb, name='ecn_configure_ccb'),
+    path('<int:ecn_id>/ccb-dossier/', views.ecn_ccb_dossier, name='ecn_ccb_dossier'),
     path('<int:ecn_id>/reopen-ccb/', views.ecn_reopen_ccb, name='ecn_reopen_ccb'),
     path('<int:ecn_id>/submit/', views.ecn_submit, name='ecn_submit'),
     path('<int:ecn_id>/review/', views.ecn_review, name='ecn_review'),

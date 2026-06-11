@@ -12,12 +12,16 @@ from documents.models import Document, DocumentVersion
 from documents.permissions import (
     can_create_document,
     can_create_revision,
+    can_edit_document_metadata,
     can_edit_version,
     can_submit_for_approval,
     can_view_audit,
     can_view_document,
+    can_view_version,
     is_document_auditor,
     is_document_manager,
+    is_quality_manager,
+    is_quality_operator,
 )
 from documents.services import create_document_file, create_new_revision
 
@@ -38,15 +42,19 @@ def dashboard(request):
         status__in=[DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED],
     ).count()
 
-    # ECN personali (proposti o creati dall'utente) ancora aperti
-    from ecn.models import ChangeNotice
+    # ECN personali aperti (incluso ccb_preparation)
+    from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeDecision
     my_ecn_count = ChangeNotice.objects.filter(
         Q(proposed_by=user) | Q(created_by=user),
-        status__in=[ChangeNotice.Status.DRAFT, ChangeNotice.Status.UNDER_REVIEW, ChangeNotice.Status.APPROVED],
+        status__in=[
+            ChangeNotice.Status.DRAFT,
+            ChangeNotice.Status.CCB_PREPARATION,
+            ChangeNotice.Status.UNDER_REVIEW,
+            ChangeNotice.Status.APPROVED,
+        ],
     ).distinct().count()
 
-    # Decisioni CCB in attesa (solo se l'utente è un approvatore assegnato)
-    from ecn.models import ChangeNoticeApprover, ChangeNoticeDecision
+    # Decisioni CCB in attesa
     decided_ids = set(
         ChangeNoticeDecision.objects.filter(user=user).values_list('approver_id', flat=True)
     )
@@ -57,11 +65,29 @@ def dashboard(request):
         .count()
     )
 
+    # Cartelle radice visibili per l'explorer (solo primo livello)
+    from projects.models import ProjectFolder
+    folders_qs = ProjectFolder.objects.filter(
+        status=ProjectFolder.Status.ACTIVE,
+        parent__isnull=True,
+    ).prefetch_related('subfolders').order_by('code')
+
+    if not user.is_superuser:
+        from documents.permissions import is_document_manager, is_document_auditor
+        if not (is_document_manager(user) or is_document_auditor(user)):
+            from projects.permissions import get_visible_folder_ids, get_navigation_folder_ids
+            visible_ids = set(get_visible_folder_ids(user))
+            nav_ids = get_navigation_folder_ids(user)
+            folders_qs = folders_qs.filter(pk__in=visible_ids | nav_ids)
+
+    explorer_folders = list(folders_qs[:12])  # max 12 cartelle in dashboard
+
     return render(request, 'dashboard.html', {
         'pending_count': pending_count,
         'draft_count': draft_count,
         'my_ecn_count': my_ecn_count,
         'pending_ccb_count': pending_ccb_count,
+        'explorer_folders': explorer_folders,
     })
 
 
@@ -122,8 +148,11 @@ def workspace_quality(request):
     from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeDecision
 
     user = request.user
-    if not (user.is_superuser or user.is_staff
-            or is_document_manager(user) or is_document_auditor(user)):
+    # is_staff NON concede accesso (MB1)
+    if not (user.is_superuser
+            or is_quality_manager(user)
+            or is_quality_operator(user)
+            or is_document_auditor(user)):
         raise PermissionDenied
 
     # ECN DRAFT senza CCB configurata
@@ -170,22 +199,96 @@ def workspace_quality(request):
 
 @login_required
 def document_list(request):
+    from django.core.paginator import Paginator
+    from projects.models import ProjectFolder
+
     user = request.user
+    # Queryset base autorizzato
     qs = Document.objects.filter(
         status=Document.Status.ACTIVE,
         current_version__isnull=False,
         current_version__status=DocumentVersion.Status.APPROVED,
         current_version__is_current=True,
-    ).select_related('current_version', 'owner').order_by('code')
+    ).select_related('current_version', 'owner', 'project_folder').order_by('code')
 
-    if not (user.is_superuser or user.is_staff or is_document_auditor(user) or is_document_manager(user)):
+    # is_staff NON concede visibilità globale (MB1)
+    if not (user.is_superuser or is_document_auditor(user) or is_document_manager(user)):
         from projects.permissions import get_visible_folder_ids
         visible_ids = get_visible_folder_ids(user)
         qs = qs.filter(
             Q(project_folder__isnull=True) | Q(project_folder_id__in=visible_ids)
         )
 
-    return render(request, 'documents/document_list.html', {'documents': qs})
+    # ── Ricerca e filtri (POST-authorization) ──
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(code__icontains=q)
+            | Q(title__icontains=q)
+            | Q(document_type__icontains=q)
+            | Q(description__icontains=q)
+        )
+
+    folder_id = request.GET.get('folder', '')
+    recursive = request.GET.get('recursive', '')
+    selected_folder = None
+    selected_folder_is_project = False
+    if folder_id:
+        try:
+            folder_pk = int(folder_id)
+            from projects.models import ProjectFolder
+            selected_folder = ProjectFolder.objects.filter(
+                pk=folder_pk, status=ProjectFolder.Status.ACTIVE
+            ).first()
+            if selected_folder:
+                selected_folder_is_project = (
+                    selected_folder.folder_kind == ProjectFolder.FolderKind.PROJECT
+                )
+                do_recursive = selected_folder_is_project or recursive == '1'
+                if do_recursive and selected_folder.path:
+                    qs = qs.filter(
+                        project_folder__path__startswith=selected_folder.path
+                    )
+                else:
+                    qs = qs.filter(project_folder_id=folder_pk)
+            else:
+                qs = qs.filter(project_folder_id=folder_pk)
+        except (ValueError, TypeError):
+            pass
+
+    doc_type = request.GET.get('doc_type', '').strip()
+    if doc_type:
+        qs = qs.filter(document_type__icontains=doc_type)
+
+    # Cartelle visibili per il filtro (solo quelle dell'utente)
+    if user.is_superuser or is_document_manager(user) or is_document_auditor(user):
+        filter_folders = ProjectFolder.objects.filter(
+            status=ProjectFolder.Status.ACTIVE
+        ).order_by('code')
+    else:
+        from projects.permissions import get_visible_folder_ids
+        vis = get_visible_folder_ids(user)
+        filter_folders = ProjectFolder.objects.filter(
+            pk__in=vis, status=ProjectFolder.Status.ACTIVE
+        ).order_by('code')
+
+    # ── Paginazione ──
+    paginator = Paginator(qs, 20)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'documents/document_list.html', {
+        'documents': page_obj,
+        'page_obj': page_obj,
+        'q': q,
+        'folder_id': folder_id,
+        'recursive': recursive,
+        'selected_folder': selected_folder,
+        'selected_folder_is_project': selected_folder_is_project,
+        'doc_type': doc_type,
+        'filter_folders': filter_folders,
+        'total_count': paginator.count,
+    })
 
 
 @login_required
@@ -200,9 +303,11 @@ def document_detail(request, document_id):
     versions = None
     audit_logs = None
     if show_history:
-        versions = doc.versions.select_related(
+        all_versions = doc.versions.select_related(
             'created_by', 'approved_by'
         ).order_by('-revision_number')
+        # Filtra le versioni a quelle visibili all'utente (bozze private escluse)
+        versions = [v for v in all_versions if can_view_version(request.user, v)]
         from auditlog.models import AuditLog
         audit_logs = AuditLog.objects.filter(
             changes__document_id=doc.pk
@@ -254,6 +359,8 @@ def document_detail(request, document_id):
         'latest_approval_attachments': latest_approval_attachments,
         'doc_ecns': doc_ecns,
         'show_create_ecn': show_create_ecn,
+        'show_create_revision': can_create_revision(request.user, doc),
+        'show_edit_metadata': can_edit_document_metadata(request.user, doc),
     })
 
 
@@ -281,14 +388,19 @@ def new_document(request):
             from_project = get_object_or_404(Project, pk=int(project_id_param))
         except (ValueError, TypeError):
             raise PermissionDenied
-        if from_project.folder is None or not can_create_document_in_folder(request.user, from_project.folder):
+        if from_project.root_folder is None or not can_create_document_in_folder(request.user, from_project.root_folder):
             raise PermissionDenied
-        fixed_folder = from_project.folder
+        fixed_folder = from_project.root_folder
     elif not can_create_document(request.user):
         raise PermissionDenied
 
     if request.method == 'POST':
-        form = DocumentCreateForm(request.POST, request.FILES, user=request.user, fixed_project_folder=fixed_folder)
+        form = DocumentCreateForm(
+            request.POST, request.FILES,
+            user=request.user,
+            fixed_project_folder=fixed_folder,
+            current_user=request.user,
+        )
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -300,13 +412,27 @@ def new_document(request):
                         category=d['category'],
                         document_type=d['document_type'],
                         project_folder=d['project_folder'],
+                        revision_scheme=d.get('revision_scheme', 'numeric'),
+                        requires_ecn_for_revision=not d.get('ecn_exemption', False),
                         owner=request.user,
                         created_by=request.user,
+                    )
+                    from auditlog.services import create_audit_log as _cal
+                    _cal(
+                        user=request.user,
+                        action='DOCUMENT_CREATED',
+                        instance=doc,
+                        new_values={
+                            'code': doc.code,
+                            'category': doc.category,
+                            'requires_ecn_for_revision': doc.requires_ecn_for_revision,
+                        },
+                        document=doc,
                     )
                     doc_file = None
                     if d.get('file'):
                         doc_file = create_document_file(d['file'], request.user)
-                    create_new_revision(
+                    first_version = create_new_revision(
                         document=doc,
                         created_by=request.user,
                         revision_label=d['revision_label'],
@@ -314,9 +440,23 @@ def new_document(request):
                         file=doc_file,
                         change_summary=d['change_summary'],
                     )
+                    # Sanatoria: registra evento storico per il documento
+                    from auditlog.models import HistoricalRecord
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.DOC_CREATED,
+                        recorded_by=request.user,
+                        target_instance=doc,
+                    )
+                    if form.is_sanatoria:
+                        form.maybe_create_historical_record(
+                            event_type=HistoricalRecord.EventType.DOC_DRAFT_CREATED,
+                            recorded_by=request.user,
+                            target_instance=first_version,
+                        )
+                san_suffix = ' [sanatoria]' if form.is_sanatoria else ''
                 messages.success(
                     request,
-                    f'Documento {doc.code} creato con prima bozza Rev. {d["revision_label"]}.',
+                    f'Documento {doc.code} creato con prima bozza Rev. {d["revision_label"]}.{san_suffix}',
                 )
                 if from_project:
                     return redirect('document_detail', document_id=doc.pk)
@@ -325,7 +465,11 @@ def new_document(request):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentCreateForm(user=request.user, fixed_project_folder=fixed_folder)
+        form = DocumentCreateForm(
+            user=request.user,
+            fixed_project_folder=fixed_folder,
+            current_user=request.user,
+        )
         if fixed_folder is None and not form.fields['project_folder'].queryset.exists():
             messages.warning(
                 request,
@@ -348,10 +492,12 @@ def new_revision(request, document_id):
     if not can_create_revision(request.user, doc):
         raise PermissionDenied
 
-    # Gate ECN: se il documento ha una versione corrente approvata è necessario un ECN.
+    # Gate ECN: richiesto solo se il documento ha una versione corrente approvata
+    # E la policy del documento lo impone (requires_ecn_for_revision=True).
     needs_ecn = (
         doc.current_version is not None
         and doc.current_version.status == DocumentVersion.Status.APPROVED
+        and doc.requires_ecn_for_revision
     )
 
     ecn = None
@@ -395,16 +541,28 @@ def new_revision(request, document_id):
             )
             return redirect('document_new_revision', document_id=doc.pk)
 
+    from documents.versioning import next_sequence_value, SequenceScheme
+    scheme = doc.revision_scheme or SequenceScheme.NUMERIC
     last_version = doc.versions.order_by('-revision_number').first()
     if last_version:
         next_number = last_version.revision_number + 1
-        next_label = str(next_number).zfill(2)
+        try:
+            next_label = next_sequence_value(last_version.revision_label, scheme)
+        except Exception:
+            # Ultimo label incompatibile con lo schema corrente: lo schema è stato
+            # cambiato manualmente. Propone il primo valore del nuovo schema;
+            # l'utente lo sostituisce liberamente.
+            next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
     else:
         next_number = 0
-        next_label = '00'
+        next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
 
     if request.method == 'POST':
-        form = DocumentRevisionCreateForm(request.POST, request.FILES)
+        form = DocumentRevisionCreateForm(
+            request.POST, request.FILES,
+            revision_scheme=scheme,
+            current_user=request.user,
+        )
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -421,25 +579,36 @@ def new_revision(request, document_id):
                         change_summary=d['change_summary'],
                         ecn=ecn,
                     )
+                    # Sanatoria: registra evento storico
+                    from auditlog.models import HistoricalRecord
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.DOC_REVISION_CREATED,
+                        recorded_by=request.user,
+                        target_instance=version,
+                    )
+                san_suffix = ' [sanatoria]' if form.is_sanatoria else ''
                 messages.success(
                     request,
-                    f'Revisione Rev. {version.revision_label} creata come bozza.',
+                    f'Revisione Rev. {version.revision_label} creata come bozza.{san_suffix}',
                 )
                 return redirect('my_drafts')
             except ValidationError as exc:
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentRevisionCreateForm(initial={
-            'revision_label': next_label,
-            'revision_number': next_number,
-        })
+        form = DocumentRevisionCreateForm(
+            initial={'revision_label': next_label, 'revision_number': next_number},
+            revision_scheme=scheme,
+            current_user=request.user,
+        )
 
     return render(request, 'documents/new_revision.html', {
         'form': form,
         'document': doc,
         'ecn': ecn,
         'needs_ecn': needs_ecn,
+        'revision_scheme': scheme,
+        'revision_scheme_display': dict(SequenceScheme.choices).get(scheme, scheme),
     })
 
 
@@ -462,8 +631,10 @@ def submit_for_approval(request, version_id):
         return redirect('my_drafts')
 
     if request.method == 'POST':
-        form = SubmitForApprovalForm(request.POST, request.FILES)
-        approver_formset = ApproverFormSet(request.POST, prefix='approver')
+        form = SubmitForApprovalForm(request.POST, request.FILES, current_user=request.user)
+        approver_formset = ApproverFormSet(
+            request.POST, prefix='approver', current_user=request.user
+        )
         if form.is_valid() and approver_formset.is_valid():
             d = form.cleaned_data
             ordered_approvers = [
@@ -472,29 +643,41 @@ def submit_for_approval(request, version_id):
                 if f.cleaned_data and f.cleaned_data.get('approver')
             ]
             try:
+                from auditlog.historical_forms import should_send_notifications
                 approval_request = submit_version_for_approval(
                     version=version,
                     requested_by=request.user,
                     approvers=ordered_approvers,
                     due_date=d.get('due_date'),
                     approval_policy=d['approval_policy'],
+                    send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
                 )
                 sig_file = d.get('signature_template_file')
                 if sig_file:
                     from approvals.services import create_approval_request_attachment
                     create_approval_request_attachment(approval_request, sig_file, request.user)
+                # Sanatoria: registra evento storico
+                from auditlog.models import HistoricalRecord
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.DOC_SUBMITTED,
+                    recorded_by=request.user,
+                    target_instance=version,
+                )
+                san_suffix = ' [sanatoria — nessuna notifica inviata]' if form.is_sanatoria else ''
                 messages.success(
                     request,
                     f'Rev. {version.revision_label} di {version.document.code} '
-                    f'inviata in approvazione.',
+                    f'inviata in approvazione.{san_suffix}',
                 )
                 return redirect('dashboard')
             except ValidationError as exc:
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = SubmitForApprovalForm()
-        approver_formset = ApproverFormSet(prefix='approver', initial=[{}])
+        form = SubmitForApprovalForm(current_user=request.user)
+        approver_formset = ApproverFormSet(
+            prefix='approver', initial=[{}], current_user=request.user
+        )
 
     return render(request, 'documents/submit_for_approval.html', {
         'form': form,
@@ -514,8 +697,9 @@ def edit_version(request, version_id):
     if not can_edit_version(request.user, version):
         raise PermissionDenied
 
+    scheme = version.document.revision_scheme
     if request.method == 'POST':
-        form = DocumentVersionEditForm(request.POST, request.FILES)
+        form = DocumentVersionEditForm(request.POST, request.FILES, revision_scheme=scheme)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -539,16 +723,56 @@ def edit_version(request, version_id):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = DocumentVersionEditForm(initial={
-            'revision_label': version.revision_label,
-            'revision_number': version.revision_number,
-            'change_summary': version.change_summary,
-        })
+        form = DocumentVersionEditForm(
+            initial={
+                'revision_label': version.revision_label,
+                'revision_number': version.revision_number,
+                'change_summary': version.change_summary,
+            },
+            revision_scheme=scheme,
+        )
 
     return render(request, 'documents/edit_version.html', {
         'form': form,
         'version': version,
         'document': version.document,
+    })
+
+
+@login_required
+def edit_document_metadata(request, document_id):
+    from documents.forms import DocumentMetadataEditForm
+
+    doc = get_object_or_404(Document, pk=document_id)
+
+    if not can_edit_document_metadata(request.user, doc):
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        form = DocumentMetadataEditForm(request.POST, instance=doc)
+        if form.is_valid():
+            try:
+                instance = form.save(commit=False)
+                instance.full_clean()
+                instance.save()
+                messages.success(
+                    request,
+                    f'Metadati di {doc.code} aggiornati.',
+                )
+                return redirect('document_detail', document_id=doc.pk)
+            except ValidationError as exc:
+                for field, errs in (exc.message_dict.items() if hasattr(exc, 'message_dict') else {None: exc.messages}.items()):
+                    for msg in errs:
+                        if field and field in form.fields:
+                            form.add_error(field, msg)
+                        else:
+                            form.add_error(None, msg)
+    else:
+        form = DocumentMetadataEditForm(instance=doc)
+
+    return render(request, 'documents/edit_document_metadata.html', {
+        'form': form,
+        'document': doc,
     })
 
 

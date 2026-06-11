@@ -2,40 +2,70 @@
 {% block title %}Cartelle — Documentale{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
-  <h1 style="margin:0">Cartelle</h1>
+<div class="page-header flex items-start justify-between flex-wrap gap-2">
+  <div>
+    <h1>Archivio cartelle</h1>
+    {% if total_count is not None %}
+    <p class="page-header-sub">{{ total_count }} cartell{% if total_count == 1 %}a{% else %}e{% endif %} radicali</p>
+    {% endif %}
+  </div>
   {% if can_create %}
-  <a href="{% url 'folder_create' %}" class="btn btn-primary">+ Nuova cartella</a>
+  <a href="{% url 'folder_create' %}" class="btn-primary">+ Nuova cartella</a>
   {% endif %}
 </div>
 
+<!-- Ricerca -->
+<form method="get" class="filter-bar">
+  <div class="filter-group">
+    <label class="form-label">Ricerca cartella</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Codice o nome…" class="min-w-[220px]">
+  </div>
+  <div class="filter-actions">
+    <button type="submit" class="btn-primary btn-sm">🔍 Cerca</button>
+    {% if q %}
+    <a href="{% url 'folder_list' %}" class="btn-secondary btn-sm">✕ Reset</a>
+    {% endif %}
+  </div>
+</form>
+
 {% if folders %}
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem">
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
   {% for folder in folders %}
-  <a href="{% url 'folder_detail' folder.pk %}" style="text-decoration:none;color:inherit">
-    <div class="card" style="cursor:pointer;transition:box-shadow .15s">
-      <div style="display:flex;align-items:flex-start;gap:.75rem">
-        <span style="font-size:2rem;line-height:1">📁</span>
-        <div style="min-width:0;flex:1">
-          <div style="font-weight:600;color:#1a3a5c;font-size:1rem;margin-bottom:.15rem;word-break:break-word">
-            {{ folder.name }}
-          </div>
-          <div class="meta" style="font-size:.8rem;margin-bottom:.35rem">{{ folder.code }}</div>
-          <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
-            <span class="badge badge-{{ folder.folder_kind }}" style="font-size:.75rem">{{ folder.get_folder_kind_display }}</span>
-            <span class="meta" style="font-size:.8rem">{{ folder.subfolders.count }} sottocartelle · {{ folder.documents.count }} doc.</span>
-          </div>
-        </div>
-      </div>
+  <a href="{% url 'folder_detail' folder.pk %}" class="folder-tile no-underline block">
+    <div class="folder-tile-icon">📁</div>
+    <div class="folder-tile-name">{{ folder.name }}</div>
+    <div class="folder-tile-meta">
+      {{ folder.code }}
+      {% with sc=folder.subfolders.count %}
+      {% if sc %} · {{ sc }} sottocartell{% if sc == 1 %}a{% else %}e{% endif %}{% endif %}
+      {% endwith %}
+    </div>
+    <div class="mt-1">
+      <span class="badge badge-folder text-xs">{{ folder.get_folder_kind_display }}</span>
     </div>
   </a>
   {% endfor %}
 </div>
+
+{% include "_pagination.html" with page_obj=page_obj total_count=total_count %}
+
 {% else %}
 <div class="card">
-  <p class="meta">Nessuna cartella radice attiva.</p>
-  {% if can_create %}
-  <a href="{% url 'folder_create' %}" class="btn btn-primary" style="margin-top:.5rem">Crea la prima cartella</a>
+  {% if q %}
+  <div class="empty-state">
+    <div class="empty-state-icon">🔍</div>
+    <div class="empty-state-title">Nessuna cartella trovata</div>
+    <div class="empty-state-desc">Nessun risultato per "{{ q }}". <a href="{% url 'folder_list' %}" class="text-brand-600 hover:underline">Mostra tutte</a></div>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon">📁</div>
+    <div class="empty-state-title">Nessuna cartella disponibile</div>
+    <div class="empty-state-desc">Contatta il Responsabile Qualità per ottenere l'accesso alle cartelle documentali.</div>
+    {% if can_create %}
+    <a href="{% url 'folder_create' %}" class="btn-primary mt-4">Crea la prima cartella</a>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
 {% endif %}

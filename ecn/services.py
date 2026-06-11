@@ -41,6 +41,7 @@ def create_change_notice(
     document_version=None,
     code=None,
     created_by=None,
+    send_notifications=True,
 ):
     """
     Crea un ECN in stato DRAFT.
@@ -86,6 +87,14 @@ def create_change_notice(
         old_status=None,
         new_status=ecn.status,
     )
+
+    if send_notifications:
+        _notify_silently('notify_ecn_created', ecn)
+        try:
+            from notifications.inbox import notify_ecn_created_inapp
+            notify_ecn_created_inapp(ecn)
+        except Exception:
+            pass
 
     return ecn
 
@@ -238,10 +247,15 @@ def set_change_notice_approvers(change_notice, users, policy=None, actor=None):
     """
     from ecn.models import ChangeNotice, ChangeNoticeApprover
 
-    allowed = (ChangeNotice.Status.DRAFT, ChangeNotice.Status.UNDER_REVIEW)
+    allowed = (
+        ChangeNotice.Status.DRAFT,
+        ChangeNotice.Status.CCB_PREPARATION,
+        ChangeNotice.Status.UNDER_REVIEW,
+    )
     if change_notice.status not in allowed:
         raise ValidationError(
-            "Gli approvatori possono essere assegnati solo a ECN in bozza o in revisione."
+            "Gli approvatori possono essere assegnati solo a ECN in bozza, "
+            "istruttoria CCB o in revisione senza decisioni."
         )
 
     if change_notice.status == ChangeNotice.Status.UNDER_REVIEW and change_notice.decisions.exists():
@@ -290,7 +304,7 @@ def set_change_notice_approvers(change_notice, users, policy=None, actor=None):
             pass
 
 
-def submit_change_notice(change_notice, user):
+def submit_change_notice(change_notice, user, send_notifications=True):
     """
     Invia l'ECN alla CCB: DRAFT → UNDER_REVIEW.
 
@@ -307,11 +321,32 @@ def submit_change_notice(change_notice, user):
     if not can_submit_ecn(user, change_notice):
         raise PermissionDenied("Non hai il permesso di inviare questo ECN alla CCB.")
 
-    if change_notice.status != ChangeNotice.Status.DRAFT:
+    _allowed_submit = (ChangeNotice.Status.DRAFT, ChangeNotice.Status.CCB_PREPARATION)
+    if change_notice.status not in _allowed_submit:
         raise ValidationError(
-            f"Solo gli ECN in bozza possono essere inviati alla CCB. "
+            f"Solo gli ECN in bozza o istruttoria possono essere inviati alla CCB. "
             f"Stato attuale: {change_notice.get_status_display()}."
         )
+
+    # Verifica campi obbligatori del dossier solo quando si parte da CCB_PREPARATION
+    # (il percorso legacy DRAFT→UNDER_REVIEW non impone la validazione dossier
+    #  per retrocompatibilità con i test esistenti)
+    if change_notice.status == ChangeNotice.Status.CCB_PREPARATION:
+        if not change_notice.ccb_class:
+            raise ValidationError(
+                "La classificazione variante è obbligatoria prima dell'invio alla CCB. "
+                "Compila il dossier istruttorio."
+            )
+        if not change_notice.ccb_requirements or not change_notice.ccb_requirements.strip():
+            raise ValidationError(
+                "L'analisi requisiti è obbligatoria prima dell'invio alla CCB. "
+                "Compila il dossier istruttorio."
+            )
+        if not change_notice.ccb_technical_impact or not change_notice.ccb_technical_impact.strip():
+            raise ValidationError(
+                "L'impatto tecnico è obbligatorio prima dell'invio alla CCB. "
+                "Compila il dossier istruttorio."
+            )
 
     if not change_notice.approvers.exists():
         raise ValidationError(
@@ -331,7 +366,24 @@ def submit_change_notice(change_notice, user):
         new_status=change_notice.status,
     )
 
-    _notify_silently('notify_ecn_submitted', change_notice)
+    if send_notifications:
+        _notify_silently('notify_ecn_submitted', change_notice)
+
+        # Notifiche in-app ai membri CCB
+        try:
+            from notifications.inbox import notify_ccb_vote_required
+            from ecn.models import ChangeNotice as _CN
+            ccb_policy = change_notice.ccb_policy
+            approvers_qs = change_notice.approvers.order_by('order')
+            if ccb_policy == _CN.CCBPolicy.SEQUENTIAL:
+                first_app = approvers_qs.first()
+                if first_app:
+                    notify_ccb_vote_required(change_notice, first_app.user)
+            else:
+                for app in approvers_qs:
+                    notify_ccb_vote_required(change_notice, app.user)
+        except Exception:
+            pass
 
     return change_notice
 
@@ -348,6 +400,7 @@ def approve_change_notice(
     ccb_other_impact='',
     ccb_notes='',
     comment='',
+    send_notifications=True,
 ):
     """
     Un approvatore CCB approva l'ECN.
@@ -453,17 +506,32 @@ def approve_change_notice(
                 old_status=old_status,
                 new_status=change_notice.status,
             )
-            _notify_silently('notify_ecn_approved', change_notice)
+            if send_notifications:
+                _notify_silently('notify_ecn_approved', change_notice)
+                try:
+                    from notifications.inbox import notify_ecn_outcome_inapp
+                    notify_ecn_outcome_inapp(change_notice, approved=True)
+                except Exception:
+                    pass
 
         else:
             # Per SEQUENTIAL: notifica il prossimo approvatore
-            if change_notice.ccb_policy == ChangeNotice.CCBPolicy.SEQUENTIAL:
+            if send_notifications and change_notice.ccb_policy == ChangeNotice.CCBPolicy.SEQUENTIAL:
                 _notify_next_sequential(change_notice)
+
+    # Per approvazioni parziali (non finali), notifica tutti i membri CCB del voto espresso.
+    # Per il caso finale notify_ecn_approved ha già inviato le email rilevanti.
+    if send_notifications and not finalized:
+        try:
+            from ecn.notifications import notify_ecn_vote_cast
+            notify_ecn_vote_cast(change_notice, user, 'approve', comment)
+        except Exception:
+            pass
 
     return change_notice
 
 
-def reject_change_notice(change_notice, user, reason, comment=None):
+def reject_change_notice(change_notice, user, reason, comment=None, send_notifications=True):
     """
     Un approvatore CCB rifiuta l'ECN: UNDER_REVIEW → REJECTED.
 
@@ -540,12 +608,26 @@ def reject_change_notice(change_notice, user, reason, comment=None):
         old_status=old_status,
         new_status=change_notice.status,
     )
-    _notify_silently('notify_ecn_rejected', change_notice)
+    if send_notifications:
+        # notify_ecn_rejected invia email a tutti i destinatari rilevanti
+        _notify_silently('notify_ecn_rejected', change_notice)
+        try:
+            from notifications.inbox import notify_ecn_outcome_inapp
+            notify_ecn_outcome_inapp(change_notice, approved=False)
+        except Exception:
+            pass
+
+        # Notifica anche i membri CCB del voto individuale (informativo)
+        try:
+            from ecn.notifications import notify_ecn_vote_cast
+            notify_ecn_vote_cast(change_notice, user, 'reject', decision_comment)
+        except Exception:
+            pass
 
     return change_notice
 
 
-def close_change_notice(change_notice, user, close_notes=''):
+def close_change_notice(change_notice, user, close_notes='', send_notifications=True):
     """
     Il Responsabile Qualità chiude l'ECN: APPROVED → CLOSED.
 
@@ -591,7 +673,180 @@ def close_change_notice(change_notice, user, close_notes=''):
         old_status=old_status,
         new_status=change_notice.status,
     )
-    _notify_silently('notify_ecn_closed', change_notice)
+    if send_notifications:
+        _notify_silently('notify_ecn_closed', change_notice)
+        try:
+            from notifications.inbox import notify_ecn_closed_inapp
+            notify_ecn_closed_inapp(change_notice)
+        except Exception:
+            pass
+
+    return change_notice
+
+
+# ---------------------------------------------------------------------------
+# Nuovi service STEP I — separazione istruttoria / voto
+# ---------------------------------------------------------------------------
+
+def configure_ccb(change_notice, actor, users, policy=None, coordinator=None, send_notifications=True):
+    """
+    Configura la CCB: assegna coordinator, members, policy.
+    Transizione DRAFT → CCB_PREPARATION (se già in CCB_PREPARATION rimane).
+
+    - users: lista ordinata di User (ordine = priorità CCB).
+    - policy: se non None, aggiorna ccb_policy.
+    - coordinator: se non None, imposta ccb_coordinator.
+    - actor: utente che compie l'azione (per AuditLog).
+
+    Raises:
+      ValidationError: se lo stato non è DRAFT o CCB_PREPARATION.
+      ValidationError: se users è vuoto.
+    """
+    from ecn.models import ChangeNotice
+
+    allowed = (ChangeNotice.Status.DRAFT, ChangeNotice.Status.CCB_PREPARATION)
+    if change_notice.status not in allowed:
+        raise ValidationError(
+            "La configurazione CCB è possibile solo su ECN in bozza o istruttoria. "
+            f"Stato attuale: {change_notice.get_status_display()}."
+        )
+
+    # Assegna approvatori usando il service esistente (backward-compat)
+    set_change_notice_approvers(change_notice, users, policy=policy, actor=actor)
+
+    old_status = change_notice.status
+
+    # Cattura il coordinatore precedente prima del save per rilevare il cambiamento
+    try:
+        from ecn.models import ChangeNotice as _CN
+        old_coordinator = _CN.objects.get(pk=change_notice.pk).ccb_coordinator
+    except Exception:
+        old_coordinator = None
+
+    with transaction.atomic():
+        update_fields = []
+        if coordinator is not None:
+            change_notice.ccb_coordinator = coordinator
+            update_fields.append('ccb_coordinator')
+        if change_notice.status == ChangeNotice.Status.DRAFT:
+            change_notice.status = ChangeNotice.Status.CCB_PREPARATION
+            update_fields.append('status')
+        if update_fields:
+            change_notice.save(update_fields=update_fields)
+
+    try:
+        from auditlog.services import create_audit_log
+        create_audit_log(
+            user=actor,
+            action='CCB_CONFIGURED',
+            instance=change_notice,
+            old_values={'status': old_status},
+            new_values={
+                'status': change_notice.status,
+                'approver_count': len(list(users)) if hasattr(users, '__len__') else '?',
+                'coordinator_id': coordinator.pk if coordinator else None,
+                'policy': change_notice.ccb_policy,
+            },
+            document=change_notice.document,
+            document_version=change_notice.document_version,
+            metadata={
+                'ecn_id': change_notice.pk,
+                'code': change_notice.code,
+                'new_status': change_notice.status,
+            },
+        )
+    except Exception:
+        pass
+
+    # Notifica il coordinatore se è stato appena assegnato o è cambiato
+    new_coordinator = change_notice.ccb_coordinator
+    if send_notifications and new_coordinator and (old_coordinator is None or old_coordinator.pk != new_coordinator.pk):
+        _notify_silently('notify_ecn_coordinator_assigned', change_notice)
+        try:
+            from notifications.inbox import notify_ccb_dossier_assigned
+            notify_ccb_dossier_assigned(change_notice)
+        except Exception:
+            pass
+
+    return change_notice
+
+
+def update_ccb_dossier(
+    change_notice,
+    actor,
+    ccb_class=None,
+    ccb_requirements='',
+    ccb_technical_impact='',
+    ccb_cost_impact='',
+    ccb_time_impact='',
+    ccb_quality_impact='',
+    ccb_other_impact='',
+    ccb_notes='',
+):
+    """
+    Aggiorna i campi del dossier istruttorio CCB.
+    Consentito solo in DRAFT o CCB_PREPARATION.
+    Dopo l'invio alla CCB (UNDER_REVIEW+) il dossier è congelato.
+
+    - actor: utente che compie la modifica (per permessi e AuditLog).
+
+    Raises:
+      PermissionDenied: se l'utente non ha can_compile_dossier.
+      ValidationError: se lo stato non è DRAFT o CCB_PREPARATION.
+    """
+    from ecn.models import ChangeNotice
+    from ecn.permissions import can_compile_dossier
+    from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+
+    if change_notice.status not in (
+        ChangeNotice.Status.DRAFT,
+        ChangeNotice.Status.CCB_PREPARATION,
+    ):
+        raise ValidationError(
+            "Il dossier può essere modificato solo in bozza o istruttoria CCB. "
+            f"Stato attuale: {change_notice.get_status_display()}."
+        )
+
+    if not can_compile_dossier(actor, change_notice):
+        raise DjangoPermissionDenied(
+            "Non hai il permesso di modificare il dossier istruttorio."
+        )
+
+    with transaction.atomic():
+        update_fields_list = [
+            'ccb_requirements', 'ccb_technical_impact', 'ccb_cost_impact',
+            'ccb_time_impact', 'ccb_quality_impact', 'ccb_other_impact', 'ccb_notes',
+        ]
+        change_notice.ccb_requirements     = ccb_requirements
+        change_notice.ccb_technical_impact = ccb_technical_impact
+        change_notice.ccb_cost_impact      = ccb_cost_impact
+        change_notice.ccb_time_impact      = ccb_time_impact
+        change_notice.ccb_quality_impact   = ccb_quality_impact
+        change_notice.ccb_other_impact     = ccb_other_impact
+        change_notice.ccb_notes            = ccb_notes
+        if ccb_class:
+            change_notice.ccb_class = ccb_class
+            update_fields_list.append('ccb_class')
+        change_notice.save(update_fields=update_fields_list)
+
+    try:
+        from auditlog.services import create_audit_log
+        create_audit_log(
+            user=actor,
+            action='CCB_DOSSIER_UPDATED',
+            instance=change_notice,
+            old_values=None,
+            new_values={
+                'ccb_class': change_notice.ccb_class,
+                'ccb_requirements': bool(ccb_requirements),
+                'ccb_technical_impact': bool(ccb_technical_impact),
+            },
+            document=change_notice.document,
+            document_version=change_notice.document_version,
+            metadata={'ecn_id': change_notice.pk, 'code': change_notice.code},
+        )
+    except Exception:
+        pass
 
     return change_notice
 

@@ -1,0 +1,18 @@
+Gentile {{ recipient.get_full_name|default:recipient.username }},
+
+è stato espresso un voto sull'ECN {{ change_notice.code }} «{{ change_notice.title }}».
+
+Votante   : {{ voter.get_full_name|default:voter.username }}
+Decisione : {% if decision == 'approve' %}Approvato{% else %}Rifiutato{% endif %}
+{% if comment %}Commento  : {{ comment }}
+{% endif %}
+Documento : {{ change_notice.document.code }} — {{ change_notice.document.title }}
+Policy CCB: {{ change_notice.get_ccb_policy_display }}
+Stato ECN : {{ change_notice.get_status_display }}
+
+{% if is_next_sequential %}
+È ora il tuo turno: accedi al sistema per esprimere la tua decisione su {{ change_notice.code }}.
+{% endif %}
+Accedi al sistema documentale per vedere lo stato completo della pratica.
+
+Questo messaggio è generato automaticamente, non rispondere a questa email.

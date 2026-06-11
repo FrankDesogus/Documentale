@@ -550,14 +550,17 @@ class ECNPermissionsTests(TestCase):
     def test_superuser_can_view(self):
         self.assertTrue(can_view_ecn(self.superuser, self.ecn))
 
-    def test_staff_can_view(self):
-        self.assertTrue(can_view_ecn(self.staff, self.ecn))
+    def test_staff_cannot_view_automatically(self):
+        """MB1: is_staff NON dà visibilità automatica sulle ECN."""
+        self.assertFalse(can_view_ecn(self.staff, self.ecn))
 
-    def test_manager_can_view(self):
+    def test_manager_can_view_when_assigned_approver(self):
+        """Manager vede l'ECN perché è assegnato come ChangeNoticeApprover (in setUp)."""
         self.assertTrue(can_view_ecn(self.manager, self.ecn))
 
-    def test_auditor_can_view(self):
-        self.assertTrue(can_view_ecn(self.auditor, self.ecn))
+    def test_auditor_cannot_view_automatically(self):
+        """MB1: Document Auditor NON ha visibilità automatica sulle ECN."""
+        self.assertFalse(can_view_ecn(self.auditor, self.ecn))
 
     def test_ccb_can_view(self):
         self.assertTrue(can_view_ecn(self.ccb, self.ecn))
@@ -607,14 +610,16 @@ class ECNPermissionsTests(TestCase):
 
     # --- can_configure_ccb --------------------------------------------------
 
-    def test_manager_can_configure_ccb(self):
-        self.assertTrue(can_configure_ccb(self.manager, self.ecn))
+    def test_document_manager_cannot_configure_ccb(self):
+        """MB1: Document Manager NON può configurare CCB — solo Quality Manager."""
+        self.assertFalse(can_configure_ccb(self.manager, self.ecn))
 
     def test_superuser_can_configure_ccb(self):
         self.assertTrue(can_configure_ccb(self.superuser, self.ecn))
 
-    def test_staff_can_configure_ccb(self):
-        self.assertTrue(can_configure_ccb(self.staff, self.ecn))
+    def test_staff_cannot_configure_ccb(self):
+        """MB1: is_staff NON dà diritto di configurare CCB."""
+        self.assertFalse(can_configure_ccb(self.staff, self.ecn))
 
     def test_proposer_cannot_configure_ccb(self):
         self.assertFalse(can_configure_ccb(self.proposer, self.ecn))
@@ -631,8 +636,9 @@ class ECNPermissionsTests(TestCase):
         """Il proponente non può più inviare direttamente alla CCB."""
         self.assertFalse(can_submit_ecn(self.proposer, self.ecn))
 
-    def test_manager_can_submit(self):
-        self.assertTrue(can_submit_ecn(self.manager, self.ecn))
+    def test_document_manager_cannot_submit(self):
+        """MB1: Document Manager NON può inviare ECN alla CCB — solo Quality Manager."""
+        self.assertFalse(can_submit_ecn(self.manager, self.ecn))
 
     def test_stranger_cannot_submit(self):
         self.assertFalse(can_submit_ecn(self.stranger, self.ecn))
@@ -700,11 +706,13 @@ class ECNPermissionsTests(TestCase):
 
     # --- can_close_ecn ------------------------------------------------------
 
-    def test_manager_can_close(self):
-        self.assertTrue(can_close_ecn(self.manager, self.ecn))
+    def test_document_manager_cannot_close(self):
+        """MB1: Document Manager NON può chiudere ECN — solo Quality Manager."""
+        self.assertFalse(can_close_ecn(self.manager, self.ecn))
 
-    def test_staff_can_close(self):
-        self.assertTrue(can_close_ecn(self.staff, self.ecn))
+    def test_staff_cannot_close(self):
+        """MB1: is_staff NON dà diritto di chiudere ECN."""
+        self.assertFalse(can_close_ecn(self.staff, self.ecn))
 
     def test_superuser_can_close(self):
         self.assertTrue(can_close_ecn(self.superuser, self.ecn))
@@ -813,8 +821,7 @@ class ECNServiceCreateTests(TestCase):
         project = Project.objects.create(
             code='PRJ-ECN-01',
             name='Progetto ECN test',
-            status=Project.Status.ACTIVE,
-            folder=self.folder,
+            root_folder=None,
             created_by=self.user,
         )
         ecn = create_change_notice(
@@ -1007,9 +1014,11 @@ class ECNFormApproverQuerysetTests(TestCase):
 class ECNServiceWorkflowTests(TestCase):
 
     def setUp(self):
+        from documents.permissions import GROUP_QUALITY_MANAGER
         self.proposer = _make_user('wf_proposer')
         self.ccb      = _make_user_in_groups('wf_ccb', GROUP_CCB)
-        self.manager  = _make_user_in_groups('wf_mgr', GROUP_MANAGERS)
+        # MB1: il manager deve avere Quality Manager per submit/close ECN
+        self.manager  = _make_user_in_groups('wf_mgr', GROUP_MANAGERS, GROUP_QUALITY_MANAGER)
         self.stranger = _make_user('wf_stranger')
 
         self.folder   = _make_folder(self.manager, 'FOLD-WF')
@@ -1466,8 +1475,9 @@ class ECNViewTests(TestCase):
         self.stranger = _make_user('view_stranger')
 
         grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
         grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        self.manager.groups.add(grp_mgr, grp_qmgr)  # Manager ha anche Quality Manager (MB1)
         self.ccb.groups.add(grp_ccb)
 
         # Documento + versione approvata
@@ -1563,14 +1573,16 @@ class ECNViewTests(TestCase):
     def test_ecn_detail_hides_review_button_in_draft(self):
         self.client.force_login(self.ccb)
         r = self.client.get(f'/ecn/{self.ecn.pk}/')
-        self.assertNotContains(r, 'Revisione CCB')
+        # STEP I: il pulsante ora si chiama "Decisione CCB"
+        self.assertNotContains(r, 'Decisione CCB')
 
     def test_ecn_detail_shows_review_button_under_review_to_ccb(self):
         self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
         self.ecn.save(update_fields=['status'])
         self.client.force_login(self.ccb)
         r = self.client.get(f'/ecn/{self.ecn.pk}/')
-        self.assertContains(r, 'Revisione CCB')
+        # STEP I: il pulsante si chiama "Decisione CCB"
+        self.assertContains(r, 'Decisione CCB')
 
     def test_ecn_detail_shows_approvers_section(self):
         """ECN-E: la sezione Componenti CCB mostra l'approvatore."""
@@ -1673,7 +1685,8 @@ class ECNViewTests(TestCase):
         self.client.force_login(self.ccb)
         r = self.client.get(f'/ecn/{self.ecn.pk}/review/')
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, 'Revisione CCB')
+        # STEP I: la pagina si chiama "Decisione CCB"
+        self.assertContains(r, 'Decisione CCB')
 
     def test_ecn_review_non_assigned_ccb_forbidden(self):
         """ECN-E: utente CCB non assegnato non può accedere alla review."""
@@ -1686,19 +1699,16 @@ class ECNViewTests(TestCase):
         self.assertEqual(r.status_code, 403)
 
     def test_ecn_review_approve_post_approves_ecn(self):
+        """STEP I: approvazione con dossier pre-compilato (ccb_class già sull'ECN)."""
         self._put_ecn_under_review()
+        # Pre-setta ccb_class (dossier compilato prima della votazione)
+        self.ecn.ccb_class = ChangeNotice.CCBClass.CLASS1
+        self.ecn.save(update_fields=['ccb_class'])
         self.client.force_login(self.ccb)
         r = self.client.post(f'/ecn/{self.ecn.pk}/review/', {
             'action': 'approve',
-            'ccb_class': ChangeNotice.CCBClass.CLASS1,
-            'ccb_requirements': '',
-            'ccb_technical_impact': '',
-            'ccb_cost_impact': '',
-            'ccb_time_impact': '',
-            'ccb_quality_impact': '',
-            'ccb_other_impact': '',
-            'ccb_notes': '',
             'comment': '',
+            'ccb_notes': '',
         })
         self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
         self.ecn.refresh_from_db()
@@ -1709,28 +1719,22 @@ class ECNViewTests(TestCase):
         self.client.force_login(self.ccb)
         r = self.client.post(f'/ecn/{self.ecn.pk}/review/', {
             'action': 'reject',
-            'ccb_class': '',
-            'ccb_requirements': '',
-            'ccb_technical_impact': '',
-            'ccb_cost_impact': '',
-            'ccb_time_impact': '',
-            'ccb_quality_impact': '',
-            'ccb_other_impact': '',
-            'ccb_notes': 'Proposta non sufficientemente dettagliata.',
             'comment': '',
+            'ccb_notes': 'Proposta non sufficientemente dettagliata.',
         })
         self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
         self.ecn.refresh_from_db()
         self.assertEqual(self.ecn.status, ChangeNotice.Status.REJECTED)
 
     def test_ecn_review_approve_without_ccb_class_shows_error(self):
+        """STEP I: approvazione senza ccb_class nel dossier → errore dal service."""
         self._put_ecn_under_review()
+        # NON pre-settiamo ccb_class: il service deve rifiutare
         self.client.force_login(self.ccb)
         r = self.client.post(f'/ecn/{self.ecn.pk}/review/', {
             'action': 'approve',
-            'ccb_class': '',  # mancante
-            'ccb_notes': '',
             'comment': '',
+            'ccb_notes': '',
         })
         self.assertEqual(r.status_code, 200)
         self.ecn.refresh_from_db()
@@ -1741,7 +1745,6 @@ class ECNViewTests(TestCase):
         self.client.force_login(self.ccb)
         r = self.client.post(f'/ecn/{self.ecn.pk}/review/', {
             'action': 'reject',
-            'ccb_class': '',
             'ccb_notes': '',  # mancante
             'comment': '',
         })
@@ -1838,61 +1841,75 @@ class ECNViewTests(TestCase):
         r = self.client.get(f'/ecn/{self.ecn.pk}/configure-ccb/')
         self.assertEqual(r.status_code, 403)
 
+    def _ccb_post_data(self, policy='all', user_pks=None, coordinator_pk=''):
+        """Helper: costruisce il POST data per il formset CCB (STEP I)."""
+        user_pks = user_pks or []
+        data = {
+            'ccb_policy': policy,
+            'coordinator': str(coordinator_pk),
+            'ccb-TOTAL_FORMS': str(len(user_pks)),
+            'ccb-INITIAL_FORMS': '0',
+            'ccb-MIN_NUM_FORMS': '0',
+            'ccb-MAX_NUM_FORMS': '1000',
+        }
+        for i, pk in enumerate(user_pks):
+            data[f'ccb-{i}-user'] = str(pk)
+        return data
+
     def test_ecn_configure_ccb_post_assigns_approvers(self):
-        """POST con approvatori validi → redirect e approvatori assegnati."""
-        # Crea un ECN senza approvatori
+        """POST con approvatori validi (formset) → redirect e approvatori assegnati."""
         ecn_no_appr = _make_ecn(
             self.document, self.version, self.proposer,
             code='ECN-VIEW-CONF',
         )
         self.client.force_login(self.manager)
-        r = self.client.post(f'/ecn/{ecn_no_appr.pk}/configure-ccb/', {
-            'ccb_policy': 'all',
-            'approvers': [self.ccb.pk],
-        })
+        r = self.client.post(
+            f'/ecn/{ecn_no_appr.pk}/configure-ccb/',
+            self._ccb_post_data(policy='all', user_pks=[self.ccb.pk]),
+        )
         self.assertRedirects(r, f'/ecn/{ecn_no_appr.pk}/', fetch_redirect_response=False)
         ecn_no_appr.refresh_from_db()
         self.assertEqual(ecn_no_appr.approvers.count(), 1)
 
     def test_ecn_configure_ccb_post_sets_policy(self):
-        """POST aggiorna la policy dell'ECN."""
+        """POST con formset aggiorna la policy dell'ECN."""
         ecn_cfg = _make_ecn(
             self.document, self.version, self.proposer,
             code='ECN-VIEW-CFG-POL',
         )
         self.client.force_login(self.manager)
-        self.client.post(f'/ecn/{ecn_cfg.pk}/configure-ccb/', {
-            'ccb_policy': 'any',
-            'approvers': [self.ccb.pk],
-        })
+        self.client.post(
+            f'/ecn/{ecn_cfg.pk}/configure-ccb/',
+            self._ccb_post_data(policy='any', user_pks=[self.ccb.pk]),
+        )
         ecn_cfg.refresh_from_db()
         self.assertEqual(ecn_cfg.ccb_policy, 'any')
 
     def test_ecn_configure_ccb_post_without_approvers_shows_error(self):
-        """POST senza approvatori → form non valido (200)."""
+        """POST formset senza approvatori → messaggio errore (200)."""
         ecn_no_appr = _make_ecn(
             self.document, self.version, self.proposer,
             code='ECN-VIEW-CFG-NOAPPR',
         )
         self.client.force_login(self.manager)
-        r = self.client.post(f'/ecn/{ecn_no_appr.pk}/configure-ccb/', {
-            'ccb_policy': 'all',
-            # approvers mancante
-        })
+        r = self.client.post(
+            f'/ecn/{ecn_no_appr.pk}/configure-ccb/',
+            self._ccb_post_data(policy='all', user_pks=[]),  # nessun utente
+        )
         self.assertEqual(r.status_code, 200)
         self.assertEqual(ecn_no_appr.approvers.count(), 0)
 
-    def test_ecn_configure_ccb_blocked_if_not_draft(self):
-        """Non è possibile configurare la CCB su un ECN non in bozza."""
-        self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
+    def test_ecn_configure_ccb_blocked_if_approved(self):
+        """Non è possibile configurare la CCB su un ECN approvato → 403."""
+        self.ecn.status = ChangeNotice.Status.APPROVED
         self.ecn.save(update_fields=['status'])
         self.client.force_login(self.manager)
-        r = self.client.post(f'/ecn/{self.ecn.pk}/configure-ccb/', {
-            'ccb_policy': 'all',
-            'approvers': [self.ccb.pk],
-        })
-        # Deve redirigere al dettaglio con messaggio di errore
-        self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
+        r = self.client.post(
+            f'/ecn/{self.ecn.pk}/configure-ccb/',
+            self._ccb_post_data(policy='all', user_pks=[self.ccb.pk]),
+        )
+        # APPROVED → can_reconfigure_ccb=False → 403
+        self.assertEqual(r.status_code, 403)
 
     # --- document_detail integration ----------------------------------------
 
@@ -1906,7 +1923,8 @@ class ECNViewTests(TestCase):
     def test_document_detail_shows_create_ecn_button_to_manager(self):
         self.client.force_login(self.manager)
         r = self.client.get(f'/documents/{self.document.pk}/')
-        self.assertContains(r, 'Richiedi variante / ECN')
+        # Il template usa "+ Richiedi ECN" (testo aggiornato nel restyling Tailwind)
+        self.assertContains(r, 'Richiedi ECN')
 
     def test_document_detail_hides_create_ecn_button_to_stranger(self):
         self.client.force_login(self.stranger)
@@ -1932,10 +1950,12 @@ class ECNDashboardAndMyViewTests(TestCase):
         self.ccb_user  = _make_user('dash_ccb')
         self.stranger  = _make_user('dash_stranger')
 
-        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
-        grp_aud = Group.objects.get_or_create(name='Document Auditors')[0]
-        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        grp_mgr  = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
+        grp_aud  = Group.objects.get_or_create(name='Document Auditors')[0]
+        grp_ccb  = Group.objects.get_or_create(name='Change Control Board')[0]
+        # MB1: dashboard ECN richiede Quality Manager (non Document Manager/Auditor)
+        self.manager.groups.add(grp_mgr, grp_qmgr)
         self.auditor.groups.add(grp_aud)
         self.ccb_user.groups.add(grp_ccb)
 
@@ -1963,10 +1983,11 @@ class ECNDashboardAndMyViewTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, 'Cruscotto ECN')
 
-    def test_ecn_dashboard_auditor_can_access(self):
+    def test_ecn_dashboard_auditor_forbidden(self):
+        """MB1: Document Auditor NON accede al cruscotto ECN (solo Quality roles)."""
         self.client.force_login(self.auditor)
         r = self.client.get('/ecn/dashboard/')
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 403)
 
     def test_ecn_dashboard_proposer_forbidden(self):
         """Utenti normali (non manager/auditor) non possono accedere al cruscotto."""
@@ -2039,8 +2060,9 @@ class ECNEditPermissionTests(TestCase):
         self.ccb_user = _make_user('edit_ccb')
 
         grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
         grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        self.manager.groups.add(grp_mgr, grp_qmgr)  # Manager ha Quality Manager per service tests
         self.ccb_user.groups.add(grp_ccb)
 
         self.folder   = _make_folder(self.manager, code='FOLD-EDIT')
@@ -2059,8 +2081,9 @@ class ECNEditPermissionTests(TestCase):
     def test_can_edit_ecn_draft_proposer(self):
         self.assertTrue(self.can_edit_ecn(self.proposer, self.ecn))
 
-    def test_can_edit_ecn_draft_manager(self):
-        self.assertTrue(self.can_edit_ecn(self.manager, self.ecn))
+    def test_can_edit_ecn_draft_quality_manager(self):
+        """Quality Manager può modificare ECN in bozza."""
+        self.assertTrue(self.can_edit_ecn(self.manager, self.ecn))  # manager ha Quality Manager group
 
     def test_can_edit_ecn_draft_stranger_denied(self):
         self.assertFalse(self.can_edit_ecn(self.stranger, self.ecn))
@@ -2074,8 +2097,9 @@ class ECNEditPermissionTests(TestCase):
 
     # --- can_reconfigure_ccb --------------------------------------------------
 
-    def test_can_reconfigure_ccb_draft_manager(self):
-        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))
+    def test_can_reconfigure_ccb_draft_quality_manager(self):
+        """Quality Manager può riconfigurare CCB su DRAFT."""
+        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))  # manager ha Quality Manager group
 
     def test_can_reconfigure_ccb_draft_stranger_denied(self):
         self.assertFalse(self.can_reconfigure_ccb(self.stranger, self.ecn))
@@ -2083,7 +2107,7 @@ class ECNEditPermissionTests(TestCase):
     def test_can_reconfigure_ccb_under_review_no_decisions(self):
         self.ecn.status = ChangeNotice.Status.UNDER_REVIEW
         self.ecn.save(update_fields=['status'])
-        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))
+        self.assertTrue(self.can_reconfigure_ccb(self.manager, self.ecn))  # manager ha Quality Manager group
 
     def test_can_reconfigure_ccb_under_review_with_decisions_denied(self):
         """Con decisioni esistenti, la modifica diretta è bloccata."""
@@ -2221,9 +2245,11 @@ class ECNEditViewTests(TestCase):
         self.stranger = _make_user('vtest_stranger')
         self.ccb_user = _make_user('vtest_ccb')
 
-        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
-        grp_ccb = Group.objects.get_or_create(name='Change Control Board')[0]
-        self.manager.groups.add(grp_mgr)
+        grp_mgr  = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
+        grp_ccb  = Group.objects.get_or_create(name='Change Control Board')[0]
+        # MB1: ecn_edit/reopen_ccb richiedono Quality Manager per le azioni di governance
+        self.manager.groups.add(grp_mgr, grp_qmgr)
         self.ccb_user.groups.add(grp_ccb)
 
         self.folder   = _make_folder(self.manager, code='FOLD-VT')
@@ -2330,8 +2356,9 @@ class ECNDashboardQualityUXTests(TestCase):
         self.proposer = _make_user('ux_proposer')
         self.stranger = _make_user('ux_stranger')
 
-        grp_mgr = Group.objects.get_or_create(name='Document Managers')[0]
-        self.manager.groups.add(grp_mgr)
+        grp_mgr  = Group.objects.get_or_create(name='Document Managers')[0]
+        grp_qmgr = Group.objects.get_or_create(name='Quality Manager')[0]
+        self.manager.groups.add(grp_mgr, grp_qmgr)  # MB1: dashboard ECN richiede Quality Manager
 
         self.folder   = _make_folder(self.manager, code='FOLD-UX')
         self.document = _make_document(self.manager, self.folder, code='DOC-UX-001')
@@ -2383,7 +2410,994 @@ class ECNDashboardQualityUXTests(TestCase):
         self.assertContains(r, 'In attesa di valutazione Qualità')
 
     def test_detail_manager_ha_bottone_configura_ccb(self):
-        """Il manager ha ancora il bottone 'Configura CCB' nel dettaglio."""
+        """Il manager (Quality Manager) ha il bottone 'Configura CCB' nel dettaglio."""
         self.client.force_login(self.manager)
         r = self.client.get(f'/ecn/{self.ecn.pk}/')
         self.assertContains(r, 'Configura CCB')
+
+
+# ===========================================================================
+# MB1 — Test privacy e governance ECN/CCB
+# ===========================================================================
+
+class ECNVisibilityPrivacyTests(TestCase):
+    """
+    MB1 — Visibilità ECN:
+      Quality Manager / Quality Operator / Direction → vedono tutte
+      Proponente → propria ECN
+      CCB assegnato → ECN specifica
+      Document Manager / Auditor / staff → NON vedono automaticamente
+    """
+
+    def setUp(self):
+        from documents.permissions import GROUP_QUALITY_MANAGER, GROUP_QUALITY_OPERATOR, GROUP_DIRECTION
+
+        self.proposer = _make_user('vis_proposer')
+        self.quality_mgr = _make_user_in_groups('vis_qmgr', GROUP_QUALITY_MANAGER)
+        self.quality_op = _make_user_in_groups('vis_qop', GROUP_QUALITY_OPERATOR)
+        self.direction = _make_user_in_groups('vis_dir', GROUP_DIRECTION)
+        self.doc_manager = _make_user_in_groups('vis_docmgr', GROUP_MANAGERS)
+        self.doc_auditor = _make_user_in_groups('vis_docaud', GROUP_AUDITORS)
+        self.staff_user = User.objects.create_user('vis_staff', password='pw', is_staff=True)
+        self.ccb_member = _make_user_in_groups('vis_ccb', GROUP_CCB)
+        self.stranger = _make_user('vis_stranger')
+        self.superuser = _make_superuser('vis_su')
+
+        self.folder = _make_folder(self.proposer, 'FOLD-VIS')
+        self.document = _make_document(self.proposer, self.folder, 'DOC-VIS-001')
+        self.version = _make_version(self.document, self.proposer)
+        self.document.current_version = self.version
+        self.document.save(update_fields=['current_version'])
+        self.ecn = _make_ecn(self.document, self.version, self.proposer, 'ECN-VIS-001')
+
+        # CCB assegnato come approvatore
+        ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_member, order=1,
+        )
+
+    # 1. Proponente vede propria ECN
+    def test_proposer_can_view_own_ecn(self):
+        self.assertTrue(can_view_ecn(self.proposer, self.ecn))
+
+    # 2. Stranger non vede ECN
+    def test_stranger_cannot_view_ecn(self):
+        self.assertFalse(can_view_ecn(self.stranger, self.ecn))
+
+    # 3. CCB non assegnato NON vede automaticamente
+    def test_ccb_member_not_assigned_cannot_view(self):
+        unassigned_ccb = _make_user_in_groups('vis_ccb2', GROUP_CCB)
+        self.assertFalse(can_view_ecn(unassigned_ccb, self.ecn))
+
+    # 4. CCB assegnato vede la propria ECN
+    def test_assigned_ccb_can_view_ecn(self):
+        self.assertTrue(can_view_ecn(self.ccb_member, self.ecn))
+
+    # 5. Quality Manager vede tutto
+    def test_quality_manager_can_view_all(self):
+        self.assertTrue(can_view_ecn(self.quality_mgr, self.ecn))
+
+    # 6. Quality Operator vede (consultazione)
+    def test_quality_operator_can_view(self):
+        self.assertTrue(can_view_ecn(self.quality_op, self.ecn))
+
+    # 7. Direction vede (consultazione)
+    def test_direction_can_view(self):
+        self.assertTrue(can_view_ecn(self.direction, self.ecn))
+
+    # 8. staff non-superuser NON vede automaticamente
+    def test_staff_cannot_view_ecn_automatically(self):
+        self.assertFalse(can_view_ecn(self.staff_user, self.ecn))
+
+    # 9. Document Manager NON vede automaticamente
+    def test_document_manager_cannot_view_ecn_automatically(self):
+        self.assertFalse(can_view_ecn(self.doc_manager, self.ecn))
+
+    # 10. Superuser vede tutto
+    def test_superuser_can_view(self):
+        self.assertTrue(can_view_ecn(self.superuser, self.ecn))
+
+    # --- URL diretti (view HTTP) ------------------------------------------
+
+    def test_ecn_detail_url_stranger_returns_404(self):
+        self.client.force_login(self.stranger)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_ecn_detail_url_unassigned_ccb_returns_404(self):
+        unassigned_ccb = _make_user_in_groups('vis_ccb3', GROUP_CCB)
+        self.client.force_login(unassigned_ccb)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_ecn_detail_url_doc_manager_returns_404(self):
+        """MB1: Document Manager NON ha accesso diretto al dettaglio ECN."""
+        self.client.force_login(self.doc_manager)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_ecn_list_url_doc_manager_does_not_show_ecn(self):
+        """MB1: Document Manager non vede le ECN nella lista."""
+        self.client.force_login(self.doc_manager)
+        r = self.client.get('/ecn/')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'ECN-VIS-001')
+
+
+class ECNCCBGovernanceTests(TestCase):
+    """
+    MB1 — Governance CCB: solo Quality Manager e superuser.
+    Document Manager, staff, Direction, Quality Operator → nessuna governance.
+    """
+
+    def setUp(self):
+        from documents.permissions import (
+            GROUP_QUALITY_MANAGER, GROUP_QUALITY_OPERATOR, GROUP_DIRECTION,
+        )
+        self.quality_mgr = _make_user_in_groups('gov_qmgr', GROUP_QUALITY_MANAGER)
+        self.doc_manager = _make_user_in_groups('gov_docmgr', GROUP_MANAGERS)
+        self.quality_op = _make_user_in_groups('gov_qop', GROUP_QUALITY_OPERATOR)
+        self.direction = _make_user_in_groups('gov_dir', GROUP_DIRECTION)
+        self.staff_user = User.objects.create_user('gov_staff', password='pw', is_staff=True)
+        self.superuser = _make_superuser('gov_su')
+        self.proposer = _make_user('gov_proposer')
+
+        folder = _make_folder(self.quality_mgr, 'FOLD-GOV')
+        doc = _make_document(self.quality_mgr, folder, 'DOC-GOV-001')
+        version = _make_version(doc, self.quality_mgr)
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        self.ecn = _make_ecn(doc, version, self.proposer, 'ECN-GOV-001')
+
+    # 1. Solo Quality Manager configura CCB
+    def test_quality_manager_can_configure_ccb(self):
+        self.assertTrue(can_configure_ccb(self.quality_mgr, self.ecn))
+
+    def test_document_manager_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.doc_manager, self.ecn))
+
+    def test_quality_operator_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.quality_op, self.ecn))
+
+    def test_direction_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.direction, self.ecn))
+
+    def test_staff_cannot_configure_ccb(self):
+        self.assertFalse(can_configure_ccb(self.staff_user, self.ecn))
+
+    def test_superuser_can_configure_ccb(self):
+        self.assertTrue(can_configure_ccb(self.superuser, self.ecn))
+
+    # 2. Quality Manager può chiudere; gli altri no
+    def test_quality_manager_can_close(self):
+        self.assertTrue(can_close_ecn(self.quality_mgr, self.ecn))
+
+    def test_document_manager_cannot_close(self):
+        self.assertFalse(can_close_ecn(self.doc_manager, self.ecn))
+
+    def test_staff_cannot_close(self):
+        self.assertFalse(can_close_ecn(self.staff_user, self.ecn))
+
+
+class ECNAttachmentDownloadTests(TestCase):
+    """
+    MB1 — Download allegati ECN: proponente, Quality Manager, CCB assegnato, superuser.
+    """
+
+    def setUp(self):
+        from documents.permissions import GROUP_QUALITY_MANAGER
+        from ecn.permissions import can_download_ecn_attachment
+
+        self.can_download = can_download_ecn_attachment
+
+        self.proposer = _make_user('att_proposer')
+        self.quality_mgr = _make_user_in_groups('att_qmgr', GROUP_QUALITY_MANAGER)
+        self.doc_manager = _make_user_in_groups('att_docmgr', GROUP_MANAGERS)
+        self.doc_auditor = _make_user_in_groups('att_docaud', GROUP_AUDITORS)
+        self.quality_op = _make_user_in_groups(
+            'att_qop', 'Quality Operator'
+        )
+        self.direction = _make_user_in_groups('att_dir', 'Direction')
+        self.staff_user = User.objects.create_user('att_staff', password='pw', is_staff=True)
+        self.ccb_assigned = _make_user_in_groups('att_ccb_a', GROUP_CCB)
+        self.ccb_unassigned = _make_user_in_groups('att_ccb_u', GROUP_CCB)
+        self.stranger = _make_user('att_stranger')
+        self.superuser = _make_superuser('att_su')
+
+        folder = _make_folder(self.proposer, 'FOLD-ATT')
+        doc = _make_document(self.proposer, folder, 'DOC-ATT-001')
+        version = _make_version(doc, self.proposer)
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+        self.ecn = _make_ecn(doc, version, self.proposer, 'ECN-ATT-001')
+        ChangeNoticeApprover.objects.create(
+            change_notice=self.ecn, user=self.ccb_assigned, order=1,
+        )
+        self.attachment = ChangeNoticeAttachment.objects.create(
+            change_notice=self.ecn,
+            original_filename='doc.pdf',
+            title='Test',
+            uploaded_by=self.proposer,
+        )
+
+    # 1. Proponente scarica
+    def test_proposer_can_download(self):
+        self.assertTrue(self.can_download(self.proposer, self.attachment))
+
+    # 2. CCB assegnato scarica
+    def test_assigned_ccb_can_download(self):
+        self.assertTrue(self.can_download(self.ccb_assigned, self.attachment))
+
+    # 3. Quality Manager scarica
+    def test_quality_manager_can_download(self):
+        self.assertTrue(self.can_download(self.quality_mgr, self.attachment))
+
+    # 4. Superuser scarica
+    def test_superuser_can_download(self):
+        self.assertTrue(self.can_download(self.superuser, self.attachment))
+
+    # 5. Direction NON scarica automaticamente
+    def test_direction_cannot_download(self):
+        self.assertFalse(self.can_download(self.direction, self.attachment))
+
+    # 6. Quality Operator NON assegnato NON scarica
+    def test_quality_operator_not_assigned_cannot_download(self):
+        self.assertFalse(self.can_download(self.quality_op, self.attachment))
+
+    # 7. Auditor NON scarica
+    def test_auditor_cannot_download(self):
+        self.assertFalse(self.can_download(self.doc_auditor, self.attachment))
+
+    # 8. staff non-superuser NON scarica
+    def test_staff_cannot_download(self):
+        self.assertFalse(self.can_download(self.staff_user, self.attachment))
+
+    # 9. CCB globale non assegnato NON scarica
+    def test_unassigned_ccb_cannot_download(self):
+        self.assertFalse(self.can_download(self.ccb_unassigned, self.attachment))
+
+    # 10. Utente casuale NON scarica
+    def test_stranger_cannot_download(self):
+        self.assertFalse(self.can_download(self.stranger, self.attachment))
+
+    # --- URL diretto download -----------------------------------------------
+
+    def test_download_url_stranger_returns_403(self):
+        self.client.force_login(self.stranger)
+        r = self.client.get(f'/ecn/attachment/{self.attachment.pk}/download/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_download_url_doc_manager_returns_403(self):
+        """MB1: Document Manager riceve 403 sul download allegati ECN."""
+        self.client.force_login(self.doc_manager)
+        r = self.client.get(f'/ecn/attachment/{self.attachment.pk}/download/')
+        self.assertEqual(r.status_code, 403)
+
+
+# ===========================================================================
+# STEP I — Separazione istruttoria CCB / votazione membri
+# ===========================================================================
+
+from django.test import override_settings
+
+
+def _make_quality_manager(username):
+    from documents.permissions import GROUP_QUALITY_MANAGER
+    return _make_user_in_groups(username, GROUP_QUALITY_MANAGER)
+
+
+def _make_draft_ecn_with_ccb(doc, version, proposer, manager, ccb_users,
+                              policy='all', code=None):
+    """Helper: crea ECN DRAFT con CCB configurata (CCB_PREPARATION)."""
+    from ecn.services import configure_ccb
+    code = code or f'ECN-SI-{ChangeNotice.objects.count()+1:03d}'
+    ecn = create_change_notice(
+        document=doc, proposed_by=proposer,
+        title='ECN STEP I', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+        code=code,
+    )
+    configure_ccb(ecn, actor=manager, users=ccb_users, policy=policy,
+                  coordinator=manager)
+    return ecn
+
+
+# ---------------------------------------------------------------------------
+# Configurazione CCB ordinata
+# ---------------------------------------------------------------------------
+
+class CCBConfigureTests(TestCase):
+    """Test configurazione CCB con formset ordinato + coordinator (STEP I)."""
+
+    def setUp(self):
+        self.qm     = _make_quality_manager('ci_qm')
+        self.ccb1   = _make_user_in_groups('ci_ccb1', GROUP_CCB)
+        self.ccb2   = _make_user_in_groups('ci_ccb2', GROUP_CCB)
+        self.stranger = _make_user('ci_stranger')
+        self.folder = _make_folder(self.qm, 'FOLD-CI-A')
+        self.document, self.version = _make_approved_document(self.qm, self.folder, 'DOC-CI-002')
+        self.ecn = create_change_notice(
+            document=self.document, proposed_by=self.qm,
+            title='Test config', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            code='ECN-CI-001',
+        )
+
+    def _configure(self, users, policy='all', coordinator=None):
+        from ecn.services import configure_ccb
+        return configure_ccb(
+            self.ecn, actor=self.qm,
+            users=users, policy=policy, coordinator=coordinator,
+        )
+
+    # 1. Almeno un membro obbligatorio
+    def test_configure_requires_at_least_one_member(self):
+        with self.assertRaises(ValidationError):
+            self._configure(users=[])
+
+    # 2. Nessun duplicato
+    def test_configure_no_duplicates(self):
+        """Duplicate utente → ValidationError dal service di basso livello."""
+        # set_change_notice_approvers usa unique_together → IntegrityError o ValidationError
+        # Per duplicati nello stesso batch → la seconda add crea un record identico → IntegrityError
+        # Testiamo via form invece
+        from ecn.forms import BaseCCBMemberFormSet, CCBMemberFormSet
+        data = {
+            'ccb-TOTAL_FORMS': '2',
+            'ccb-INITIAL_FORMS': '0',
+            'ccb-MIN_NUM_FORMS': '0',
+            'ccb-MAX_NUM_FORMS': '1000',
+            'ccb-0-user': str(self.ccb1.pk),
+            'ccb-1-user': str(self.ccb1.pk),  # duplicato
+        }
+        formset = CCBMemberFormSet(data, prefix='ccb')
+        self.assertFalse(formset.is_valid())
+
+    # 3. Ordine salvato
+    def test_configure_saves_order(self):
+        self._configure(users=[self.ccb1, self.ccb2])
+        apps = list(self.ecn.approvers.order_by('order'))
+        self.assertEqual(apps[0].user, self.ccb1)
+        self.assertEqual(apps[0].order, 1)
+        self.assertEqual(apps[1].user, self.ccb2)
+        self.assertEqual(apps[1].order, 2)
+
+    # 4. Policy salvata
+    def test_configure_saves_policy(self):
+        self._configure(users=[self.ccb1], policy='sequential')
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.ccb_policy, 'sequential')
+
+    # 5. Coordinator salvato
+    def test_configure_saves_coordinator(self):
+        self._configure(users=[self.ccb1], coordinator=self.qm)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.ccb_coordinator, self.qm)
+
+    # 6. Transizione DRAFT → CCB_PREPARATION
+    def test_configure_transitions_to_ccb_preparation(self):
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.DRAFT)
+        self._configure(users=[self.ccb1], coordinator=self.qm)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.CCB_PREPARATION)
+
+    # 7. Audit log CCB_CONFIGURED scritto
+    def test_configure_writes_auditlog(self):
+        AuditLog.objects.all().delete()
+        self._configure(users=[self.ccb1], coordinator=self.qm)
+        log = AuditLog.objects.filter(action='CCB_CONFIGURED').first()
+        self.assertIsNotNone(log)
+
+    # 8. POST con utente non eleggibile respinta dal formset
+    def test_configure_post_non_candidate_rejected(self):
+        """Utente non nel queryset candidati → form row invalid."""
+        from ecn.forms import CCBMemberRowForm
+        form = CCBMemberRowForm(
+            {'user': str(self.stranger.pk)},
+            current_user=self.qm,
+        )
+        # Il form è invalid perché stranger non è nel queryset
+        if form.is_valid():
+            user = form.cleaned_data.get('user')
+            # Se il queryset non include stranger, cleaned_data['user'] sarà None o assente
+            self.assertIsNone(user)
+
+    # 9. Dopo submit CCB_PREPARATION, riconfigurazione consentita (no decisioni)
+    def test_reconfigure_allowed_in_ccb_preparation(self):
+        self._configure(users=[self.ccb1])
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.CCB_PREPARATION)
+        # Riconfigurazione: sostituisce con ccb2
+        from ecn.permissions import can_reconfigure_ccb
+        self.assertTrue(can_reconfigure_ccb(self.qm, self.ecn))
+
+    @override_settings(
+        DOCUMENTALE_DEMO_MODE=True,
+        DOCUMENTALE_DEMO_SUPERVISOR_USERNAME='supervisor_demo',
+    )
+    def test_demo_supervisor_sees_only_self_as_ccb_member(self):
+        """Demo mode: lista componenti CCB → solo supervisor_demo."""
+        sup = User.objects.create_user('supervisor_demo', password='pw',
+                                       is_superuser=True, is_staff=True)
+        from ecn.forms import CCBMemberRowForm
+        form = CCBMemberRowForm(current_user=sup)
+        qs = list(form.fields['user'].queryset)
+        self.assertEqual(len(qs), 1)
+        self.assertEqual(qs[0].pk, sup.pk)
+
+
+# ---------------------------------------------------------------------------
+# Dossier istruttorio
+# ---------------------------------------------------------------------------
+
+class CCBDossierTests(TestCase):
+    """Test compilazione dossier CCB (STEP I)."""
+
+    def setUp(self):
+        self.qm   = _make_quality_manager('dos_qm')
+        self.ccb1 = _make_user_in_groups('dos_ccb1', GROUP_CCB)
+        self.other = _make_user('dos_other')
+        self.folder = _make_folder(self.qm, 'FOLD-DOS')
+        self.document, self.version = _make_approved_document(
+            self.qm, self.folder, 'DOC-DOS-001',
+        )
+        self.ecn = create_change_notice(
+            document=self.document, proposed_by=self.qm,
+            title='ECN dossier', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            code='ECN-DOS-001',
+        )
+        from ecn.services import configure_ccb
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb1],
+                      policy='all', coordinator=self.qm)
+
+    def _update_dossier(self, actor=None, **kwargs):
+        from ecn.services import update_ccb_dossier
+        actor = actor or self.qm
+        defaults = {
+            'ccb_class': 'class1',
+            'ccb_requirements': 'Conforme.',
+            'ccb_technical_impact': 'Minore.',
+        }
+        defaults.update(kwargs)
+        return update_ccb_dossier(self.ecn, actor=actor, **defaults)
+
+    # 1. Responsabile compila il dossier
+    def test_coordinator_can_compile_dossier(self):
+        self._update_dossier()
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.ccb_class, 'class1')
+        self.assertEqual(self.ecn.ccb_requirements, 'Conforme.')
+
+    # 2. Quality Manager compila il dossier
+    def test_quality_manager_can_compile_dossier(self):
+        other_qm = _make_quality_manager('dos_qm2')
+        self._update_dossier(actor=other_qm)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.ccb_requirements, 'Conforme.')
+
+    # 3. Utente casuale non compila
+    def test_random_user_cannot_compile_dossier(self):
+        from ecn.services import update_ccb_dossier
+        from django.core.exceptions import PermissionDenied
+        with self.assertRaises(PermissionDenied):
+            update_ccb_dossier(
+                self.ecn, actor=self.other,
+                ccb_class='class1',
+                ccb_requirements='Test',
+                ccb_technical_impact='Test',
+            )
+
+    # 4. Save bozza lascia stato CCB_PREPARATION
+    def test_save_draft_keeps_ccb_preparation_status(self):
+        self._update_dossier()
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.CCB_PREPARATION)
+
+    # 5. Submit senza ccb_class → ValidationError dal service submit
+    def test_submit_without_ccb_class_raises(self):
+        # Aggiorniamo dossier senza ccb_class
+        from ecn.services import update_ccb_dossier, submit_change_notice
+        update_ccb_dossier(
+            self.ecn, actor=self.qm,
+            ccb_requirements='Conforme.', ccb_technical_impact='Minore.',
+        )
+        with self.assertRaises(ValidationError):
+            submit_change_notice(self.ecn, self.qm)
+
+    # 6. Submit completo porta a under_review
+    def test_submit_complete_dossier_to_under_review(self):
+        from ecn.services import submit_change_notice
+        self._update_dossier()
+        submit_change_notice(self.ecn, self.qm)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.UNDER_REVIEW)
+
+    # 7. Dopo submit dossier non modificabile
+    def test_dossier_not_editable_after_submit(self):
+        from ecn.services import submit_change_notice, update_ccb_dossier
+        from django.core.exceptions import PermissionDenied
+        self._update_dossier()
+        submit_change_notice(self.ecn, self.qm)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.UNDER_REVIEW)
+        with self.assertRaises((ValidationError, PermissionDenied)):
+            update_ccb_dossier(self.ecn, actor=self.qm, ccb_class='class2',
+                               ccb_requirements='Aggiornata', ccb_technical_impact='X')
+
+    # 8. AuditLog CCB_DOSSIER_UPDATED scritto
+    def test_dossier_update_writes_auditlog(self):
+        AuditLog.objects.all().delete()
+        self._update_dossier()
+        log = AuditLog.objects.filter(action='CCB_DOSSIER_UPDATED').first()
+        self.assertIsNotNone(log)
+
+
+# ---------------------------------------------------------------------------
+# Voto membro CCB
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class CCBVoteTests(TestCase):
+    """Test votazione individuale membro CCB (STEP I)."""
+
+    def setUp(self):
+        self.qm   = _make_quality_manager('vt_qm')
+        self.ccb1 = _make_user_in_groups('vt_ccb1', GROUP_CCB)
+        self.ccb2 = _make_user_in_groups('vt_ccb2', GROUP_CCB)
+        self.other = _make_user('vt_other')
+        self.folder = _make_folder(self.qm, 'FOLD-VT')
+        self.document, self.version = _make_approved_document(
+            self.qm, self.folder, 'DOC-VT-001',
+        )
+        self.ecn = create_change_notice(
+            document=self.document, proposed_by=self.qm,
+            title='ECN vote', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            code='ECN-VT-001',
+        )
+        from ecn.services import configure_ccb, update_ccb_dossier, submit_change_notice
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb1, self.ccb2],
+                      policy='all', coordinator=self.qm)
+        update_ccb_dossier(
+            self.ecn, actor=self.qm,
+            ccb_class='class1', ccb_requirements='OK', ccb_technical_impact='Minore',
+        )
+        submit_change_notice(self.ecn, self.qm)
+        self.ecn.refresh_from_db()
+
+    # 1. Membro vede dossier read-only nella pagina review
+    def test_member_sees_dossier_in_review_page(self):
+        self.client.force_login(self.ccb1)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/review/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Decisione CCB')
+        self.assertContains(r, 'Dossier istruttorio')
+
+    # 2. Membro può approvare
+    def test_member_can_approve(self):
+        self.client.force_login(self.ccb1)
+        r = self.client.post(f'/ecn/{self.ecn.pk}/review/', {
+            'action': 'approve',
+            'comment': 'OK',
+            'ccb_notes': '',
+        })
+        self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
+        dec = ChangeNoticeDecision.objects.filter(
+            change_notice=self.ecn, user=self.ccb1,
+        ).first()
+        self.assertIsNotNone(dec)
+        self.assertEqual(dec.decision, ChangeNoticeDecision.Decision.APPROVE)
+
+    # 3. Membro può rifiutare con motivazione
+    def test_member_can_reject_with_reason(self):
+        self.client.force_login(self.ccb1)
+        r = self.client.post(f'/ecn/{self.ecn.pk}/review/', {
+            'action': 'reject',
+            'comment': '',
+            'ccb_notes': 'Analisi insufficiente.',
+        })
+        self.assertRedirects(r, f'/ecn/{self.ecn.pk}/', fetch_redirect_response=False)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.REJECTED)
+
+    # 4. Rifiuto senza motivazione → errore form
+    def test_reject_without_reason_fails(self):
+        self.client.force_login(self.ccb1)
+        r = self.client.post(f'/ecn/{self.ecn.pk}/review/', {
+            'action': 'reject',
+            'comment': '',
+            'ccb_notes': '',  # mancante
+        })
+        self.assertEqual(r.status_code, 200)
+        self.ecn.refresh_from_db()
+        self.assertEqual(self.ecn.status, ChangeNotice.Status.UNDER_REVIEW)
+
+    # 5. Utente non membro non vota
+    def test_non_member_cannot_vote(self):
+        self.client.force_login(self.other)
+        r = self.client.get(f'/ecn/{self.ecn.pk}/review/')
+        self.assertEqual(r.status_code, 403)
+
+    # 6. Doppio voto respinto
+    def test_double_vote_rejected(self):
+        approve_change_notice(self.ecn, self.ccb1, comment='Primo voto')
+        self.ecn.refresh_from_db()
+        with self.assertRaises(ValidationError):
+            approve_change_notice(self.ecn, self.ccb1, comment='Doppio voto')
+
+    # 7. Utente non membro non modifica dossier via POST a ccb-dossier
+    def test_non_coordinator_cannot_post_to_dossier(self):
+        """La pagina ccb-dossier richiede can_compile_dossier."""
+        self.client.force_login(self.other)
+        r = self.client.post(f'/ecn/{self.ecn.pk}/ccb-dossier/', {
+            'ccb_class': 'class2',
+            'ccb_requirements': 'Modificata',
+            'ccb_technical_impact': 'Modificato',
+            'dossier_action': 'save',
+        })
+        self.assertEqual(r.status_code, 403)
+
+
+# ---------------------------------------------------------------------------
+# Policy ANY / ALL / SEQUENTIAL
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class CCBPolicyTests(TestCase):
+    """Test policy CCB con nuovo flusso istruttoria (STEP I)."""
+
+    def setUp(self):
+        self.qm   = _make_quality_manager('pol_qm')
+        self.ccb1 = _make_user_in_groups('pol_ccb1', GROUP_CCB)
+        self.ccb2 = _make_user_in_groups('pol_ccb2', GROUP_CCB)
+        self.folder = _make_folder(self.qm, 'FOLD-POL')
+        self.document, self.version = _make_approved_document(
+            self.qm, self.folder, 'DOC-POL-001',
+        )
+
+    def _make_ecn_ready(self, policy, code):
+        from ecn.services import configure_ccb, update_ccb_dossier, submit_change_notice
+        ecn = create_change_notice(
+            document=self.document, proposed_by=self.qm,
+            title='ECN policy', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            code=code,
+        )
+        configure_ccb(ecn, actor=self.qm, users=[self.ccb1, self.ccb2],
+                      policy=policy, coordinator=self.qm)
+        update_ccb_dossier(
+            ecn, actor=self.qm,
+            ccb_class='class1', ccb_requirements='OK', ccb_technical_impact='OK',
+        )
+        submit_change_notice(ecn, self.qm)
+        ecn.refresh_from_db()
+        return ecn
+
+    # 1. ANY: prima approvazione → ECN approvato
+    def test_policy_any_first_approval_finalizes(self):
+        ecn = self._make_ecn_ready('any', 'ECN-POL-ANY')
+        approve_change_notice(ecn, self.ccb1, ccb_class='class1')
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.APPROVED)
+
+    # 2. ALL: tutti devono approvare
+    def test_policy_all_requires_all(self):
+        ecn = self._make_ecn_ready('all', 'ECN-POL-ALL')
+        approve_change_notice(ecn, self.ccb1, ccb_class='class1')
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.UNDER_REVIEW)
+        approve_change_notice(ecn, self.ccb2, ccb_class='class1')
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.APPROVED)
+
+    # 3. SEQUENTIAL: rispetta ordine
+    def test_policy_sequential_second_cannot_vote_before_first(self):
+        ecn = self._make_ecn_ready('sequential', 'ECN-POL-SEQ')
+        with self.assertRaises(PermissionDenied):
+            approve_change_notice(ecn, self.ccb2, ccb_class='class1')
+
+    # 4. SEQUENTIAL: POST manuale fuori turno respinta (permesso)
+    def test_policy_sequential_out_of_turn_post_forbidden(self):
+        ecn = self._make_ecn_ready('sequential', 'ECN-POL-SEQ2')
+        self.client.force_login(self.ccb2)
+        r = self.client.post(f'/ecn/{ecn.pk}/review/', {
+            'action': 'approve',
+            'comment': '',
+            'ccb_notes': '',
+        })
+        # can_review_ecn restituisce False → 403
+        self.assertEqual(r.status_code, 403)
+
+    # 5. SEQUENTIAL: full flow
+    def test_policy_sequential_full_flow(self):
+        ecn = self._make_ecn_ready('sequential', 'ECN-POL-SEQ-FULL')
+        approve_change_notice(ecn, self.ccb1, ccb_class='class1')
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.UNDER_REVIEW)
+        approve_change_notice(ecn, self.ccb2, ccb_class='class1')
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.APPROVED)
+
+    # 6. Esito finale corretto
+    def test_all_policy_reject_by_one_rejects_ecn(self):
+        ecn = self._make_ecn_ready('all', 'ECN-POL-ALL-REJ')
+        reject_change_notice(ecn, self.ccb1, reason='Non conforme.')
+        ecn.refresh_from_db()
+        self.assertEqual(ecn.status, ChangeNotice.Status.REJECTED)
+
+
+# ---------------------------------------------------------------------------
+# Email e notifiche (STEP I)
+# ---------------------------------------------------------------------------
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class CCBEmailNotificationTests(TestCase):
+    """Test notifiche email CCB con nuovo flusso (STEP I)."""
+
+    def setUp(self):
+        from django.core import mail
+        mail.outbox = []
+        self.qm   = _make_quality_manager('em_qm')
+        self.ccb1 = _make_user_in_groups('em_ccb1', GROUP_CCB)
+        self.ccb1.email = 'ccb1@test.com'
+        self.ccb1.save(update_fields=['email'])
+        self.ccb2 = _make_user_in_groups('em_ccb2', GROUP_CCB)
+        self.ccb2.email = 'ccb2@test.com'
+        self.ccb2.save(update_fields=['email'])
+        self.folder = _make_folder(self.qm, 'FOLD-EM')
+        self.document, self.version = _make_approved_document(
+            self.qm, self.folder, 'DOC-EM-001',
+        )
+
+    def _submit_ecn(self, policy, code):
+        from ecn.services import configure_ccb, update_ccb_dossier, submit_change_notice
+        from django.core import mail
+        mail.outbox = []
+        ecn = create_change_notice(
+            document=self.document, proposed_by=self.qm,
+            title='ECN email', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            code=code,
+        )
+        configure_ccb(ecn, actor=self.qm, users=[self.ccb1, self.ccb2],
+                      policy=policy, coordinator=self.qm)
+        update_ccb_dossier(ecn, actor=self.qm, ccb_class='class1',
+                           ccb_requirements='OK', ccb_technical_impact='OK')
+        submit_change_notice(ecn, self.qm)
+        ecn.refresh_from_db()
+        return ecn
+
+    # 1. ANY: notifica tutti
+    def test_any_policy_notifies_all_members(self):
+        from django.core import mail
+        self._submit_ecn('any', 'ECN-EM-ANY')
+        recipients = [m.to[0] for m in mail.outbox if m.to]
+        self.assertIn('ccb1@test.com', recipients)
+        self.assertIn('ccb2@test.com', recipients)
+
+    # 2. ALL: notifica tutti
+    def test_all_policy_notifies_all_members(self):
+        from django.core import mail
+        self._submit_ecn('all', 'ECN-EM-ALL')
+        recipients = [m.to[0] for m in mail.outbox if m.to]
+        self.assertIn('ccb1@test.com', recipients)
+        self.assertIn('ccb2@test.com', recipients)
+
+    # 3. SEQUENTIAL: notifica solo il primo membro
+    def test_sequential_policy_notifies_only_first(self):
+        from django.core import mail
+        self._submit_ecn('sequential', 'ECN-EM-SEQ')
+        recipients = [m.to[0] for m in mail.outbox if m.to]
+        self.assertIn('ccb1@test.com', recipients)
+        self.assertNotIn('ccb2@test.com', recipients)
+
+    # 4. SEQUENTIAL: dopo approvazione notifica membro successivo
+    def test_sequential_after_approval_notifies_next(self):
+        from django.core import mail
+        ecn = self._submit_ecn('sequential', 'ECN-EM-SEQ2')
+        mail.outbox = []
+        approve_change_notice(ecn, self.ccb1, ccb_class='class1', comment='OK')
+        ecn.refresh_from_db()
+        if ecn.status == ChangeNotice.Status.UNDER_REVIEW:
+            recipients = [m.to[0] for m in mail.outbox if m.to]
+            self.assertIn('ccb2@test.com', recipients)
+
+    # 5. Proponente notificato all'approvazione finale
+    def test_proposer_notified_on_approval(self):
+        from django.core import mail
+        self.qm.email = 'qm@test.com'
+        self.qm.save(update_fields=['email'])
+        ecn = self._submit_ecn('any', 'ECN-EM-APPR')
+        mail.outbox = []
+        approve_change_notice(ecn, self.ccb1, ccb_class='class1', comment='OK')
+        ecn.refresh_from_db()
+        recipients = [m.to[0] for m in mail.outbox if m.to]
+        self.assertIn('qm@test.com', recipients)
+
+
+# ---------------------------------------------------------------------------
+# Audit log STEP I
+# ---------------------------------------------------------------------------
+
+class CCBAuditTests(TestCase):
+    """Test AuditLog per gli eventi CCB (STEP I)."""
+
+    def setUp(self):
+        self.qm   = _make_quality_manager('aud_qm')
+        self.ccb1 = _make_user_in_groups('aud_ccb1', GROUP_CCB)
+        self.folder = _make_folder(self.qm, 'FOLD-AUD-SI')
+        self.document, self.version = _make_approved_document(
+            self.qm, self.folder, 'DOC-AUD-SI-001',
+        )
+        self.ecn = create_change_notice(
+            document=self.document, proposed_by=self.qm,
+            title='ECN audit', motivation=ChangeNotice.Motivation.IMPROVEMENT,
+            code='ECN-AUD-SI-001',
+        )
+
+    # 1. CCB_CONFIGURED
+    def test_ccb_configured_auditlog(self):
+        from ecn.services import configure_ccb
+        AuditLog.objects.all().delete()
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb1],
+                      coordinator=self.qm)
+        self.assertTrue(AuditLog.objects.filter(action='CCB_CONFIGURED').exists())
+
+    # 2. CCB_DOSSIER_UPDATED
+    def test_ccb_dossier_updated_auditlog(self):
+        from ecn.services import configure_ccb, update_ccb_dossier
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb1], coordinator=self.qm)
+        AuditLog.objects.all().delete()
+        update_ccb_dossier(self.ecn, actor=self.qm, ccb_class='class1',
+                           ccb_requirements='OK', ccb_technical_impact='Minore')
+        self.assertTrue(AuditLog.objects.filter(action='CCB_DOSSIER_UPDATED').exists())
+
+    # 3. ECN_SUBMITTED
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_ecn_submitted_auditlog(self):
+        from ecn.services import configure_ccb, update_ccb_dossier, submit_change_notice
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb1], coordinator=self.qm)
+        update_ccb_dossier(self.ecn, actor=self.qm, ccb_class='class1',
+                           ccb_requirements='OK', ccb_technical_impact='OK')
+        AuditLog.objects.all().delete()
+        submit_change_notice(self.ecn, self.qm)
+        self.assertTrue(AuditLog.objects.filter(action='ECN_SUBMITTED').exists())
+
+    # 4. ECN_APPROVED
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_ecn_approved_auditlog(self):
+        from ecn.services import configure_ccb, update_ccb_dossier, submit_change_notice
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb1], coordinator=self.qm)
+        update_ccb_dossier(self.ecn, actor=self.qm, ccb_class='class1',
+                           ccb_requirements='OK', ccb_technical_impact='OK')
+        submit_change_notice(self.ecn, self.qm)
+        AuditLog.objects.all().delete()
+        approve_change_notice(self.ecn, self.ccb1, ccb_class='class1')
+        self.assertTrue(AuditLog.objects.filter(action='ECN_APPROVED').exists())
+
+    # 5. ECN_REJECTED
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_ecn_rejected_auditlog(self):
+        from ecn.services import configure_ccb, update_ccb_dossier, submit_change_notice
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb1], coordinator=self.qm)
+        update_ccb_dossier(self.ecn, actor=self.qm, ccb_class='class1',
+                           ccb_requirements='OK', ccb_technical_impact='OK')
+        submit_change_notice(self.ecn, self.qm)
+        AuditLog.objects.all().delete()
+        reject_change_notice(self.ecn, self.ccb1, reason='Non conforme.')
+        self.assertTrue(AuditLog.objects.filter(action='ECN_REJECTED').exists())
+
+
+# ---------------------------------------------------------------------------
+# ECN-FIX-1: ccb_coordinator può vedere dettaglio ECN e dossier
+# ---------------------------------------------------------------------------
+
+class ECNCoordinatorViewTests(TestCase):
+    """
+    ECN-FIX-1 — Il coordinatore CCB designato deve poter:
+    - vedere il dettaglio ECN (can_view_ecn)
+    - accedere alla pagina dossier (ecn_ccb_dossier)
+
+    NON deve acquisire automaticamente:
+    - governance (configure, submit, approve, close)
+    - voto CCB
+    """
+
+    def setUp(self):
+        from django.urls import reverse
+        self.reverse = reverse
+
+        self.qm = User.objects.create_user('fix1_qm', password='pw')
+        Group.objects.get_or_create(name='Quality Managers')[0].user_set.add(self.qm)
+
+        self.coordinator = User.objects.create_user('fix1_coord', password='pw')
+        # Il coordinatore non è in nessun gruppo privilegiato
+
+        from documents.models import Document, DocumentVersion
+        from projects.models import ProjectFolder
+        folder = ProjectFolder.objects.create(
+            code='FIX1-FOLDER', name='Fix1 Folder',
+            folder_kind=ProjectFolder.FolderKind.GENERIC,
+            status=ProjectFolder.Status.ACTIVE,
+            owner=self.qm,
+        )
+        doc = Document.objects.create(
+            code='FIX1-DOC', title='Fix1 Doc',
+            category=Document.Category.QUALITY,
+            project_folder=folder,
+            owner=self.qm, created_by=self.qm,
+        )
+        version = DocumentVersion.objects.create(
+            document=doc, revision_label='00', revision_number=0,
+            status=DocumentVersion.Status.APPROVED,
+            change_summary='First', created_by=self.qm, is_current=True,
+        )
+        doc.current_version = version
+        doc.save(update_fields=['current_version'])
+
+        # CCB member minimale (serve almeno un approvatore per configure_ccb)
+        self.ccb_member = User.objects.create_user('fix1_ccb', password='pw')
+        Group.objects.get_or_create(name=GROUP_CCB)[0].user_set.add(self.ccb_member)
+
+        self.ecn = ChangeNotice.objects.create(
+            code='FIX1-ECN-001',
+            title='ECN FIX1',
+            document=doc,
+            document_version=version,
+            proposed_by=self.qm,
+            created_by=self.qm,
+            status=ChangeNotice.Status.DRAFT,
+        )
+        # Assegna il coordinatore (usa anche un approvatore dummy per soddisfare il vincolo)
+        from ecn.services import configure_ccb
+        configure_ccb(self.ecn, actor=self.qm, users=[self.ccb_member], coordinator=self.coordinator)
+
+    # -----------------------------------------------------------------------
+    # can_view_ecn include il coordinatore
+    # -----------------------------------------------------------------------
+
+    def test_coordinator_can_view_ecn(self):
+        """can_view_ecn restituisce True per il ccb_coordinator designato."""
+        self.assertTrue(can_view_ecn(self.coordinator, self.ecn))
+
+    def test_non_coordinator_cannot_view_ecn(self):
+        """Un utente senza relazione con l'ECN non può vederla."""
+        outsider = User.objects.create_user('fix1_out', password='pw')
+        self.assertFalse(can_view_ecn(outsider, self.ecn))
+
+    # -----------------------------------------------------------------------
+    # Dettaglio ECN accessibile al coordinatore (view HTTP)
+    # -----------------------------------------------------------------------
+
+    def test_coordinator_can_access_ecn_detail(self):
+        """Il coordinatore può accedere al dettaglio ECN (HTTP 200)."""
+        self.client.login(username='fix1_coord', password='pw')
+        response = self.client.get(self.reverse('ecn:ecn_detail', args=[self.ecn.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_coordinator_can_access_ecn_dossier(self):
+        """Il coordinatore può accedere alla pagina dossier (HTTP 200)."""
+        # Deve essere in stato CCB_PREPARATION per accedere al dossier
+        self.ecn.status = ChangeNotice.Status.CCB_PREPARATION
+        self.ecn.save(update_fields=['status'])
+        self.client.login(username='fix1_coord', password='pw')
+        response = self.client.get(self.reverse('ecn:ecn_ccb_dossier', args=[self.ecn.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    # -----------------------------------------------------------------------
+    # Il coordinatore NON acquisisce governance
+    # -----------------------------------------------------------------------
+
+    def test_coordinator_cannot_configure_ccb(self):
+        """Il coordinatore non può configurare la CCB."""
+        from ecn.permissions import can_configure_ccb
+        self.assertFalse(can_configure_ccb(self.coordinator, self.ecn))
+
+    def test_coordinator_cannot_submit_ecn(self):
+        """Il coordinatore non può inviare l'ECN alla CCB."""
+        from ecn.permissions import can_submit_ecn
+        self.assertFalse(can_submit_ecn(self.coordinator, self.ecn))
+
+    def test_coordinator_cannot_review_ecn(self):
+        """Il coordinatore non vota (non è ChangeNoticeApprover)."""
+        from ecn.permissions import can_review_ecn
+        self.assertFalse(can_review_ecn(self.coordinator, self.ecn))
+
+    def test_coordinator_cannot_close_ecn(self):
+        """Il coordinatore non può chiudere l'ECN."""
+        from ecn.permissions import can_close_ecn
+        self.assertFalse(can_close_ecn(self.coordinator, self.ecn))

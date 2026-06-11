@@ -79,7 +79,7 @@ def send_approval_request_email(approval_request, approver):
 
 
 def send_version_approved_email(approval_request):
-    """Notifica all'autore che la sua revisione è stata approvata."""
+    """Notifica all'autore (e all'owner del documento se diverso) che la revisione è approvata."""
     version = approval_request.document_version
     document = version.document
     author = version.created_by
@@ -88,20 +88,29 @@ def send_version_approved_email(approval_request):
         f"[Documentale] Revisione approvata: "
         f"{document.code} rev.{version.revision_label}"
     )
-    body = (
-        f"Gentile {author.get_full_name() or author.username},\n\n"
-        f"la revisione {version.revision_label} del documento {document.code} "
-        f"è stata approvata.\n\n"
-        f"  Codice documento  : {document.code}\n"
-        f"  Titolo            : {document.title}\n"
-        f"  Revisione         : {version.revision_label} (n. {version.revision_number})\n"
-        f"  Approvato da      : "
-        f"{version.approved_by.get_full_name() or version.approved_by.username}\n"
-        f"  Data approvazione : {version.approved_at:%d/%m/%Y %H:%M}\n\n"
-        f"La revisione è ora la versione corrente del documento.\n\n"
-        f"Questo messaggio è generato automaticamente, non rispondere a questa email."
-    )
-    return _send_and_log(author, subject, body, approval_request=approval_request)
+
+    recipients = {author}
+    doc_owner = document.owner
+    if doc_owner and doc_owner.pk != author.pk:
+        recipients.add(doc_owner)
+
+    logs = []
+    for recipient in recipients:
+        body = (
+            f"Gentile {recipient.get_full_name() or recipient.username},\n\n"
+            f"la revisione {version.revision_label} del documento {document.code} "
+            f"è stata approvata.\n\n"
+            f"  Codice documento  : {document.code}\n"
+            f"  Titolo            : {document.title}\n"
+            f"  Revisione         : {version.revision_label} (n. {version.revision_number})\n"
+            f"  Approvato da      : "
+            f"{version.approved_by.get_full_name() or version.approved_by.username}\n"
+            f"  Data approvazione : {version.approved_at:%d/%m/%Y %H:%M}\n\n"
+            f"La revisione è ora la versione corrente del documento.\n\n"
+            f"Questo messaggio è generato automaticamente, non rispondere a questa email."
+        )
+        logs.append(_send_and_log(recipient, subject, body, approval_request=approval_request))
+    return logs[0] if logs else None
 
 
 def send_version_rejected_email(approval_request, rejection_reason):

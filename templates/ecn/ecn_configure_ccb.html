@@ -2,47 +2,199 @@
 {% block title %}Configura CCB — {{ ecn.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
-</p>
-<h1>Configura CCB — {{ ecn.code }}</h1>
-<p class="meta">Documento: <strong>{{ ecn.document.code }} — {{ ecn.document.title }}</strong></p>
-<p class="meta">Proposto da: {{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</p>
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'ecn:ecn_list' %}">ECN / Varianti</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Configura CCB</span>
+</nav>
 
-<form method="post">
+<div class="page-header">
+  <h1>Configura CCB — {{ ecn.code }}</h1>
+  <p class="page-header-sub">
+    Documento: <strong>{{ ecn.document.code }} — {{ ecn.document.title }}</strong> ·
+    Proposto da: {{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}
+  </p>
+</div>
+
+{% if is_under_review %}
+<div class="alert-warning mb-4">
+  <strong>Attenzione:</strong> L'ECN è in revisione. Puoi modificare solo se non ci sono decisioni espresse.
+</div>
+{% endif %}
+
+<form method="post" id="ccb-config-form">
   {% csrf_token %}
 
-  <div class="card">
-    <fieldset>
-      <legend>Politica di approvazione CCB</legend>
-      <div style="margin-bottom:1rem">
-        <label for="id_ccb_policy">{{ form.ccb_policy.label }}</label>
-        {{ form.ccb_policy }}
-        <p class="meta" style="margin:.2rem 0 0">{{ form.ccb_policy.help_text }}</p>
-        {% if form.ccb_policy.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.ccb_policy.errors.as_text }}</p>{% endif %}
+  <!-- Politica di approvazione -->
+  <div class="form-section">
+    <div class="form-section-title">Politica di approvazione CCB</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_ccb_policy">{{ form.ccb_policy.label }}</label>
+      {{ form.ccb_policy }}
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <div class="bg-gray-50 rounded-md p-3 border border-gray-200">
+          <div class="font-semibold text-gray-700 mb-1">ANY — Basta un voto</div>
+          <div class="text-gray-500 text-xs">L'ECN è approvata non appena un singolo membro CCB approva.</div>
+        </div>
+        <div class="bg-gray-50 rounded-md p-3 border border-gray-200">
+          <div class="font-semibold text-gray-700 mb-1">ALL — Tutti devono approvare</div>
+          <div class="text-gray-500 text-xs">Tutti i membri devono esprimere voto favorevole per l'approvazione.</div>
+        </div>
+        <div class="bg-brand-50 rounded-md p-3 border border-brand-200">
+          <div class="font-semibold text-brand-800 mb-1">SEQUENTIAL — Voto in ordine</div>
+          <div class="text-brand-700 text-xs">I componenti votano nell'ordine indicato. Il successivo riceve notifica solo dopo l'approvazione del precedente.</div>
+        </div>
       </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Approvatori CCB *</legend>
-      <p class="meta" style="margin:.2rem 0 .5rem">{{ form.approvers.help_text }}</p>
-      {% for checkbox in form.approvers %}
-      <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem;font-weight:normal">
-        {{ checkbox.tag }} {{ checkbox.choice_label }}
-      </label>
-      {% empty %}
-      <p class="meta" style="color:#856404">
-        Nessun approvatore CCB disponibile. Aggiungi almeno un utente a uno
-        dei gruppi: <strong>Change Control Board</strong>,
-        <strong>Document Managers</strong> o
-        <strong>Document Approvers</strong>.
-      </p>
-      {% endfor %}
-      {% if form.approvers.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.approvers.errors.as_text }}</p>{% endif %}
-    </fieldset>
+      {% if form.ccb_policy.help_text %}<p class="form-help mt-2">{{ form.ccb_policy.help_text }}</p>{% endif %}
+      {% if form.ccb_policy.errors %}<p class="form-error">{{ form.ccb_policy.errors.as_text }}</p>{% endif %}
+    </div>
   </div>
 
-  <button type="submit" class="btn btn-primary">Salva configurazione CCB</button>
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <!-- Responsabile istruttoria -->
+  <div class="form-section">
+    <div class="form-section-title">Responsabile istruttoria CCB</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_coordinator">{{ form.coordinator.label }}</label>
+      {{ form.coordinator }}
+      {% if form.coordinator.help_text %}<p class="form-help">{{ form.coordinator.help_text }}</p>{% endif %}
+      {% if form.coordinator.errors %}<p class="form-error">{{ form.coordinator.errors.as_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  <!-- Componenti CCB -->
+  <div class="form-section">
+    <div class="form-section-title">Componenti CCB <span class="text-red-500">*</span></div>
+    <p class="meta mb-4">Seleziona i componenti CCB nell'ordine di votazione. L'ordine è rilevante con policy SEQUENTIAL.</p>
+
+    {{ formset.management_form }}
+
+    {% if formset.non_form_errors %}
+    <div class="alert-danger mb-4">
+      {% for error in formset.non_form_errors %}<div>{{ error }}</div>{% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="table-container mb-4">
+      <table class="data-table">
+        <thead><tr>
+          <th class="w-10">#</th>
+          <th>Componente CCB</th>
+          <th class="w-32">Azioni</th>
+        </tr></thead>
+        <tbody id="ccb-rows">
+          {% for member_form in formset %}
+          <tr class="ccb-row">
+            <td class="text-gray-500 row-number">{{ forloop.counter }}.</td>
+            <td>
+              {{ member_form.user }}
+              {% for error in member_form.user.errors %}<p class="form-error text-xs">{{ error }}</p>{% endfor %}
+            </td>
+            <td class="whitespace-nowrap">
+              <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn-secondary btn-sm px-2">↑</button>
+              <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn-secondary btn-sm px-2">↓</button>
+              <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn-danger btn-sm px-2">✕</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <button type="button" onclick="addRow()" class="btn-secondary btn-sm">+ Aggiungi componente</button>
+
+    <div id="sequential-hint" class="alert-info mt-3" style="display:none">
+      In modalità SEQUENTIAL i componenti voteranno nell'ordine mostrato sopra. Il successivo riceve la notifica solo dopo l'approvazione del precedente.
+    </div>
+  </div>
+
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Salva configurazione CCB</button>
+    <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
+
+{# Template per nuove righe #}
+<script type="text/x-ccb-template" id="empty-ccb-row">
+  <td class="text-gray-500 row-number"></td>
+  <td>{{ formset.empty_form.user }}</td>
+  <td class="whitespace-nowrap">
+    <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn-secondary btn-sm px-2">↑</button>
+    <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn-secondary btn-sm px-2">↓</button>
+    <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn-danger btn-sm px-2">✕</button>
+  </td>
+</script>
+
+<script>
+(function () {
+  var PREFIX = 'ccb';
+
+  function rows() {
+    return Array.from(document.querySelectorAll('#ccb-rows tr.ccb-row'));
+  }
+
+  function updateFormset() {
+    var allRows = rows();
+    document.getElementById('id_' + PREFIX + '-TOTAL_FORMS').value = allRows.length;
+    allRows.forEach(function (row, idx) {
+      var numCell = row.querySelector('.row-number');
+      if (numCell) numCell.textContent = (idx + 1) + '.';
+      row.querySelectorAll('select, input, label, textarea').forEach(function (el) {
+        if (el.name) el.name = el.name.replace(new RegExp(PREFIX + '-\\d+-'), PREFIX + '-' + idx + '-');
+        if (el.id)   el.id   = el.id.replace(new RegExp('id_' + PREFIX + '-\\d+-'), 'id_' + PREFIX + '-' + idx + '-');
+        if (el.htmlFor) el.htmlFor = el.htmlFor.replace(new RegExp('id_' + PREFIX + '-\\d+-'), 'id_' + PREFIX + '-' + idx + '-');
+      });
+    });
+  }
+
+  window.addRow = function () {
+    var tbody = document.getElementById('ccb-rows');
+    var count = rows().length;
+    var tplHtml = document.getElementById('empty-ccb-row').innerHTML
+      .replace(/__prefix__/g, String(count));
+    var tr = document.createElement('tr');
+    tr.className = 'ccb-row';
+    tr.innerHTML = tplHtml;
+    tbody.appendChild(tr);
+    updateFormset();
+  };
+
+  window.removeRow = function (btn) {
+    var row = btn.closest('tr.ccb-row');
+    row.parentNode.removeChild(row);
+    updateFormset();
+  };
+
+  window.moveRowUp = function (btn) {
+    var row = btn.closest('tr.ccb-row');
+    var prev = row.previousElementSibling;
+    if (prev && prev.classList.contains('ccb-row')) {
+      row.parentNode.insertBefore(row, prev);
+      updateFormset();
+    }
+  };
+
+  window.moveRowDown = function (btn) {
+    var row = btn.closest('tr.ccb-row');
+    var next = row.nextElementSibling;
+    if (next && next.classList.contains('ccb-row')) {
+      row.parentNode.insertBefore(next, row);
+      updateFormset();
+    }
+  };
+
+  // Mostra/nascondi hint SEQUENTIAL
+  var policySelect = document.getElementById('id_ccb_policy');
+  var hint = document.getElementById('sequential-hint');
+  if (policySelect && hint) {
+    function syncHint() { hint.style.display = policySelect.value === 'sequential' ? 'block' : 'none'; }
+    policySelect.addEventListener('change', syncHint);
+    syncHint();
+  }
+}());
+</script>
 {% endblock %}

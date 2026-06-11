@@ -46,7 +46,7 @@ def create_approval_request_attachment(approval_request, uploaded_file, uploaded
     return attachment
 
 
-def approve_version(approval_request, approved_by, comment=""):
+def approve_version(approval_request, approved_by, comment="", send_notifications=True):
     from documents.models import DocumentVersion
 
     Policy = ApprovalRequest.Policy
@@ -123,9 +123,33 @@ def approve_version(approval_request, approved_by, comment=""):
                 document_version=version,
             )
 
+    if not send_notifications:
+        return approval_request
+
     if is_final:
         from notifications.services import send_version_approved_email
         send_version_approved_email(approval_request)
+        try:
+            from notifications.inbox import notify_version_approved
+            notify_version_approved(approval_request)
+        except Exception:
+            pass
+    elif policy == Policy.SEQUENTIAL:
+        # SEQUENTIAL e non finale: notifica il prossimo approvatore pending
+        next_slot = (
+            approval_request.approvers
+            .filter(status=ApproverStatus.PENDING)
+            .order_by('order')
+            .first()
+        )
+        if next_slot:
+            from notifications.services import send_approval_request_email
+            send_approval_request_email(approval_request, next_slot.approver)
+            try:
+                from notifications.inbox import notify_approval_requested
+                notify_approval_requested(approval_request, next_slot.approver)
+            except Exception:
+                pass
 
     return approval_request
 
@@ -198,7 +222,7 @@ def _finalize_approval(approval_request, version, approved_by, now):
     )
 
 
-def reject_version(approval_request, rejected_by, rejection_reason, comment=""):
+def reject_version(approval_request, rejected_by, rejection_reason, comment="", send_notifications=True):
     from documents.models import DocumentVersion
 
     if not rejection_reason or not rejection_reason.strip():
@@ -266,8 +290,17 @@ def reject_version(approval_request, rejected_by, rejection_reason, comment=""):
             document_version=version,
         )
 
-    # Notifica fuori dalla transazione: un errore email non deve annullare il rifiuto.
+    # Notifica fuori dalla transazione.
+    # In modalità sanatoria le notifiche sono soppresse.
+    if not send_notifications:
+        return approval_request
+
     from notifications.services import send_version_rejected_email
     send_version_rejected_email(approval_request, rejection_reason)
+    try:
+        from notifications.inbox import notify_version_rejected
+        notify_version_rejected(approval_request)
+    except Exception:
+        pass
 
     return approval_request

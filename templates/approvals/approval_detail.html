@@ -1,10 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Approvazione {{ document.code }} rev.{{ version.revision_label }} — Documentale{% endblock %}
+{% block title %}Approvazione {{ document.code }} rev.{{ version.revision_label }}{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'approval_queue' %}">← Da approvare</a></p>
-<h1>{{ document.code }} — Rev. {{ version.revision_label }}</h1>
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'approval_queue' %}">Approvazioni</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>{{ document.code }} Rev. {{ version.revision_label }}</span>
+</nav>
 
+<h1 class="text-2xl font-bold text-brand-900 mb-4">{{ document.code }} — Rev. {{ version.revision_label }}</h1>
+
+<!-- Metadati -->
 <div class="card">
   <dl class="dl-grid">
     <dt>Documento</dt>    <dd>{{ document.code }} — {{ document.title }}</dd>
@@ -15,17 +22,36 @@
     {% if approval_request.due_date %}
     <dt>Scadenza</dt>     <dd>{{ approval_request.due_date|date:"d/m/Y" }}</dd>
     {% endif %}
-    <dt>Modalità</dt>     <dd>{{ approval_request.get_approval_policy_display }}</dd>
+    <dt>Modalità</dt>
+    <dd>
+      {% if approval_request.approval_policy == 'any' %}Basta un voto (ANY)
+      {% elif approval_request.approval_policy == 'all' %}Tutti devono approvare (ALL)
+      {% elif approval_request.approval_policy == 'sequential' %}Voto sequenziale (SEQUENTIAL)
+      {% else %}{{ approval_request.get_approval_policy_display }}
+      {% endif %}
+    </dd>
     <dt>Stato richiesta</dt>
-    <dd><span class="badge badge-{{ approval_request.status|lower }}">{{ approval_request.get_status_display }}</span></dd>
+    <dd>
+      {% if approval_request.status == 'PENDING' %}
+      <span class="badge-status-in_approval">In attesa</span>
+      {% elif approval_request.status == 'APPROVED' %}
+      <span class="badge-status-approved">Approvata</span>
+      {% elif approval_request.status == 'REJECTED' %}
+      <span class="badge-status-rejected">Rifiutata</span>
+      {% elif approval_request.status == 'CANCELLED' %}
+      <span class="badge-status-archived">Annullata</span>
+      {% else %}
+      <span class="badge-status-draft">{{ approval_request.get_status_display }}</span>
+      {% endif %}
+    </dd>
     {% if version.change_summary %}
     <dt>Sommario</dt>     <dd>{{ version.change_summary }}</dd>
     {% endif %}
     {% if version.file %}
     <dt>File operativo</dt>
-    <dd>
-      {{ version.file.original_filename }}
-      <a href="{% url 'version_download' version.pk %}" class="btn btn-secondary" style="margin-left:.5rem;padding:.15rem .5rem;font-size:.8rem">Scarica</a>
+    <dd class="flex items-center gap-2">
+      <span>{{ version.file.original_filename }}</span>
+      <a href="{% url 'version_download' version.pk %}" class="btn-secondary btn-sm">Scarica</a>
     </dd>
     {% endif %}
     {% with attachments=approval_request.attachments.all %}
@@ -33,9 +59,9 @@
     <dt>Allegati richiesta</dt>
     <dd>
       {% for att in attachments %}
-      <div>
-        {{ att.get_attachment_type_display }}: {{ att.original_filename }}
-        <a href="{% url 'approval_attachment_download' att.pk %}" class="btn btn-secondary" style="margin-left:.5rem;padding:.15rem .5rem;font-size:.8rem">Scarica</a>
+      <div class="flex items-center gap-2 mb-1">
+        <span>{{ att.get_attachment_type_display }}: {{ att.original_filename }}</span>
+        <a href="{% url 'approval_attachment_download' att.pk %}" class="btn-secondary btn-sm">Scarica</a>
       </div>
       {% endfor %}
     </dd>
@@ -44,89 +70,126 @@
   </dl>
 </div>
 
+<!-- Approvatori -->
 {% if approvers %}
-<h2>Approvatori</h2>
-<table>
-  <thead>
-    <tr>
-      {% if approval_request.approval_policy == 'sequential' %}<th>#</th>{% endif %}
-      <th>Approvatore</th><th>Stato</th><th>Deciso il</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for slot in approvers %}
-    <tr{% if next_approver and slot.approver == next_approver %} style="font-weight:600"{% endif %}>
-      {% if approval_request.approval_policy == 'sequential' %}<td>{{ forloop.counter }}</td>{% endif %}
-      <td>{{ slot.approver.get_full_name|default:slot.approver.username }}</td>
-      <td><span class="badge badge-{{ slot.status }}">{{ slot.get_status_display }}</span></td>
-      <td class="meta">{{ slot.decided_at|date:"d/m/Y H:i"|default:"—" }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<h2 class="text-lg font-semibold text-brand-900 mb-3">Approvatori</h2>
+<div class="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden mb-4">
+  <table class="data-table">
+    <thead>
+      <tr>
+        {% if approval_request.approval_policy == 'sequential' %}<th>#</th>{% endif %}
+        <th>Approvatore</th>
+        <th>Stato</th>
+        <th>Deciso il</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for slot in approvers %}
+      <tr{% if next_approver and slot.approver == next_approver %} class="font-semibold"{% endif %}>
+        {% if approval_request.approval_policy == 'sequential' %}<td class="text-gray-500">{{ forloop.counter }}</td>{% endif %}
+        <td>{{ slot.approver.get_full_name|default:slot.approver.username }}</td>
+        <td>
+          {% if slot.status == 'PENDING' %}
+          <span class="badge-status-in_approval">In attesa</span>
+          {% elif slot.status == 'APPROVED' %}
+          <span class="badge-status-approved">Approvato</span>
+          {% elif slot.status == 'REJECTED' %}
+          <span class="badge-status-rejected">Rifiutato</span>
+          {% elif slot.status == 'CANCELLED' %}
+          <span class="badge-status-archived">Annullato</span>
+          {% else %}
+          <span class="badge-status-draft">{{ slot.get_status_display }}</span>
+          {% endif %}
+        </td>
+        <td class="meta">{{ slot.decided_at|date:"d/m/Y H:i"|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% if next_approver and approval_request.status == 'PENDING' %}
-<p class="meta" style="margin-top:.5rem">
-  Prossimo approvatore atteso: <strong>{{ next_approver.get_full_name|default:next_approver.username }}</strong>
-</p>
+<div class="next-action-box mb-4">
+  <div class="next-action-box-title">In attesa di</div>
+  <p class="next-action-box-text">{{ next_approver.get_full_name|default:next_approver.username }}</p>
+</div>
 {% endif %}
 {% endif %}
 
+<!-- Decisioni registrate -->
 {% if decisions %}
-<h2>Decisioni registrate</h2>
-<table>
-  <thead>
-    <tr><th>Approvatore</th><th>Decisione</th><th>Data</th><th>Note</th></tr>
-  </thead>
-  <tbody>
-    {% for d in decisions %}
-    <tr>
-      <td>{{ d.approver.get_full_name|default:d.approver.username }}</td>
-      <td><span class="badge badge-{{ d.decision|lower }}">{{ d.get_decision_display }}</span></td>
-      <td class="meta">{{ d.decided_at|date:"d/m/Y H:i" }}</td>
-      <td>{{ d.notes|default:"—" }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<h2 class="text-lg font-semibold text-brand-900 mb-3">Decisioni registrate</h2>
+<div class="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden mb-4">
+  <table class="data-table">
+    <thead>
+      <tr><th>Approvatore</th><th>Decisione</th><th>Data</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      {% for d in decisions %}
+      <tr>
+        <td>{{ d.approver.get_full_name|default:d.approver.username }}</td>
+        <td>
+          {% if d.decision == 'APPROVED' or d.decision == 'approve' %}
+          <span class="badge-status-approved">{{ d.get_decision_display }}</span>
+          {% elif d.decision == 'REJECTED' or d.decision == 'reject' %}
+          <span class="badge-status-rejected">{{ d.get_decision_display }}</span>
+          {% else %}
+          <span class="badge-status-draft">{{ d.get_decision_display }}</span>
+          {% endif %}
+        </td>
+        <td class="meta whitespace-nowrap">{{ d.decided_at|date:"d/m/Y H:i" }}</td>
+        <td class="meta">{{ d.notes|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 
+<!-- Azioni -->
 {% if approval_request.status == 'PENDING' %}
-<h2 style="margin-top:1.5rem">Azioni</h2>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+<h2 class="text-lg font-semibold text-brand-900 mb-3 mt-6">Azioni</h2>
 
-  <fieldset>
-    <legend>✔ Approva</legend>
+<div class="next-action-box mb-4">
+  <div class="next-action-box-title">Prossima azione richiesta</div>
+  <p class="next-action-box-text">Esamina il documento e scegli se approvare o rifiutare la revisione.</p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+  <div class="card">
+    <h3 class="text-base font-semibold text-green-700 mb-3">✔ Approva</h3>
     <form method="post">
       {% csrf_token %}
-      <div style="margin-bottom:.75rem">
-        <label for="id_comment_approve">Commento (opzionale)</label>
-        <textarea name="comment" id="id_comment_approve" rows="3"></textarea>
+      <div class="mb-3">
+        <label for="id_comment_approve" class="form-label">Commento (opzionale)</label>
+        <textarea name="comment" id="id_comment_approve" rows="3" class="w-full rounded-md border-gray-300 text-sm focus:ring-brand-500 focus:border-brand-500"></textarea>
       </div>
-      <button type="submit" name="action" value="approve" class="btn btn-success">Approva revisione</button>
+      {% include "auditlog/sanatoria_fields.html" %}
+      <button type="submit" name="action" value="approve" class="btn-success mt-3">Approva revisione</button>
     </form>
-  </fieldset>
+  </div>
 
-  <fieldset>
-    <legend>✖ Rifiuta</legend>
+  <div class="card">
+    <h3 class="text-base font-semibold text-red-700 mb-3">✖ Rifiuta</h3>
     <form method="post">
       {% csrf_token %}
-      <div style="margin-bottom:.75rem">
-        <label for="id_rejection_reason">Motivo rifiuto <span style="color:#dc3545">*</span></label>
-        <textarea name="rejection_reason" id="id_rejection_reason" rows="3" required></textarea>
+      <div class="mb-3">
+        <label for="id_rejection_reason" class="form-label">Motivo rifiuto <span class="text-red-500">*</span></label>
+        <textarea name="rejection_reason" id="id_rejection_reason" rows="3" required class="w-full rounded-md border-gray-300 text-sm focus:ring-brand-500 focus:border-brand-500"></textarea>
       </div>
-      <div style="margin-bottom:.75rem">
-        <label for="id_comment_reject">Commento (opzionale)</label>
-        <textarea name="comment" id="id_comment_reject" rows="2"></textarea>
+      <div class="mb-3">
+        <label for="id_comment_reject" class="form-label">Commento (opzionale)</label>
+        <textarea name="comment" id="id_comment_reject" rows="2" class="w-full rounded-md border-gray-300 text-sm focus:ring-brand-500 focus:border-brand-500"></textarea>
       </div>
-      <button type="submit" name="action" value="reject" class="btn btn-danger">Rifiuta revisione</button>
+      {% include "auditlog/sanatoria_fields.html" %}
+      <button type="submit" name="action" value="reject" class="btn-danger mt-3">Rifiuta revisione</button>
     </form>
-  </fieldset>
+  </div>
 
 </div>
 {% else %}
-<div class="card meta" style="margin-top:1rem">
-  Questa richiesta è già stata <strong>{{ approval_request.get_status_display|lower }}</strong>
-  {% if approval_request.completed_at %}il {{ approval_request.completed_at|date:"d/m/Y H:i" }}{% endif %}.
+<div class="alert-info mt-4">
+  Questa richiesta è già stata <strong>{{ approval_request.get_status_display|lower }}</strong>{% if approval_request.completed_at %} il {{ approval_request.completed_at|date:"d/m/Y H:i" }}{% endif %}.
 </div>
 {% endif %}
 {% endblock %}

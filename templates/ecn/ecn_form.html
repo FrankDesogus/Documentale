@@ -2,66 +2,104 @@
 {% block title %}Nuova richiesta ECN — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'document_detail' document.pk %}">← {{ document.code }}</a>
-</p>
-<h1>Nuova richiesta ECN / Variante</h1>
-<p class="meta">Documento: <strong>{{ document.code }} — {{ document.title }}</strong></p>
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'document_detail' document.pk %}">{{ document.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuova richiesta ECN</span>
+</nav>
+
+<div class="page-header">
+  <h1>Nuova richiesta ECN / Variante</h1>
+</div>
+
+<!-- Documento coinvolto (read-only) -->
+<div class="form-section">
+  <div class="form-section-title">Documento coinvolto</div>
+  <div class="detail-grid">
+    <div class="detail-item">
+      <span class="detail-label">Codice</span>
+      <span class="detail-value font-mono font-semibold text-brand-800">{{ document.code }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Titolo</span>
+      <span class="detail-value">{{ document.title }}</span>
+    </div>
+    {% if document.current_version %}
+    <div class="detail-item">
+      <span class="detail-label">Revisione di riferimento</span>
+      <span class="detail-value">Rev. {{ document.current_version.revision_label }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
 
 <form method="post">
   {% csrf_token %}
   <input type="hidden" name="document" value="{{ document.pk }}">
 
-  <div class="card">
-    <fieldset>
-      <legend>Identificazione</legend>
-      <div style="margin-bottom:1rem">
-        <label for="id_title">{{ form.title.label }} *</label>
-        {{ form.title }}
-        {% if form.title.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.title.errors.as_text }}</p>{% endif %}
-      </div>
-      <div style="margin-bottom:1rem">
-        <label for="id_commessa">{{ form.commessa.label }}</label>
-        {{ form.commessa }}
-        {% if form.commessa.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.commessa.errors.as_text }}</p>{% endif %}
-      </div>
-    </fieldset>
+  <!-- Sezione: Variante -->
+  <div class="form-section">
+    <div class="form-section-title">Identificazione variante</div>
 
-    <fieldset>
-      <legend>Motivazione</legend>
-      <div style="margin-bottom:1rem">
-        <label for="id_motivation">{{ form.motivation.label }} *</label>
-        {{ form.motivation }}
-        {% if form.motivation.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.motivation.errors.as_text }}</p>{% endif %}
-      </div>
-      <div style="margin-bottom:1rem">
-        <label for="id_motivation_detail">{{ form.motivation_detail.label }}</label>
-        {{ form.motivation_detail }}
-        <p class="meta" style="margin:.2rem 0 0">{{ form.motivation_detail.help_text }}</p>
-        {% if form.motivation_detail.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.motivation_detail.errors.as_text }}</p>{% endif %}
-      </div>
-    </fieldset>
+    <div class="form-group">
+      <label class="form-label" for="{{ form.title.id_for_label }}">
+        {{ form.title.label }} <span class="text-red-500">*</span>
+      </label>
+      {{ form.title }}
+      {% if form.title.errors %}<p class="form-error">{{ form.title.errors.as_text }}</p>{% endif %}
+    </div>
 
-    <fieldset>
-      <legend>Descrizione modifica proposta</legend>
-      <div style="margin-bottom:1rem">
-        <label for="id_description">{{ form.description.label }}</label>
-        {{ form.description }}
-        {% if form.description.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.description.errors.as_text }}</p>{% endif %}
-      </div>
-    </fieldset>
-
+    {% if form.commessa %}
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.commessa.id_for_label }}">{{ form.commessa.label }}</label>
+      {{ form.commessa }}
+      {% if form.commessa.errors %}<p class="form-error">{{ form.commessa.errors.as_text }}</p>{% endif %}
+    </div>
+    {% endif %}
   </div>
 
-  <div class="card" style="background:#fff3cd;border-color:#ffc107;margin-bottom:1rem">
-    <p style="margin:0;color:#856404">
-      <strong>Nota:</strong> La configurazione degli approvatori CCB e della politica di approvazione
-      verrà effettuata dal <strong>Responsabile Qualità / Document Manager</strong>
-      dopo la creazione dell'ECN.
-    </p>
+  <!-- Sezione: Motivazione -->
+  <div class="form-section">
+    <div class="form-section-title">Motivazione</div>
+
+    <div class="form-group">
+      <label class="form-label" for="{{ form.motivation.id_for_label }}">
+        {{ form.motivation.label }} <span class="text-red-500">*</span>
+      </label>
+      {{ form.motivation }}
+      {% if form.motivation.errors %}<p class="form-error">{{ form.motivation.errors.as_text }}</p>{% endif %}
+    </div>
+
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.motivation_detail.id_for_label }}">{{ form.motivation_detail.label }}</label>
+      {{ form.motivation_detail }}
+      {% if form.motivation_detail.help_text %}<p class="form-help">{{ form.motivation_detail.help_text }}</p>{% endif %}
+      {% if form.motivation_detail.errors %}<p class="form-error">{{ form.motivation_detail.errors.as_text }}</p>{% endif %}
+    </div>
   </div>
 
-  <button type="submit" class="btn btn-primary">Crea ECN in bozza</button>
-  <a href="{% url 'document_detail' document.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <!-- Sezione: Descrizione modifica -->
+  <div class="form-section">
+    <div class="form-section-title">Descrizione modifica proposta</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% if form.description.errors %}<p class="form-error">{{ form.description.errors.as_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="alert-warning mb-4">
+    <strong>Nota:</strong> La configurazione degli approvatori CCB e della politica di approvazione
+    verrà effettuata dal <strong>Responsabile Qualità / Document Manager</strong>
+    dopo la creazione dell'ECN.
+  </div>
+
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Crea ECN in bozza</button>
+    <a href="{% url 'document_detail' document.pk %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 {% endblock %}

@@ -34,7 +34,9 @@ class ApproveVersionTests(TestCase):
         self.document = make_document(owner=self.author)
 
     def _make_in_approval(self, label, number):
-        version = create_new_revision(self.document, self.author, label, number)
+        # _bypass_ecn_check=True: questi test verificano il flusso di approvazione,
+        # non il gate ECN (che ha test dedicati in ecn/tests.py).
+        version = create_new_revision(self.document, self.author, label, number, _bypass_ecn_check=True)
         req = submit_version_for_approval(version, self.author, [self.approver])
         return version, req
 
@@ -126,7 +128,7 @@ class RejectVersionTests(TestCase):
         req1 = submit_version_for_approval(v1, self.author, [self.approver])
         approve_version(req1, self.approver)
 
-        v2 = create_new_revision(self.document, self.author, 'B', 2)
+        v2 = create_new_revision(self.document, self.author, 'B', 2, _bypass_ecn_check=True)
         req2 = submit_version_for_approval(v2, self.author, [self.approver])
         reject_version(req2, self.approver, 'Non conforme')
 
@@ -362,7 +364,8 @@ class PolicyAllTests(TestCase):
         req1 = submit_version_for_approval(v1, self.author, [self.a1], approval_policy='all')
         approve_version(req1, self.a1)
 
-        v2 = create_new_revision(self.doc, self.author, '01', 1)
+        # _bypass_ecn_check=True: test del flusso approvazione, non del gate ECN
+        v2 = create_new_revision(self.doc, self.author, '01', 1, _bypass_ecn_check=True)
         req2 = submit_version_for_approval(v2, self.author, [self.a1, self.a2], approval_policy='all')
         reject_version(req2, self.a1, 'Non conforme')
 

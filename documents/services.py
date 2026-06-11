@@ -35,13 +35,14 @@ def create_new_revision(
 
     # ----------------------------------------------------------------
     # Gate ECN: obbligatorio quando il documento ha una versione corrente
-    # approvata. Garantisce che ogni nuova revisione sia tracciata da un ECN.
+    # approvata E la policy del documento lo richiede (requires_ecn_for_revision).
     # Il bypass è riservato a usi tecnici (admin, test, import).
     # ----------------------------------------------------------------
     if (
         not _bypass_ecn_check
         and document.current_version is not None
         and document.current_version.status == DocumentVersion.Status.APPROVED
+        and document.requires_ecn_for_revision
     ):
         if ecn is None:
             raise ValidationError(
@@ -118,11 +119,23 @@ def create_new_revision(
             )
         except Exception:
             pass
+        # Notifica esecuzione ECN (email)
+        try:
+            from ecn.notifications import notify_ecn_executed
+            notify_ecn_executed(ecn)
+        except Exception:
+            pass
+        # Notifica in-app esecuzione ECN
+        try:
+            from notifications.inbox import notify_ecn_executed_inapp
+            notify_ecn_executed_inapp(ecn)
+        except Exception:
+            pass
 
     return version
 
 
-def submit_version_for_approval(version, requested_by, approvers, due_date=None, approval_policy='all'):
+def submit_version_for_approval(version, requested_by, approvers, due_date=None, approval_policy='all', send_notifications=True):
     from approvals.models import ApprovalRequest, ApprovalRequestApprover
 
     if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
@@ -172,9 +185,35 @@ def submit_version_for_approval(version, requested_by, approvers, due_date=None,
         )
 
     # Notifiche fuori dalla transazione: un errore email non deve annullare il workflow.
+    # In modalità sanatoria le notifiche sono soppresse.
+    if not send_notifications:
+        return approval_request
+
     from notifications.services import send_approval_request_email
-    for approver in approvers:
-        send_approval_request_email(approval_request, approver)
+    from approvals.models import ApprovalRequest as AR
+    if approval_policy == AR.Policy.SEQUENTIAL:
+        # SEQUENTIAL: notifica solo il primo approvatore (order=1)
+        first_slot = (
+            approval_request.approvers
+            .order_by('order')
+            .first()
+        )
+        if first_slot:
+            send_approval_request_email(approval_request, first_slot.approver)
+            try:
+                from notifications.inbox import notify_approval_requested
+                notify_approval_requested(approval_request, first_slot.approver)
+            except Exception:
+                pass
+    else:
+        # ANY / ALL: notifica tutti gli approvatori
+        for approver in approvers:
+            send_approval_request_email(approval_request, approver)
+            try:
+                from notifications.inbox import notify_approval_requested
+                notify_approval_requested(approval_request, approver)
+            except Exception:
+                pass
 
     return approval_request
 

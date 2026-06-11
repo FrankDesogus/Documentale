@@ -17,10 +17,10 @@ class DocumentVersionInline(admin.TabularInline):
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
     list_display = (
-        'code', 'title', 'category', 'document_type',
+        'code', 'title', 'revision_scheme', 'category', 'document_type',
         'status', 'owner', 'current_version', 'created_at',
     )
-    list_filter = ('category', 'status', 'document_type')
+    list_filter = ('revision_scheme', 'category', 'status', 'document_type')
     search_fields = ('code', 'title', 'description')
     readonly_fields = ('current_version', 'created_by', 'created_at', 'updated_at')
     inlines = [DocumentVersionInline]

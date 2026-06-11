@@ -2,114 +2,175 @@
 {% block title %}Nuova revisione — {{ document.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'document_detail' document.pk %}">← {{ document.code }}</a></p>
-<h1>Nuova revisione — {{ document.code }}</h1>
-<p class="meta">{{ document.title }}</p>
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'document_detail' document.pk %}">{{ document.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Nuova revisione</span>
+</nav>
 
-{% if document.current_version %}
-<div class="card meta" style="margin-bottom:1rem">
-  Revisione corrente: <strong>Rev. {{ document.current_version.revision_label }}</strong>
-  ({{ document.current_version.get_status_display }})
+<div class="page-header">
+  <h1>Nuova revisione — {{ document.code }}</h1>
+  <p class="page-header-sub">{{ document.title }}</p>
+</div>
+
+<!-- Documento di riferimento (read-only) -->
+<div class="form-section">
+  <div class="form-section-title">Documento di riferimento</div>
+  <div class="detail-grid">
+    <div class="detail-item">
+      <span class="detail-label">Codice</span>
+      <span class="detail-value font-mono font-semibold text-brand-800">{{ document.code }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Titolo</span>
+      <span class="detail-value">{{ document.title }}</span>
+    </div>
+    {% if revision_scheme_display %}
+    <div class="detail-item">
+      <span class="detail-label">Schema revisione</span>
+      <span class="detail-value">{{ revision_scheme_display }}</span>
+    </div>
+    {% endif %}
+    {% if document.current_version %}
+    <div class="detail-item">
+      <span class="detail-label">Revisione corrente</span>
+      <span class="detail-value">
+        Rev. {{ document.current_version.revision_label }} —
+        {% with s=document.current_version.status %}
+        {% if s == 'approved' %}<span class="badge-status-approved">Approvato</span>
+        {% elif s == 'draft' %}<span class="badge-status-draft">Bozza</span>
+        {% elif s == 'in_approval' %}<span class="badge-status-in_approval">In approvazione</span>
+        {% elif s == 'rejected' %}<span class="badge-status-rejected">Rifiutato</span>
+        {% else %}<span>{{ document.current_version.get_status_display }}</span>
+        {% endif %}
+        {% endwith %}
+      </span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if not document.requires_ecn_for_revision and document.current_version %}
+<div class="alert-info mb-4">
+  <strong>Approvazione diretta.</strong>
+  Questo documento è configurato per revisioni senza ECN obbligatorio.
+  La nuova bozza seguirà il normale ciclo di approvazione (DRAFT → IN_APPROVAL → APPROVED).
 </div>
 {% endif %}
 
 {% if needs_ecn and not ecn %}
-{# Documento approvato senza ECN: mostra messaggio e link agli ECN disponibili #}
-<div style="background:#f8d7da;border:1px solid #f5c6cb;border-radius:3px;padding:.75rem 1rem;margin-bottom:1rem;color:#721c24">
+<!-- ECN richiesto: selezione ECN approvato -->
+<div class="alert-danger mb-4">
   <strong>ECN richiesto.</strong>
   Per creare una nuova revisione di un documento approvato è necessario un ECN approvato.
   Seleziona un ECN approvato tra quelli disponibili, oppure crea un nuovo ECN.
 </div>
 
 {% if available_ecns %}
-<h2>ECN approvati disponibili per {{ document.code }}</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Codice</th>
-      <th>Titolo</th>
-      <th>Classe</th>
-      <th>Approvato il</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for ecn_item in available_ecns %}
-    <tr>
-      <td><a href="{% url 'ecn:ecn_detail' ecn_item.pk %}">{{ ecn_item.code }}</a></td>
-      <td>{{ ecn_item.title }}</td>
-      <td>{{ ecn_item.get_ccb_class_display|default:"—" }}</td>
-      <td class="meta">{{ ecn_item.ccb_reviewed_at|date:"d/m/Y"|default:"—" }}</td>
-      <td>
-        <a href="{% url 'document_new_revision' document.pk %}?ecn={{ ecn_item.pk }}"
-           class="btn btn-primary" style="padding:.25rem .7rem;font-size:.85rem">
-          Usa questo ECN
-        </a>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="card mb-4">
+  <div class="card-header">
+    <h2 class="section-title mb-0">ECN approvati disponibili per {{ document.code }}</h2>
+  </div>
+  <div class="table-container mt-0 mb-0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Codice</th>
+        <th>Titolo</th>
+        <th>Classe</th>
+        <th>Approvato il</th>
+        <th class="w-32"></th>
+      </tr></thead>
+      <tbody>
+        {% for ecn_item in available_ecns %}
+        <tr>
+          <td><a href="{% url 'ecn:ecn_detail' ecn_item.pk %}" class="font-mono font-semibold text-brand-700 hover:underline">{{ ecn_item.code }}</a></td>
+          <td>{{ ecn_item.title }}</td>
+          <td class="meta">{{ ecn_item.get_ccb_class_display|default:"—" }}</td>
+          <td class="meta whitespace-nowrap">{{ ecn_item.ccb_reviewed_at|date:"d/m/Y"|default:"—" }}</td>
+          <td>
+            <a href="{% url 'document_new_revision' document.pk %}?ecn={{ ecn_item.pk }}" class="btn-primary btn-sm">
+              Usa questo ECN
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% else %}
-<p class="meta">Nessun ECN approvato disponibile per questo documento.</p>
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-state-icon">🔄</div>
+    <div class="empty-state-title">Nessun ECN approvato disponibile</div>
+    <div class="empty-state-desc">Non ci sono ECN approvati per questo documento. Crea un nuovo ECN per procedere.</div>
+  </div>
+</div>
 {% endif %}
 
-<div style="margin-top:1rem">
-  <a href="{% url 'ecn:ecn_create' %}?document={{ document.pk }}" class="btn btn-secondary">
-    + Richiedi nuova variante ECN
-  </a>
+<div class="mt-4">
+  <a href="{% url 'ecn:ecn_create' %}?document={{ document.pk }}" class="btn-secondary">+ Richiedi nuova variante ECN</a>
 </div>
 
 {% else %}
 
+<!-- ECN autorizzante (se presente) -->
 {% if ecn %}
-<div style="background:#d4edda;border:1px solid #c3e6cb;border-radius:3px;padding:.75rem 1rem;margin-bottom:1rem;color:#155724">
+<div class="alert-success mb-4">
   <strong>ECN autorizzante:</strong>
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" style="color:#155724">{{ ecn.code }}</a>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="font-semibold underline">{{ ecn.code }}</a>
   — {{ ecn.title }}
-  {% if ecn.ccb_class %}({{ ecn.get_ccb_class_display }}){% endif %}
+  {% if ecn.ccb_class %}<span class="ml-1">({{ ecn.get_ccb_class_display }})</span>{% endif %}
 </div>
 {% endif %}
 
 <form method="post" enctype="multipart/form-data">
   {% csrf_token %}
   {% if ecn %}<input type="hidden" name="ecn_id" value="{{ ecn.pk }}">{% endif %}
-  <div class="card">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
 
-      <div>
-        <label for="{{ form.revision_label.id_for_label }}">
-          {{ form.revision_label.label }} <span style="color:#dc3545">*</span>
+  <!-- Sezione: Nuova revisione -->
+  <div class="form-section">
+    <div class="form-section-title">Dati nuova revisione</div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_label.id_for_label }}">
+          {{ form.revision_label.label }} <span class="text-red-500">*</span>
         </label>
         {{ form.revision_label }}
-        {% if form.revision_label.help_text %}<div class="meta">{{ form.revision_label.help_text }}</div>{% endif %}
-        {% for error in form.revision_label.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+        {% if form.revision_label.help_text %}<p class="form-help">{{ form.revision_label.help_text }}</p>{% endif %}
+        {% for error in form.revision_label.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
-
-      <div>
-        <label for="{{ form.revision_number.id_for_label }}">
-          {{ form.revision_number.label }} <span style="color:#dc3545">*</span>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_number.id_for_label }}">
+          {{ form.revision_number.label }} <span class="text-red-500">*</span>
         </label>
         {{ form.revision_number }}
-        {% for error in form.revision_number.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
+        {% for error in form.revision_number.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
-
-      <div style="grid-column:span 2">
-        <label for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
         {{ form.change_summary }}
       </div>
-
-      <div style="grid-column:span 2">
-        <label for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
-        {{ form.file }}
-        {% for error in form.file.errors %}<div style="color:#dc3545;font-size:.85rem">{{ error }}</div>{% endfor %}
-      </div>
-
     </div>
   </div>
 
-  <button type="submit" class="btn btn-primary">Crea bozza</button>
-  <a href="{% url 'document_detail' document.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <!-- Sezione: File -->
+  <div class="form-section">
+    <div class="form-section-title">File operativo</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
+      {{ form.file }}
+      {% for error in form.file.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+    </div>
+  </div>
+
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Crea bozza</button>
+    <a href="{% url 'document_detail' document.pk %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 
 {% endif %}

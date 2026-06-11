@@ -1,194 +1,244 @@
-{% load ecn_tags %}{% load nav_tags %}
+{% load ecn_tags %}{% load nav_tags %}{% load static %}
 <!DOCTYPE html>
-<html lang="it">
+<html lang="it" class="h-full">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Documentale{% endblock %}</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; margin: 0; background: #f5f7fa; color: #1a1a1a; }
-
-  /* ── Layout principale ── */
-  .app-layout { display: flex; min-height: 100vh; }
-
-  /* ── Sidebar ── */
-  .sidebar { width: 220px; min-width: 220px; background: #0f2840; color: #cde; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
-  .sidebar-brand { padding: .9rem 1.2rem; font-size: 1rem; font-weight: 700; color: #fff; border-bottom: 1px solid rgba(255,255,255,.1); text-decoration: none; display: block; }
-  .sidebar-section { font-size: .68rem; text-transform: uppercase; letter-spacing: .09em; color: #5e8aad; padding: .85rem 1.2rem .2rem; }
-  .sidebar-link { display: flex; align-items: center; gap: .55rem; padding: .42rem 1.2rem; color: #a8c4d8; font-size: .855rem; text-decoration: none; }
-  .sidebar-link:hover { background: rgba(255,255,255,.09); color: #fff; }
-  .sidebar-link.active { background: rgba(255,255,255,.13); color: #fff; font-weight: 600; }
-  .sidebar-badge { margin-left: auto; background: #c0392b; color: #fff; border-radius: 9px; font-size: .68rem; font-weight: 700; padding: .1rem .42rem; min-width: 1.3em; text-align: center; }
-  .sidebar-badge.blue { background: #2471a3; }
-  .sidebar-badge.amber { background: #b7770d; }
-  .sidebar-spacer { flex: 1; }
-  .sidebar-footer { padding: .7rem 1.2rem; border-top: 1px solid rgba(255,255,255,.1); font-size: .8rem; color: #7aadcc; }
-
-  /* ── Area principale ── */
-  .main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .topbar { background: #1a3a5c; color: #e0eaf4; padding: 0 1.5rem; height: 42px; display: flex; align-items: center; justify-content: flex-end; gap: 1rem; font-size: .88rem; }
-  .topbar a { color: #a8c4d8; text-decoration: none; }
-  .topbar a:hover { color: #fff; }
-  .content-area { flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; padding: 1.75rem 1.5rem 3rem; }
-
-  /* ── Componenti ── */
-  h1 { font-size: 1.4rem; margin-bottom: 1.25rem; color: #1a3a5c; }
-  h2 { font-size: 1.1rem; color: #1a3a5c; }
-  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 4px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  th { background: #e8eef5; font-size: 0.85rem; text-transform: uppercase; letter-spacing: .03em; padding: 0.55rem 0.75rem; text-align: left; }
-  td { padding: 0.55rem 0.75rem; border-top: 1px solid #eee; vertical-align: middle; font-size: 0.95rem; }
-  tr:hover td { background: #f7fafd; }
-  .card { background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
-  .badge { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 3px; font-size: 0.8rem; font-weight: 600; }
-  .badge-draft, .badge-bozza { background: #fff3cd; color: #856404; }
-  .badge-in_approval, .badge-in-approval, .badge-in_approvazione, .badge-under_review { background: #cce5ff; color: #004085; }
-  .badge-approved, .badge-approvato { background: #d4edda; color: #155724; }
-  .badge-rejected, .badge-rifiutato { background: #f8d7da; color: #721c24; }
-  .badge-superseded, .badge-sostituito { background: #e2e3e5; color: #383d41; }
-  .badge-pending, .badge-in_attesa { background: #fff3cd; color: #856404; }
-  .badge-active { background: #d4edda; color: #155724; }
-  .badge-suspended { background: #ffe5b4; color: #7a4f00; }
-  .badge-closed, .badge-archived { background: #e2e3e5; color: #383d41; }
-  .messages { list-style: none; padding: 0; margin: 0 0 1rem; }
-  .messages li { padding: 0.6rem 0.9rem; border-radius: 3px; margin-bottom: 0.5rem; font-size: 0.95rem; }
-  .messages .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-  .messages .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-  .btn { display: inline-block; padding: 0.4rem 1rem; border: none; cursor: pointer; border-radius: 3px; font-size: 0.9rem; text-decoration: none; }
-  .btn-primary { background: #1a3a5c; color: #fff; }
-  .btn-success { background: #28a745; color: #fff; }
-  .btn-danger { background: #dc3545; color: #fff; }
-  .btn-secondary { background: #6c757d; color: #fff; }
-  .btn:hover { opacity: .88; }
-  fieldset { border: 1px solid #ddd; border-radius: 3px; padding: 1rem; margin-bottom: 1rem; }
-  legend { font-weight: 600; font-size: 0.9rem; padding: 0 0.4rem; }
-  label { display: block; font-size: 0.9rem; margin-bottom: 0.3rem; font-weight: 500; }
-  input[type=text], textarea { width: 100%; border: 1px solid #ccc; border-radius: 3px; padding: 0.4rem 0.6rem; font-size: 0.95rem; }
-  textarea { resize: vertical; }
-  .meta { color: #666; font-size: 0.88rem; }
-  .dl-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1.2rem; font-size: 0.95rem; }
-  .dl-grid dt { font-weight: 600; color: #555; }
-
-  /* ── Responsive ── */
-  @media (max-width: 820px) {
-    .app-layout { flex-direction: column; }
-    .sidebar { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; overflow-y: visible; }
-    .sidebar-brand { width: 100%; }
-    .sidebar-section { display: none; }
-    .sidebar-spacer, .sidebar-footer { display: none; }
-    .sidebar-link { padding: .4rem .8rem; font-size: .8rem; }
-    .content-area { padding: 1rem .9rem 2rem; }
-  }
-</style>
+<title>{% block title %}Documentale{% endblock %} — Documentale</title>
+<script>
+  (function () {
+    try {
+      if (localStorage.getItem('documentale-theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (err) {}
+  })();
+</script>
+<link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+{% block extra_head %}{% endblock %}
 </head>
-<body>
-<div class="app-layout">
+<body class="theme-elt h-full">
 
-  <!-- ══ SIDEBAR ══ -->
-  <aside class="sidebar">
-    <a href="{% url 'dashboard' %}" class="sidebar-brand">📋 Documentale</a>
+<div class="flex h-screen overflow-hidden">
 
+  <!-- ─── Sidebar ──────────────────────────────────── -->
+  <aside class="sidebar-shell">
+
+    <!-- Brand -->
+    <a href="{% url 'dashboard' %}" class="sidebar-brand hover:opacity-95 transition-opacity">
+      <div class="flex items-center gap-3">
+        <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-elt-cyan-500/18 ring-1 ring-elt-cyan-300/25 text-lg">📋</span>
+        <div>
+          <div class="text-sm font-bold tracking-wide">Documentale</div>
+          <div class="text-xs text-elt-cyan-300/80">ELT Group workflow</div>
+        </div>
+      </div>
+    </a>
+
+    <!-- Navigation -->
     {% if user.is_authenticated %}
-      {% nav_pending_approvals user as sb_n_appr %}
-      {% nav_pending_ccb user as sb_n_ccb %}
-      {% nav_my_drafts user as sb_n_drafts %}
-      {% nav_my_ecn_open user as sb_n_ecn %}
-      {% nav_ecn_to_review user as sb_n_ecn_review %}
-      {% nav_ecn_to_close user as sb_n_ecn_close %}
-      {% user_can_quality_workspace user as sb_can_quality %}
-      {% user_can_create_doc user as sb_can_create_doc %}
-      {% user_can_create_folder user as sb_can_create_folder %}
-      {% user_can_create_project user as sb_can_create_proj %}
+    {% nav_pending_approvals user as sb_n_appr %}
+    {% nav_pending_ccb user as sb_n_ccb %}
+    {% nav_my_drafts user as sb_n_drafts %}
+    {% nav_my_ecn_open user as sb_n_ecn %}
+    {% nav_ecn_to_review user as sb_n_ecn_review %}
+    {% nav_ecn_to_close user as sb_n_ecn_close %}
+    {% user_can_quality_workspace user as sb_can_quality %}
 
-      <div class="sidebar-section">Area personale</div>
-      <a href="{% url 'dashboard' %}" class="sidebar-link">🏠 Dashboard</a>
-      <a href="{% url 'workspace_my_work' %}" class="sidebar-link">
-        ✏️ Il mio lavoro
+    {% with p=request.path %}
+    <nav class="flex-1 py-3 px-3">
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">Dashboard</div>
+        <a href="{% url 'dashboard' %}"
+           class="sidebar-link {% if p == '/' or p == '/dashboard/' %}sidebar-link-active{% endif %}">
+          <span>🏠</span> Dashboard
+        </a>
+      </div>
+
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+        <div class="sidebar-section-title">Archivio</div>
+        <a href="{% url 'document_list' %}"
+           class="sidebar-link {% if p|slice:':11' == '/documents/' %}sidebar-link-active{% endif %}">
+          <span>📄</span> Documenti
+        </a>
+
+        <a href="{% url 'folder_list' %}"
+           class="sidebar-link {% if p|slice:':9' == '/folders/' %}sidebar-link-active{% endif %}">
+          <span>📁</span> Cartelle
+        </a>
+
+        <a href="{% url 'project_list' %}"
+           class="sidebar-link {% if p|slice:':10' == '/projects/' %}sidebar-link-active{% endif %}">
+          <span>🗂️</span> Progetti
+        </a>
+      </div>
+
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+        <div class="sidebar-section-title">Workflow</div>
+
+      <a href="{% url 'approval_queue' %}"
+         class="sidebar-link justify-between {% if p|slice:':11' == '/approvals/' %}sidebar-link-active{% endif %}">
+        <span class="flex items-center gap-2.5"><span>✅</span> Approvazioni</span>
+        {% if sb_n_appr %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_appr }}</span>{% endif %}
+      </a>
+
+      <a href="{% url 'ecn:ecn_list' %}"
+         class="sidebar-link justify-between {% if p|slice:':5' == '/ecn/' %}sidebar-link-active{% endif %}">
+        <span class="flex items-center gap-2.5"><span>🔄</span> ECN / Varianti</span>
+        {% if sb_n_ecn %}<span class="sidebar-count">{{ sb_n_ecn }}</span>{% endif %}
+      </a>
+      </div>
+
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+        <div class="sidebar-section-title">Attività</div>
+
+      <a href="{% url 'workspace_my_work' %}"
+         class="sidebar-link justify-between {% if p == '/workspace/my-work/' %}sidebar-link-active{% endif %}">
+        <span class="flex items-center gap-2.5"><span>✏️</span> Il mio lavoro</span>
         {% with sb_n_tot=sb_n_appr|add:sb_n_ccb|add:sb_n_drafts %}
-          {% if sb_n_tot %}<span class="sidebar-badge">{{ sb_n_tot }}</span>{% endif %}
+          {% if sb_n_tot %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_tot }}</span>{% endif %}
         {% endwith %}
       </a>
-      <a href="{% url 'ecn:ecn_my' %}" class="sidebar-link">
-        🔄 Le mie ECN
-        {% if sb_n_ecn %}<span class="sidebar-badge blue">{{ sb_n_ecn }}</span>{% endif %}
-      </a>
-      <a href="{% url 'approval_queue' %}" class="sidebar-link">
-        ✅ Da approvare
-        {% if sb_n_appr %}<span class="sidebar-badge">{{ sb_n_appr }}</span>{% endif %}
-      </a>
 
-      <div class="sidebar-section">Documenti</div>
-      <a href="{% url 'document_list' %}" class="sidebar-link">📄 Tutti i documenti</a>
-      <a href="{% url 'my_drafts' %}" class="sidebar-link">
-        📝 Mie bozze
-        {% if sb_n_drafts %}<span class="sidebar-badge amber">{{ sb_n_drafts }}</span>{% endif %}
+      <a href="{% url 'my_drafts' %}"
+         class="sidebar-link justify-between {% if p == '/my-drafts/' %}sidebar-link-active{% endif %}">
+        <span class="flex items-center gap-2.5"><span>📝</span> Mie bozze</span>
+        {% if sb_n_drafts %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_drafts }}</span>{% endif %}
       </a>
-      {% if sb_can_create_doc %}
-        <a href="{% url 'document_new' %}" class="sidebar-link">➕ Nuovo documento</a>
-      {% endif %}
-
-      <div class="sidebar-section">Cartelle &amp; Progetti</div>
-      <a href="{% url 'folder_list' %}" class="sidebar-link">📁 Cartelle</a>
-      <a href="{% url 'project_list' %}" class="sidebar-link">🗂️ Progetti</a>
-      {% if sb_can_create_folder %}
-        <a href="{% url 'folder_create' %}" class="sidebar-link">➕ Nuova cartella</a>
-      {% endif %}
-      {% if sb_can_create_proj %}
-        <a href="{% url 'project_create' %}" class="sidebar-link">➕ Nuovo progetto</a>
-      {% endif %}
-
-      <div class="sidebar-section">ECN / Varianti</div>
-      <a href="{% url 'ecn:ecn_list' %}" class="sidebar-link">📋 Lista ECN</a>
-      <a href="{% url 'ecn:ecn_create' %}" class="sidebar-link">➕ Nuova ECN</a>
+      </div>
 
       {% if sb_can_quality %}
-        <div class="sidebar-section">Qualità</div>
-        <a href="{% url 'workspace_quality' %}" class="sidebar-link">
-          ⚙️ Workspace Qualità
-          {% with sb_n_q=sb_n_ecn_review|add:sb_n_ecn_close|add:sb_n_ccb %}
-            {% if sb_n_q %}<span class="sidebar-badge amber">{{ sb_n_q }}</span>{% endif %}
-          {% endwith %}
-        </a>
-        <a href="{% url 'ecn:ecn_dashboard' %}" class="sidebar-link">📊 Cruscotto ECN</a>
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+      <div class="sidebar-section-title">Qualità</div>
+      <a href="{% url 'workspace_quality' %}"
+         class="sidebar-link justify-between {% if p == '/workspace/quality/' %}sidebar-link-active{% endif %}">
+        <span class="flex items-center gap-2.5"><span>⚙️</span> Workspace Qualità</span>
+        {% with sb_n_q=sb_n_ecn_review|add:sb_n_ecn_close|add:sb_n_ccb %}
+          {% if sb_n_q %}<span class="sidebar-count sidebar-count-warn">{{ sb_n_q }}</span>{% endif %}
+        {% endwith %}
+      </a>
+      <a href="{% url 'ecn:ecn_dashboard' %}"
+         class="sidebar-link {% if p == '/ecn/dashboard/' %}sidebar-link-active{% endif %}">
+        <span>📊</span> Cruscotto ECN
+      </a>
+      </div>
       {% endif %}
 
       {% if user.is_staff %}
-        <div class="sidebar-section">Admin</div>
-        <a href="/admin/" class="sidebar-link">🔧 Django Admin</a>
+      <div class="sidebar-section border-t border-white/[0.06] pt-4">
+      <div class="sidebar-section-title">Sistema</div>
+      <a href="/admin/" class="sidebar-link">
+        <span>🔧</span> Amministrazione
+      </a>
+      </div>
       {% endif %}
 
-      <div class="sidebar-spacer"></div>
-      <div class="sidebar-footer">{{ user.get_full_name|default:user.username }}</div>
+    </nav>
+    {% endwith %}
 
+    <!-- Footer utente -->
+    <div class="px-4 py-3 border-t border-white/10 text-xs text-slate-400 bg-black/10">
+      <div class="font-medium text-white truncate">{{ user.get_full_name|default:user.username }}</div>
+      <form method="post" action="{% url 'logout' %}" class="inline m-0">
+        {% csrf_token %}
+        <button type="submit" class="mt-1 text-elt-cyan-300 hover:text-white transition-colors bg-transparent border-0 cursor-pointer p-0 text-xs">Esci →</button>
+      </form>
+    </div>
     {% endif %}
+
   </aside>
 
-  <!-- ══ AREA PRINCIPALE ══ -->
-  <div class="main-area">
-    <div class="topbar">
-      {% if user.is_authenticated %}
-        <span>{{ user.get_full_name|default:user.username }}</span>
-        <form method="post" action="{% url 'logout' %}" style="display:inline;margin:0">
-          {% csrf_token %}
-          <button class="btn btn-secondary" style="padding:.2rem .6rem;font-size:.82rem">Esci</button>
-        </form>
-      {% else %}
-        <a href="{% url 'login' %}">Accedi</a>
-      {% endif %}
-    </div>
+  <!-- ─── Area principale ──────────────────────────── -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-y-auto bg-elt-app">
 
-    <div class="content-area">
-      {% if messages %}
-      <ul class="messages">
-        {% for message in messages %}
-        <li class="{{ message.tags }}">{{ message }}</li>
-        {% endfor %}
-      </ul>
+    <!-- Topbar -->
+    <header class="topbar">
+
+      {% if user.is_authenticated %}
+      <!-- Campanella notifiche -->
+      <div class="relative">
+        <a href="{% url 'notifications:list' %}" class="notification-button" title="Notifiche">
+          <span class="text-base">🔔</span>
+          {% if unread_notifications_count > 0 %}
+          <span class="notification-badge">
+            {{ unread_notifications_count }}
+          </span>
+          {% endif %}
+        </a>
+      </div>
+
+      <button type="button"
+              id="theme-toggle"
+              class="topbar-action"
+              aria-label="Attiva modalità notte"
+              title="Attiva modalità notte">
+        <span class="theme-toggle-light" aria-hidden="true">☀️</span>
+        <span class="theme-toggle-dark hidden" aria-hidden="true">🌙</span>
+      </button>
+
+      <span class="h-5 w-px bg-slate-200 dark:bg-white/10"></span>
+      <span>{{ user.get_full_name|default:user.username }}</span>
+      {% else %}
+      <a href="{% url 'login' %}" class="hover:text-white transition-colors">Accedi</a>
       {% endif %}
+    </header>
+
+    <!-- Contenuto -->
+    <main class="flex-1 max-w-6xl w-full mx-auto px-6 py-6">
+
+      {% if messages %}
+      <div class="mb-4 space-y-2">
+        {% for message in messages %}
+        <div class="{% if message.tags == 'error' %}alert-danger{% elif message.tags == 'success' %}alert-success{% elif message.tags == 'warning' %}alert-warning{% else %}alert-info{% endif %}">
+          {{ message }}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
       {% block content %}{% endblock %}
-    </div>
+    </main>
   </div>
 
 </div>
+
+{% block extra_js %}{% endblock %}
+<script>
+  (function () {
+    var key = 'documentale-theme';
+    var root = document.documentElement;
+    var button = document.getElementById('theme-toggle');
+    if (!button) return;
+
+    var lightIcon = button.querySelector('.theme-toggle-light');
+    var darkIcon = button.querySelector('.theme-toggle-dark');
+
+    function applyTheme(theme) {
+      var isDark = theme === 'dark';
+      root.classList.toggle('dark', isDark);
+      button.setAttribute('aria-label', isDark ? 'Attiva modalità chiara' : 'Attiva modalità notte');
+      button.setAttribute('title', isDark ? 'Attiva modalità chiara' : 'Attiva modalità notte');
+      if (lightIcon && darkIcon) {
+        lightIcon.classList.toggle('hidden', isDark);
+        darkIcon.classList.toggle('hidden', !isDark);
+      }
+    }
+
+    var stored = 'light';
+    try {
+      stored = localStorage.getItem(key) === 'dark' ? 'dark' : 'light';
+    } catch (err) {}
+    applyTheme(stored);
+
+    button.addEventListener('click', function () {
+      var next = root.classList.contains('dark') ? 'light' : 'dark';
+      try {
+        localStorage.setItem(key, next);
+      } catch (err) {}
+      applyTheme(next);
+    });
+  })();
+</script>
 </body>
 </html>

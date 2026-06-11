@@ -2,17 +2,45 @@
 {% block title %}Modifica Rev.{{ version.revision_label }} — {{ document.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'my_drafts' %}">← Mie bozze</a></p>
-<h1>Modifica revisione</h1>
+<nav class="breadcrumb">
+  <a href="{% url 'my_drafts' %}">Il mio lavoro</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Modifica revisione</span>
+</nav>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="page-header">
+  <h1>Modifica revisione</h1>
+  <p class="page-header-sub">{{ document.code }} — {{ document.title }}</p>
+</div>
+
+{% if version.status == 'rejected' %}
+<div class="alert-warning mb-4">
+  <strong>Revisione rifiutata.</strong>
+  Salvando le modifiche la revisione tornerà automaticamente in bozza.
+</div>
+{% endif %}
+
+<!-- Riepilogo documento -->
+<div class="form-section">
+  <div class="form-section-title">Informazioni revisione</div>
   <dl class="dl-grid">
-    <dt>Documento</dt> <dd>{{ document.code }} — {{ document.title }}</dd>
-    <dt>Revisione</dt> <dd>Rev. {{ version.revision_label }} (n. {{ version.revision_number }})</dd>
-    <dt>Stato</dt>     <dd><span class="badge badge-{{ version.status }}">{{ version.get_status_display }}</span></dd>
+    <dt>Documento</dt>
+    <dd>{{ document.code }} — {{ document.title }}</dd>
+    <dt>Revisione</dt>
+    <dd>Rev. {{ version.revision_label }} (n. {{ version.revision_number }})</dd>
+    <dt>Stato</dt>
+    <dd>
+      {% if version.status == 'draft' %}
+      <span class="badge-status-draft">{{ version.get_status_display }}</span>
+      {% elif version.status == 'rejected' %}
+      <span class="badge-status-rejected">{{ version.get_status_display }}</span>
+      {% else %}
+      <span class="badge-status-draft">{{ version.get_status_display }}</span>
+      {% endif %}
+    </dd>
     {% if version.rejection_reason %}
     <dt>Motivo rifiuto</dt>
-    <dd style="color:#721c24">{{ version.rejection_reason }}</dd>
+    <dd class="text-red-700 font-medium">{{ version.rejection_reason }}</dd>
     {% endif %}
     {% if version.file %}
     <dt>File attuale</dt>
@@ -24,56 +52,68 @@
   </dl>
 </div>
 
-{% if version.status == 'rejected' %}
-<div class="card" style="background:#fff3cd;border-color:#ffc107;margin-bottom:1rem">
-  <p style="margin:0;color:#856404">
-    <strong>Revisione rifiutata.</strong>
-    Salvando le modifiche la revisione tornerà automaticamente in bozza.
-  </p>
-</div>
-{% endif %}
-
 <form method="post" enctype="multipart/form-data">
   {% csrf_token %}
-  <div class="card">
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem">
-      <div>
-        <label for="{{ form.revision_label.id_for_label }}">{{ form.revision_label.label }}</label>
+  <!-- Etichetta e numero revisione -->
+  <div class="form-section">
+    <div class="form-section-title">Dati revisione</div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_label.id_for_label }}">
+          {{ form.revision_label.label }}
+        </label>
         {{ form.revision_label }}
         {% for error in form.revision_label.errors %}
-        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
-      <div>
-        <label for="{{ form.revision_number.id_for_label }}">{{ form.revision_number.label }}</label>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_number.id_for_label }}">
+          {{ form.revision_number.label }}
+        </label>
         {{ form.revision_number }}
         {% for error in form.revision_number.errors %}
-        <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
+        <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
     </div>
-
-    <div style="margin-bottom:1.25rem">
-      <label for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
-      {{ form.change_summary }}
-      {% for error in form.change_summary.errors %}
-      <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
-      {% endfor %}
-    </div>
-
-    <div style="margin-bottom:.5rem">
-      <label for="{{ form.file.id_for_label }}">{{ form.file.label }}</label>
-      <div class="meta" style="margin-bottom:.3rem">{{ form.file.help_text }}</div>
-      {{ form.file }}
-      {% for error in form.file.errors %}
-      <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
-      {% endfor %}
-    </div>
-
   </div>
 
-  <button type="submit" class="btn btn-primary">Salva modifiche</button>
-  <a href="{% url 'my_drafts' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <!-- Note revisione -->
+  <div class="form-section">
+    <div class="form-section-title">Note revisione</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.change_summary.id_for_label }}">
+        {{ form.change_summary.label }}
+      </label>
+      {{ form.change_summary }}
+      {% for error in form.change_summary.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- File -->
+  <div class="form-section">
+    <div class="form-section-title">File</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.file.id_for_label }}">
+        {{ form.file.label }}
+      </label>
+      {% if form.file.help_text %}
+      <p class="form-help">{{ form.file.help_text }}</p>
+      {% endif %}
+      {{ form.file }}
+      {% for error in form.file.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Salva modifiche</button>
+    <a href="{% url 'my_drafts' %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 {% endblock %}

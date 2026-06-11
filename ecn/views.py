@@ -8,18 +8,25 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
+from auditlog.historical_forms import should_send_notifications
+from auditlog.models import HistoricalRecord
+from auditlog.permissions import can_use_sanatoria
+
 from ecn.models import ChangeNotice, ChangeNoticeApprover, ChangeNoticeAttachment, ChangeNoticeDecision
 from ecn.permissions import (
     can_add_ecn_attachment,
     can_close_ecn,
+    can_compile_dossier,
     can_configure_ccb,
     can_create_ecn,
+    can_download_ecn_attachment,
     can_edit_ecn,
     can_reconfigure_ccb,
     can_reopen_ccb,
     can_review_ecn,
     can_submit_ecn,
     can_view_ecn,
+    _can_consult_all_ecn,
 )
 
 
@@ -39,35 +46,105 @@ def ecn_list(request):
     from django.db.models import Q
     user = request.user
 
-    from documents.permissions import GROUP_AUDITORS, GROUP_MANAGERS
-    from ecn.permissions import GROUP_CCB, _in_group, _is_superuser_or_staff
-
-    if _is_superuser_or_staff(user) or _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS, GROUP_CCB):
+    # Quality Manager / Quality Operator / Direction / superuser → vedono tutto
+    # is_staff, Document Manager, Document Auditor, CCB globale → NON vedono tutto
+    if _can_consult_all_ecn(user):
         qs = ChangeNotice.objects.select_related(
             'document', 'proposed_by', 'document_version',
         ).order_by('-proposed_at')
     else:
-        # Propri ECN
+        # Propri ECN (proposed_by / created_by)
         own_filter = Q(proposed_by=user) | Q(created_by=user)
-        # ECN su documenti in cartelle dove l'utente ha un ruolo
-        from projects.permissions import get_visible_folder_ids
-        visible_folder_ids = get_visible_folder_ids(user)
-        folder_filter = Q(document__project_folder_id__in=visible_folder_ids)
+        # ECN dove l'utente è approvatore CCB assegnato
+        assigned_ecn_ids = list(
+            ChangeNoticeApprover.objects.filter(user=user)
+            .values_list('change_notice_id', flat=True)
+        )
+        assigned_filter = Q(pk__in=assigned_ecn_ids)
+        # ECN dove l'utente è coordinatore CCB
+        coordinator_filter = Q(ccb_coordinator=user)
         qs = ChangeNotice.objects.filter(
-            own_filter | folder_filter
+            own_filter | assigned_filter | coordinator_filter
         ).select_related(
             'document', 'proposed_by', 'document_version',
         ).distinct().order_by('-proposed_at')
 
-    # Filtro stato opzionale via GET
+    # ── Ricerca e filtri (post-authorization) ──
+    from django.core.paginator import Paginator
+
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(code__icontains=q)
+            | Q(title__icontains=q)
+            | Q(description__icontains=q)
+            | Q(motivation_detail__icontains=q)
+            | Q(document__code__icontains=q)
+            | Q(document__title__icontains=q)
+            | Q(proposed_by__username__icontains=q)
+            | Q(proposed_by__first_name__icontains=q)
+            | Q(proposed_by__last_name__icontains=q)
+        )
+
     status_filter = request.GET.get('status', '')
     if status_filter and status_filter in [s.value for s in ChangeNotice.Status]:
         qs = qs.filter(status=status_filter)
 
+    motivation_filter = request.GET.get('motivation', '')
+    if motivation_filter:
+        qs = qs.filter(motivation=motivation_filter)
+
+    proposer_filter = request.GET.get('proposer', '').strip()
+    if proposer_filter:
+        try:
+            qs = qs.filter(proposed_by_id=int(proposer_filter))
+        except (ValueError, TypeError):
+            pass
+
+    coordinator_filter = request.GET.get('coordinator', '').strip()
+    if coordinator_filter:
+        try:
+            qs = qs.filter(ccb_coordinator_id=int(coordinator_filter))
+        except (ValueError, TypeError):
+            pass
+
+    ccb_member_filter = request.GET.get('ccb_member', '').strip()
+    if ccb_member_filter:
+        try:
+            qs = qs.filter(approvers__user_id=int(ccb_member_filter))
+        except (ValueError, TypeError):
+            pass
+
+    # "Solo le ECN che richiedono una mia azione"
+    my_action = request.GET.get('my_action', '')
+    if my_action:
+        decided_ids = set(
+            ChangeNoticeDecision.objects.filter(user=user).values_list('approver_id', flat=True)
+        )
+        my_action_ecn_ids = list(
+            ChangeNoticeApprover.objects
+            .filter(user=user, change_notice__status=ChangeNotice.Status.UNDER_REVIEW)
+            .exclude(pk__in=decided_ids)
+            .values_list('change_notice_id', flat=True)
+        )
+        qs = qs.filter(pk__in=my_action_ecn_ids)
+
+    paginator = Paginator(qs.distinct(), 20)
+    page_obj = paginator.get_page(request.GET.get('page', 1))
+
     return render(request, 'ecn/ecn_list.html', {
-        'ecns': qs,
+        'ecns': page_obj,
+        'page_obj': page_obj,
+        'q': q,
         'status_choices': ChangeNotice.Status.choices,
         'current_status': status_filter,
+        'motivation_choices': ChangeNotice.Motivation.choices,
+        'motivation_filter': motivation_filter,
+        'proposer_filter': proposer_filter,
+        'coordinator_filter': coordinator_filter,
+        'ccb_member_filter': ccb_member_filter,
+        'my_action': my_action,
+        'total_count': paginator.count,
     })
 
 
@@ -125,6 +202,8 @@ def ecn_detail(request, ecn_id):
         'can_reconfigure': can_reconfigure_ccb(request.user, ecn),
         'can_reopen': can_reopen_ccb(request.user, ecn),
         'has_decisions': has_decisions,
+        # STEP I: dossier istruttorio
+        'can_compile_dossier': can_compile_dossier(request.user, ecn),
     })
 
 
@@ -158,7 +237,7 @@ def ecn_create(request):
         raise PermissionDenied
 
     if request.method == 'POST':
-        form = ChangeNoticeForm(request.POST)
+        form = ChangeNoticeForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             # project opzionale passato come hidden input (intero pk)
@@ -181,6 +260,12 @@ def ecn_create(request):
                     motivation_detail=d.get('motivation_detail', ''),
                     commessa=d.get('commessa', ''),
                     project=project,
+                    send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                )
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.ECN_CREATED,
+                    target_instance=ecn,
+                    recorded_by=request.user,
                 )
                 messages.success(
                     request,
@@ -192,11 +277,12 @@ def ecn_create(request):
                 for msg in exc.messages:
                     messages.error(request, msg)
     else:
-        form = ChangeNoticeForm()
+        form = ChangeNoticeForm(current_user=request.user)
 
     return render(request, 'ecn/ecn_form.html', {
         'form': form,
         'document': document,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -207,13 +293,12 @@ def ecn_create(request):
 @login_required
 def ecn_configure_ccb(request, ecn_id):
     """
-    Permette al Responsabile Qualità / Document Manager di configurare
-    gli approvatori CCB e la policy per un ECN in bozza.
-
-    Solo utenti con can_configure_ccb possono accedere.
+    Configura CCB: responsabile istruttoria, componenti ordinati, policy.
+    Usa formset dinamico (pattern identico agli approvatori documentali).
+    Transizione DRAFT → CCB_PREPARATION.
     """
-    from ecn.forms import ChangeNoticeCCBConfigForm
-    from ecn.services import set_change_notice_approvers
+    from ecn.forms import CCBMemberFormSet, ChangeNoticeCCBConfigForm
+    from ecn.services import configure_ccb
 
     ecn = get_object_or_404(
         ChangeNotice.objects.select_related('document', 'proposed_by'),
@@ -223,44 +308,198 @@ def ecn_configure_ccb(request, ecn_id):
     if not can_reconfigure_ccb(request.user, ecn):
         raise PermissionDenied
 
-    allowed_statuses = (ChangeNotice.Status.DRAFT, ChangeNotice.Status.UNDER_REVIEW)
+    allowed_statuses = (
+        ChangeNotice.Status.DRAFT,
+        ChangeNotice.Status.CCB_PREPARATION,
+        ChangeNotice.Status.UNDER_REVIEW,
+    )
     if ecn.status not in allowed_statuses:
         messages.error(
             request,
-            f'La configurazione CCB è possibile solo su ECN in bozza o in revisione senza decisioni '
-            f'(stato: {ecn.get_status_display()}).',
+            f'La configurazione CCB non è possibile in stato {ecn.get_status_display()}.',
         )
         return redirect('ecn:ecn_detail', ecn_id=ecn_id)
 
-    # Prepopola con la policy corrente (se già configurata parzialmente)
-    initial = {'ccb_policy': ecn.ccb_policy}
+    existing_approvers = list(ecn.approvers.order_by('order', 'id').select_related('user'))
 
     if request.method == 'POST':
-        form = ChangeNoticeCCBConfigForm(request.POST)
-        if form.is_valid():
-            d = form.cleaned_data
-            try:
-                set_change_notice_approvers(
-                    ecn,
-                    list(d['approvers']),
-                    policy=d['ccb_policy'],
-                    actor=request.user,
-                )
-                messages.success(
-                    request,
-                    f'CCB configurata per {ecn.code}: {ecn.approvers.count()} approvatori assegnati.',
-                )
-                return redirect('ecn:ecn_detail', ecn_id=ecn_id)
-            except ValidationError as exc:
-                for msg in exc.messages:
-                    messages.error(request, msg)
+        form = ChangeNoticeCCBConfigForm(request.POST, current_user=request.user)
+        formset = CCBMemberFormSet(
+            request.POST, prefix='ccb', current_user=request.user,
+        )
+        if form.is_valid() and formset.is_valid():
+            selected_users = [
+                f.cleaned_data['user']
+                for f in formset.forms
+                if f.cleaned_data and f.cleaned_data.get('user')
+            ]
+            if not selected_users:
+                messages.error(request, 'Devi selezionare almeno un componente CCB.')
+            else:
+                try:
+                    coordinator = form.cleaned_data.get('coordinator')
+                    configure_ccb(
+                        ecn,
+                        actor=request.user,
+                        users=selected_users,
+                        policy=form.cleaned_data['ccb_policy'],
+                        coordinator=coordinator,
+                        send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                    )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_CCB_CONFIGURED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
+                    )
+                    messages.success(
+                        request,
+                        f'CCB configurata per {ecn.code}: {len(selected_users)} componenti, '
+                        f'policy {ecn.get_ccb_policy_display()}.',
+                    )
+                    return redirect('ecn:ecn_detail', ecn_id=ecn_id)
+                except ValidationError as exc:
+                    for msg in exc.messages:
+                        messages.error(request, msg)
     else:
-        form = ChangeNoticeCCBConfigForm(initial=initial)
+        form = ChangeNoticeCCBConfigForm(
+            initial={
+                'ccb_policy': ecn.ccb_policy,
+                'coordinator': ecn.ccb_coordinator_id,
+            },
+            current_user=request.user,
+        )
+        # Pre-popola il formset con i componenti esistenti
+        initial_rows = [{'user': app.user_id} for app in existing_approvers]
+        if not initial_rows:
+            initial_rows = [{}]  # almeno una riga vuota
+        formset = CCBMemberFormSet(
+            prefix='ccb',
+            initial=initial_rows,
+            current_user=request.user,
+        )
 
     return render(request, 'ecn/ecn_configure_ccb.html', {
         'form': form,
+        'formset': formset,
         'ecn': ecn,
         'is_under_review': ecn.status == ChangeNotice.Status.UNDER_REVIEW,
+        'is_ccb_preparation': ecn.status == ChangeNotice.Status.CCB_PREPARATION,
+        'sanatoria_available': can_use_sanatoria(request.user),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Istruttoria CCB — compila dossier (STEP I)
+# ---------------------------------------------------------------------------
+
+@login_required
+def ecn_ccb_dossier(request, ecn_id):
+    """
+    Pagina di compilazione del dossier istruttorio CCB.
+    Accessibile al responsabile istruttoria, al Quality Manager e ai superuser.
+    Il dossier è modificabile solo in DRAFT o CCB_PREPARATION.
+    Pulsanti:
+      - Salva bozza istruttoria → salva senza inviare
+      - Invia alla CCB → salva + transizione a UNDER_REVIEW
+    """
+    from ecn.forms import ChangeNoticeDossierForm
+    from ecn.services import update_ccb_dossier, submit_change_notice
+
+    ecn = get_object_or_404(
+        ChangeNotice.objects.select_related(
+            'document', 'document_version', 'proposed_by',
+            'ccb_coordinator',
+        ),
+        pk=ecn_id,
+    )
+
+    if not can_view_ecn(request.user, ecn):
+        raise PermissionDenied
+
+    dossier_editable = can_compile_dossier(request.user, ecn)
+
+    if request.method == 'POST':
+        if not dossier_editable:
+            raise PermissionDenied
+
+        form = ChangeNoticeDossierForm(request.POST, current_user=request.user)
+        action = request.POST.get('dossier_action', 'save')  # 'save' | 'submit'
+
+        if form.is_valid():
+            d = form.cleaned_data
+
+            # Valida campi obbligatori se si sta inviando
+            if action == 'submit':
+                try:
+                    form.validate_for_submit()
+                except Exception:
+                    # validate_for_submit popola gli errori nel form
+                    pass
+
+            if not form.errors:
+                try:
+                    update_ccb_dossier(
+                        ecn,
+                        actor=request.user,
+                        ccb_class=d.get('ccb_class') or None,
+                        ccb_requirements=d.get('ccb_requirements', ''),
+                        ccb_technical_impact=d.get('ccb_technical_impact', ''),
+                        ccb_cost_impact=d.get('ccb_cost_impact', ''),
+                        ccb_time_impact=d.get('ccb_time_impact', ''),
+                        ccb_quality_impact=d.get('ccb_quality_impact', ''),
+                        ccb_other_impact=d.get('ccb_other_impact', ''),
+                        ccb_notes=d.get('ccb_notes', ''),
+                    )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_DOSSIER_COMPILED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
+                    )
+
+                    if action == 'submit':
+                        submit_change_notice(
+                            ecn,
+                            request.user,
+                            send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                        )
+                        messages.success(
+                            request,
+                            f'{ecn.code}: dossier inviato alla CCB. La votazione è avviata.',
+                        )
+                    else:
+                        messages.success(request, f'{ecn.code}: bozza dossier salvata.')
+
+                    return redirect('ecn:ecn_detail', ecn_id=ecn_id)
+                except PermissionDenied as exc:
+                    messages.error(request, str(exc))
+                except ValidationError as exc:
+                    for msg in exc.messages:
+                        messages.error(request, msg)
+    else:
+        # Pre-popola con i dati esistenti
+        form = ChangeNoticeDossierForm(
+            initial={
+                'ccb_class':           ecn.ccb_class or '',
+                'ccb_requirements':    ecn.ccb_requirements,
+                'ccb_technical_impact': ecn.ccb_technical_impact,
+                'ccb_cost_impact':     ecn.ccb_cost_impact,
+                'ccb_time_impact':     ecn.ccb_time_impact,
+                'ccb_quality_impact':  ecn.ccb_quality_impact,
+                'ccb_other_impact':    ecn.ccb_other_impact,
+                'ccb_notes':           ecn.ccb_notes,
+            },
+            current_user=request.user,
+        )
+
+    approvers = ecn.approvers.order_by('order', 'id').select_related('user')
+
+    return render(request, 'ecn/ecn_ccb_dossier.html', {
+        'form': form,
+        'ecn': ecn,
+        'dossier_editable': dossier_editable,
+        'approvers': approvers,
+        'can_submit': can_submit_ecn(request.user, ecn),
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -270,7 +509,7 @@ def ecn_configure_ccb(request, ecn_id):
 
 @login_required
 def ecn_submit(request, ecn_id):
-    """DRAFT → UNDER_REVIEW. Solo POST."""
+    """DRAFT/CCB_PREPARATION → UNDER_REVIEW. Solo POST."""
     from ecn.services import submit_change_notice
 
     if request.method != 'POST':
@@ -296,12 +535,18 @@ def ecn_submit(request, ecn_id):
 
 @login_required
 def ecn_review(request, ecn_id):
-    """UNDER_REVIEW → APPROVED / REJECTED."""
+    """
+    Decisione individuale del membro CCB (STEP I).
+    Mostra il dossier in sola lettura + form semplificato (approva/rifiuta + commento).
+    UNDER_REVIEW → APPROVED / REJECTED.
+    """
     from ecn.forms import ChangeNoticeReviewForm
     from ecn.services import approve_change_notice, reject_change_notice
 
     ecn = get_object_or_404(
-        ChangeNotice.objects.select_related('document', 'document_version', 'proposed_by'),
+        ChangeNotice.objects.select_related(
+            'document', 'document_version', 'proposed_by', 'ccb_coordinator',
+        ),
         pk=ecn_id,
     )
 
@@ -316,23 +561,23 @@ def ecn_review(request, ecn_id):
         return redirect('ecn:ecn_detail', ecn_id=ecn_id)
 
     if request.method == 'POST':
-        form = ChangeNoticeReviewForm(request.POST)
+        form = ChangeNoticeReviewForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
                 if d['action'] == ChangeNoticeReviewForm.ACTION_APPROVE:
+                    # Il dossier è già compilato: non passiamo ccb_class/requirements
+                    # perché il servizio usa quello già salvato sull'ECN.
                     approve_change_notice(
                         ecn,
                         request.user,
-                        ccb_class=d.get('ccb_class', ''),
-                        ccb_requirements=d.get('ccb_requirements', ''),
-                        ccb_technical_impact=d.get('ccb_technical_impact', ''),
-                        ccb_cost_impact=d.get('ccb_cost_impact', ''),
-                        ccb_time_impact=d.get('ccb_time_impact', ''),
-                        ccb_quality_impact=d.get('ccb_quality_impact', ''),
-                        ccb_other_impact=d.get('ccb_other_impact', ''),
-                        ccb_notes=d.get('ccb_notes', ''),
                         comment=d.get('comment', ''),
+                        send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                    )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_VOTE_APPROVED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
                     )
                     ecn.refresh_from_db()
                     if ecn.status == ChangeNotice.Status.APPROVED:
@@ -340,8 +585,8 @@ def ecn_review(request, ecn_id):
                     else:
                         messages.success(
                             request,
-                            f'La tua approvazione è stata registrata. '
-                            f'In attesa degli altri approvatori.',
+                            'La tua approvazione è stata registrata. '
+                            'In attesa degli altri approvatori.',
                         )
                 else:
                     reject_change_notice(
@@ -349,6 +594,12 @@ def ecn_review(request, ecn_id):
                         request.user,
                         reason=d['ccb_notes'],
                         comment=d.get('comment', ''),
+                        send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                    )
+                    form.maybe_create_historical_record(
+                        event_type=HistoricalRecord.EventType.ECN_VOTE_REJECTED,
+                        target_instance=ecn,
+                        recorded_by=request.user,
                     )
                     messages.success(request, f'{ecn.code} rifiutato dalla CCB.')
                 return redirect('ecn:ecn_detail', ecn_id=ecn_id)
@@ -359,11 +610,15 @@ def ecn_review(request, ecn_id):
                     for msg in exc.messages:
                         messages.error(request, msg)
     else:
-        form = ChangeNoticeReviewForm()
+        form = ChangeNoticeReviewForm(current_user=request.user)
+
+    approvers = ecn.approvers.order_by('order', 'id').select_related('user')
 
     return render(request, 'ecn/ecn_review_form.html', {
         'form': form,
         'ecn': ecn,
+        'approvers': approvers,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -396,11 +651,21 @@ def ecn_close(request, ecn_id):
     warn_no_version = ecn.executed_version is None
 
     if request.method == 'POST':
-        form = ChangeNoticeCloseForm(request.POST)
+        form = ChangeNoticeCloseForm(request.POST, current_user=request.user)
         if form.is_valid():
             d = form.cleaned_data
             try:
-                close_change_notice(ecn, request.user, close_notes=d.get('close_notes', ''))
+                close_change_notice(
+                    ecn,
+                    request.user,
+                    close_notes=d.get('close_notes', ''),
+                    send_notifications=should_send_notifications(sanatoria=form.is_sanatoria),
+                )
+                form.maybe_create_historical_record(
+                    event_type=HistoricalRecord.EventType.ECN_CLOSED,
+                    target_instance=ecn,
+                    recorded_by=request.user,
+                )
                 messages.success(request, f'{ecn.code} chiuso.')
                 return redirect('ecn:ecn_detail', ecn_id=ecn_id)
             except (PermissionDenied, ValidationError) as exc:
@@ -410,12 +675,13 @@ def ecn_close(request, ecn_id):
                     for msg in exc.messages:
                         messages.error(request, msg)
     else:
-        form = ChangeNoticeCloseForm()
+        form = ChangeNoticeCloseForm(current_user=request.user)
 
     return render(request, 'ecn/ecn_close_form.html', {
         'form': form,
         'ecn': ecn,
         'warn_no_version': warn_no_version,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 
@@ -471,10 +737,12 @@ def ecn_add_attachment(request, ecn_id):
 def ecn_attachment_download(request, attachment_id):
     """Download di un allegato ECN."""
     attachment = get_object_or_404(
-        ChangeNoticeAttachment.objects.select_related('change_notice'),
+        ChangeNoticeAttachment.objects.select_related(
+            'change_notice__proposed_by', 'change_notice__created_by',
+        ),
         pk=attachment_id,
     )
-    if not can_view_ecn(request.user, attachment.change_notice):
+    if not can_download_ecn_attachment(request.user, attachment):
         raise PermissionDenied
 
     if not attachment.file:
@@ -612,11 +880,8 @@ def ecn_dashboard(request):
 
     Accesso: superuser, staff, Document Managers, Document Auditors.
     """
-    from ecn.permissions import _is_superuser_or_staff, _in_group
-    from documents.permissions import GROUP_MANAGERS, GROUP_AUDITORS
-
     user = request.user
-    if not (_is_superuser_or_staff(user) or _in_group(user, GROUP_MANAGERS, GROUP_AUDITORS)):
+    if not _can_consult_all_ecn(user):
         raise PermissionDenied
 
     # 1 & 2: DRAFT — divisi per CCB configurata o meno

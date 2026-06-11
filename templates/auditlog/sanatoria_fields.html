@@ -1,0 +1,160 @@
+{% comment %}
+  Template partial: sezione sanatoria storica
+  Incluso nei form che supportano SanatoriaFieldsMixin.
+
+  Variabili attese nel context:
+    form               — il form Django che include i campi sanatoria
+    sanatoria_available — bool (True solo se can_use_sanatoria(user))
+
+  Uso nel template genitore:
+    include "auditlog/sanatoria_fields.html"
+{% endcomment %}
+{% if sanatoria_available %}
+
+<div class="form-section mt-6 border border-amber-400/40 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
+  <div class="form-section-title flex items-center gap-2 text-amber-700 dark:text-amber-300">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    Sanatoria storica
+  </div>
+
+  <!-- Checkbox principale (default: deselezionata) -->
+  <div class="form-group mb-3">
+    <label class="inline-flex items-center gap-3 cursor-pointer">
+      <input type="checkbox"
+             id="{{ form.sanatoria.id_for_label }}"
+             name="{{ form.sanatoria.html_name }}"
+             {% if form.sanatoria.value %}checked{% endif %}
+             class="w-4 h-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+             onchange="toggleSanatoriaFields(this.checked)">
+      <span class="form-label mb-0 text-amber-800 dark:text-amber-200">
+        {{ form.sanatoria.label }}
+      </span>
+    </label>
+    {% if form.sanatoria.help_text %}
+    <p class="form-help text-amber-600 dark:text-amber-400 ml-7">{{ form.sanatoria.help_text }}</p>
+    {% endif %}
+    {% for error in form.sanatoria.errors %}
+    <p class="form-error">{{ error }}</p>
+    {% endfor %}
+  </div>
+
+  <!-- Campi storici (visibili solo se checkbox selezionata) -->
+  <div id="sanatoria-fields"
+       class="{% if not form.sanatoria.value %}hidden{% endif %} border-t border-amber-300/40 pt-4 space-y-4">
+
+    <!-- Banner avvertimento -->
+    <div class="flex items-start gap-3 bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-600 rounded-lg px-4 py-3">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <div class="text-sm text-amber-800 dark:text-amber-200">
+        <strong>MODALITÀ SANATORIA ATTIVA</strong><br>
+        L'operazione verrà registrata come evento storico.
+        <strong>Non saranno inviate notifiche.</strong>
+        I timestamp tecnici resteranno quelli attuali.
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      <!-- Attore storico — utente nel sistema -->
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.historical_actor_user.id_for_label }}">
+          {{ form.historical_actor_user.label }}
+        </label>
+        {{ form.historical_actor_user }}
+        {% if form.historical_actor_user.help_text %}
+        <p class="form-help">{{ form.historical_actor_user.help_text }}</p>
+        {% endif %}
+        {% for error in form.historical_actor_user.errors %}
+        <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <!-- Attore storico — nome libero (ex dipendenti) -->
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.historical_actor_name.id_for_label }}">
+          {{ form.historical_actor_name.label }}
+        </label>
+        {{ form.historical_actor_name }}
+        {% if form.historical_actor_name.help_text %}
+        <p class="form-help">{{ form.historical_actor_name.help_text }}</p>
+        {% endif %}
+        {% for error in form.historical_actor_name.errors %}
+        <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <!-- Data storica -->
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.historical_date.id_for_label }}">
+          {{ form.historical_date.label }}
+        </label>
+        {{ form.historical_date }}
+        {% if form.historical_date.help_text %}
+        <p class="form-help">{{ form.historical_date.help_text }}</p>
+        {% endif %}
+        {% for error in form.historical_date.errors %}
+        <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <!-- Precisione data -->
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.date_precision.id_for_label }}">
+          {{ form.date_precision.label }}
+        </label>
+        {{ form.date_precision }}
+        {% for error in form.date_precision.errors %}
+        <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <!-- Fonte — full width -->
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.source_description.id_for_label }}">
+          {{ form.source_description.label }}
+        </label>
+        {{ form.source_description }}
+        {% if form.source_description.help_text %}
+        <p class="form-help">{{ form.source_description.help_text }}</p>
+        {% endif %}
+        {% for error in form.source_description.errors %}
+        <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <!-- Note storiche — full width -->
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.notes_historical.id_for_label }}">
+          {{ form.notes_historical.label }}
+        </label>
+        {{ form.notes_historical }}
+        {% for error in form.notes_historical.errors %}
+        <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+    </div>{# end grid #}
+  </div>{# end sanatoria-fields #}
+</div>{# end form-section #}
+
+<script>
+function toggleSanatoriaFields(checked) {
+  var el = document.getElementById('sanatoria-fields');
+  if (el) {
+    el.classList.toggle('hidden', !checked);
+  }
+}
+// Inizializzazione al caricamento pagina (repost con errori)
+(function() {
+  var cb = document.getElementById('{{ form.sanatoria.id_for_label }}');
+  if (cb) toggleSanatoriaFields(cb.checked);
+})();
+</script>
+
+{% endif %}{# sanatoria_available #}

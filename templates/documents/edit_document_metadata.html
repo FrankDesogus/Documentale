@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Modifica metadati — {{ document.code }} — Documentale{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb">
+  <a href="{% url 'document_list' %}">Documenti</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'document_detail' document.pk %}">{{ document.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Modifica metadati</span>
+</nav>
+
+<div class="card max-w-2xl">
+  <div class="card-header">
+    <h1 class="section-title mb-0">Modifica metadati — {{ document.code }}</h1>
+  </div>
+
+  <form method="post" class="space-y-4 p-4">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <div class="alert-danger">
+      {% for err in form.non_field_errors %}
+      <p>{{ err }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% for field in form %}
+    <div class="form-group">
+      <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}
+      <p class="form-help">{{ field.help_text }}</p>
+      {% endif %}
+      {% for err in field.errors %}
+      <p class="form-error">{{ err }}</p>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <div class="flex gap-2 pt-2">
+      <button type="submit" class="btn-primary">Salva modifiche</button>
+      <a href="{% url 'document_detail' document.pk %}" class="btn-secondary">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

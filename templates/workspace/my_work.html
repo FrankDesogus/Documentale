@@ -1,151 +1,182 @@
 {% extends "base.html" %}
 {% block title %}Il mio lavoro — Documentale{% endblock %}
 {% block content %}
-<h1>✏️ Il mio lavoro</h1>
+<div class="page-header">
+  <h1>Il mio lavoro</h1>
+  <p class="page-header-sub">Attività aperte, approvazioni e richieste ECN da seguire</p>
+</div>
 
 <!-- ── Approvazioni documento pendenti ── -->
-<div class="card">
-  <h2>✅ Da approvare
-    {% if pending_approvals %}<span class="badge badge-in_approvazione" style="margin-left:.5rem">{{ pending_approvals|length }}</span>{% endif %}
-  </h2>
+<div class="form-section">
+  <div class="flex items-center gap-2 mb-3">
+    <h2 class="text-base font-semibold text-brand-800">Da approvare</h2>
+    {% if pending_approvals %}<span class="badge-status-in_approval ml-1.5">{{ pending_approvals|length }}</span>{% endif %}
+  </div>
   {% if pending_approvals %}
-  <table>
-    <thead>
-      <tr>
-        <th>Documento</th>
-        <th>Revisione</th>
-        <th>Richiesta del</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for ar in pending_approvals %}
-      <tr>
-        <td>
-          <a href="{% url 'document_detail' ar.document_version.document.pk %}">
-            {{ ar.document_version.document.code }} — {{ ar.document_version.document.title }}
-          </a>
-        </td>
-        <td>Rev. {{ ar.document_version.revision_number }}</td>
-        <td class="meta">{{ ar.requested_at|date:"d/m/Y" }}</td>
-        <td>
-          <a href="{% url 'approval_queue' %}" class="btn btn-primary" style="padding:.25rem .7rem;font-size:.82rem">Esamina</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Documento</th>
+          <th>Revisione</th>
+          <th>Richiesta del</th>
+          <th class="w-24"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ar in pending_approvals %}
+        <tr>
+          <td>
+            <a href="{% url 'document_detail' ar.document_version.document.pk %}" class="font-mono font-semibold text-brand-800 hover:underline">
+              {{ ar.document_version.document.code }}
+            </a>
+            <div class="text-xs text-gray-500 mt-0.5">{{ ar.document_version.document.title }}</div>
+          </td>
+          <td class="whitespace-nowrap">Rev. {{ ar.document_version.revision_number }}</td>
+          <td class="meta whitespace-nowrap">{{ ar.requested_at|date:"d/m/Y" }}</td>
+          <td>
+            <a href="{% url 'approval_queue' %}" class="btn-primary btn-sm">Esamina</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <p class="meta">Nessuna approvazione in attesa.</p>
   {% endif %}
 </div>
 
 <!-- ── Decisioni CCB pendenti ── -->
-<div class="card">
-  <h2>🏛️ Decisioni CCB pendenti
-    {% if pending_ccb %}<span class="badge badge-in_approvazione" style="margin-left:.5rem">{{ pending_ccb|length }}</span>{% endif %}
-  </h2>
+<div class="form-section">
+  <div class="flex items-center gap-2 mb-3">
+    <h2 class="text-base font-semibold text-brand-800">Decisioni CCB pendenti</h2>
+    {% if pending_ccb %}<span class="badge-ecn-under_review ml-1.5">{{ pending_ccb|length }}</span>{% endif %}
+  </div>
   {% if pending_ccb %}
-  <table>
-    <thead>
-      <tr>
-        <th>ECN</th>
-        <th>Titolo</th>
-        <th>Stato</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for ca in pending_ccb %}
-      <tr>
-        <td><a href="{% url 'ecn:ecn_detail' ca.change_notice.pk %}">{{ ca.change_notice.code }}</a></td>
-        <td>{{ ca.change_notice.title }}</td>
-        <td><span class="badge badge-under_review">In revisione</span></td>
-        <td>
-          <a href="{% url 'ecn:ecn_detail' ca.change_notice.pk %}" class="btn btn-primary" style="padding:.25rem .7rem;font-size:.82rem">Decidi</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ECN</th>
+          <th>Titolo</th>
+          <th>Stato</th>
+          <th class="w-24"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ca in pending_ccb %}
+        <tr>
+          <td><a href="{% url 'ecn:ecn_detail' ca.change_notice.pk %}" class="font-mono font-semibold text-brand-800 hover:underline">{{ ca.change_notice.code }}</a></td>
+          <td>{{ ca.change_notice.title }}</td>
+          <td><span class="badge-ecn-under_review">In revisione</span></td>
+          <td>
+            <a href="{% url 'ecn:ecn_detail' ca.change_notice.pk %}" class="btn-primary btn-sm">Decidi</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <p class="meta">Nessuna decisione CCB pendente.</p>
   {% endif %}
 </div>
 
 <!-- ── Mie bozze ── -->
-<div class="card">
-  <h2>📝 Mie bozze e rifiutate
-    {% if my_drafts %}<span class="badge badge-bozza" style="margin-left:.5rem">{{ my_drafts|length }}</span>{% endif %}
-  </h2>
+<div class="form-section">
+  <div class="flex items-center gap-2 mb-3">
+    <h2 class="text-base font-semibold text-brand-800">Mie bozze e rifiutate</h2>
+    {% if my_drafts %}<span class="badge-status-draft ml-1.5">{{ my_drafts|length }}</span>{% endif %}
+  </div>
   {% if my_drafts %}
-  <table>
-    <thead>
-      <tr>
-        <th>Documento</th>
-        <th>Revisione</th>
-        <th>Stato</th>
-        <th>Aggiornata</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for v in my_drafts %}
-      <tr>
-        <td>
-          <a href="{% url 'document_detail' v.document.pk %}">
-            {{ v.document.code }} — {{ v.document.title }}
-          </a>
-        </td>
-        <td>Rev. {{ v.revision_number }}</td>
-        <td><span class="badge badge-{{ v.status }}">{{ v.get_status_display }}</span></td>
-        <td class="meta">{{ v.created_at|date:"d/m/Y" }}</td>
-        <td>
-          {% if v.status == 'draft' %}
-          <a href="{% url 'version_edit' v.pk %}" class="btn btn-secondary" style="padding:.25rem .7rem;font-size:.82rem">Modifica</a>
-          {% else %}
-          <a href="{% url 'document_detail' v.document.pk %}" class="btn btn-secondary" style="padding:.25rem .7rem;font-size:.82rem">Dettaglio</a>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Documento</th>
+          <th>Revisione</th>
+          <th>Stato</th>
+          <th>Aggiornata</th>
+          <th class="w-24"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in my_drafts %}
+        <tr>
+          <td>
+            <a href="{% url 'document_detail' v.document.pk %}" class="font-mono font-semibold text-brand-800 hover:underline">
+              {{ v.document.code }}
+            </a>
+            <div class="text-xs text-gray-500 mt-0.5">{{ v.document.title }}</div>
+          </td>
+          <td class="whitespace-nowrap">Rev. {{ v.revision_number }}</td>
+          <td>
+            {% if v.status == 'draft' %}<span class="badge-status-draft">{{ v.get_status_display }}</span>
+            {% elif v.status == 'rejected' %}<span class="badge-status-rejected">{{ v.get_status_display }}</span>
+            {% else %}<span class="badge-status-draft">{{ v.get_status_display }}</span>
+            {% endif %}
+          </td>
+          <td class="meta whitespace-nowrap">{{ v.created_at|date:"d/m/Y" }}</td>
+          <td>
+            {% if v.status == 'draft' %}
+            <a href="{% url 'version_edit' v.pk %}" class="btn-secondary btn-sm">Modifica</a>
+            {% else %}
+            <a href="{% url 'document_detail' v.document.pk %}" class="btn-secondary btn-sm">Dettaglio</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <p class="meta">Nessuna bozza o revisione rifiutata.</p>
   {% endif %}
 </div>
 
 <!-- ── Le mie ECN ── -->
-<div class="card">
-  <h2>🔄 Le mie ECN aperte
-    {% if my_ecn %}<span class="badge badge-in_approvazione" style="margin-left:.5rem">{{ my_ecn|length }}</span>{% endif %}
-  </h2>
+<div class="form-section">
+  <div class="flex items-center gap-2 mb-3">
+    <h2 class="text-base font-semibold text-brand-800">Le mie ECN aperte</h2>
+    {% if my_ecn %}<span class="badge-ecn-under_review ml-1.5">{{ my_ecn|length }}</span>{% endif %}
+  </div>
   {% if my_ecn %}
-  <table>
-    <thead>
-      <tr>
-        <th>Codice</th>
-        <th>Titolo</th>
-        <th>Stato</th>
-        <th>Data</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for ecn in my_ecn %}
-      <tr>
-        <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a></td>
-        <td>{{ ecn.title }}</td>
-        <td><span class="badge badge-{{ ecn.status }}">{{ ecn.get_status_display }}</span></td>
-        <td class="meta">{{ ecn.created_at|date:"d/m/Y" }}</td>
-        <td>
-          <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="padding:.25rem .7rem;font-size:.82rem">Apri</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Codice</th>
+          <th>Titolo</th>
+          <th>Stato</th>
+          <th>Data</th>
+          <th class="w-24"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ecn in my_ecn %}
+        <tr>
+          <td><a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="font-mono font-semibold text-brand-800 hover:underline">{{ ecn.code }}</a></td>
+          <td>{{ ecn.title }}</td>
+          <td>
+            {% if ecn.status == 'draft' %}<span class="badge-ecn-draft">Bozza</span>
+            {% elif ecn.status == 'ccb_preparation' %}<span class="badge-ecn-ccb_prep">Istruttoria CCB</span>
+            {% elif ecn.status == 'under_review' %}<span class="badge-ecn-under_review">In revisione CCB</span>
+            {% elif ecn.status == 'approved' %}<span class="badge-ecn-approved">Approvata</span>
+            {% elif ecn.status == 'rejected' %}<span class="badge-ecn-rejected">Rifiutata</span>
+            {% elif ecn.status == 'closed' %}<span class="badge-ecn-closed">Chiusa</span>
+            {% else %}<span class="badge-ecn-draft">{{ ecn.get_status_display }}</span>
+            {% endif %}
+          </td>
+          <td class="meta whitespace-nowrap">{{ ecn.created_at|date:"d/m/Y" }}</td>
+          <td>
+            <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary btn-sm">Apri</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <p class="meta">Nessuna ECN aperta.</p>
   {% endif %}

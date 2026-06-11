@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Istruttoria CCB — {{ ecn.code }} — Documentale{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'ecn:ecn_list' %}">ECN / Varianti</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Istruttoria CCB</span>
+</nav>
+
+<div class="page-header">
+  <h1>Istruttoria CCB — {{ ecn.code }}</h1>
+  <p class="page-header-sub">{{ ecn.title }}</p>
+</div>
+
+<!-- Proposta (sola lettura) -->
+<div class="form-section">
+  <div class="form-section-title">Proposta di variante</div>
+  <div class="detail-grid">
+    <div class="detail-item">
+      <span class="detail-label">Documento</span>
+      <span class="detail-value">
+        <a href="{% url 'document_detail' ecn.document_id %}" class="text-brand-600 hover:underline font-mono font-semibold">{{ ecn.document.code }}</a>
+        — {{ ecn.document.title }}
+      </span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Revisione di riferimento</span>
+      <span class="detail-value">Rev. {{ ecn.document_version.revision_label }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Proponente</span>
+      <span class="detail-value">{{ ecn.proposed_by.get_full_name|default:ecn.proposed_by.username }}</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Categoria motivazione</span>
+      <span class="detail-value">{{ ecn.get_motivation_display }}</span>
+    </div>
+    {% if ecn.ccb_coordinator %}
+    <div class="detail-item">
+      <span class="detail-label">Responsabile istruttoria</span>
+      <span class="detail-value">{{ ecn.ccb_coordinator.get_full_name|default:ecn.ccb_coordinator.username }}</span>
+    </div>
+    {% endif %}
+    <div class="detail-item">
+      <span class="detail-label">Policy CCB</span>
+      <span class="detail-value">
+        {% if ecn.ccb_policy == 'any' %}Basta un voto (ANY)
+        {% elif ecn.ccb_policy == 'all' %}Tutti devono approvare (ALL)
+        {% elif ecn.ccb_policy == 'sequential' %}Voto in ordine (SEQUENTIAL)
+        {% else %}{{ ecn.get_ccb_policy_display }}
+        {% endif %}
+      </span>
+    </div>
+    {% if ecn.motivation_detail %}
+    <div class="detail-item md:col-span-2">
+      <span class="detail-label">Motivazione (dettaglio)</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.motivation_detail }}</span>
+    </div>
+    {% endif %}
+    {% if ecn.description %}
+    <div class="detail-item md:col-span-2">
+      <span class="detail-label">Descrizione modifica</span>
+      <span class="detail-value whitespace-pre-wrap">{{ ecn.description }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Componenti CCB (sola lettura) -->
+{% if approvers %}
+<div class="form-section">
+  <div class="form-section-title">Componenti CCB ({{ approvers|length }})</div>
+  <ul class="space-y-1">
+    {% for app in approvers %}
+    <li class="flex items-center gap-2 text-sm text-gray-700">
+      <span class="w-6 text-center text-gray-400 font-mono">{{ app.order }}.</span>
+      <span>{{ app.user.get_full_name|default:app.user.username }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if not dossier_editable %}
+<div class="alert-warning mb-4">
+  <strong>Sola lettura:</strong>
+  Il dossier è in sola lettura nello stato attuale ({{ ecn.get_status_display }}).
+  {% if ecn.status == 'under_review' %}La votazione è in corso.{% endif %}
+</div>
+{% endif %}
+
+{% if dossier_editable %}
+<form method="post">
+  {% csrf_token %}
+
+  <!-- Classificazione variante -->
+  <div class="form-section">
+    <div class="form-section-title">Classificazione variante <span class="text-red-500">*</span></div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_ccb_class">{{ form.ccb_class.label }}</label>
+      {{ form.ccb_class }}
+      {% if form.ccb_class.help_text %}<p class="form-help">{{ form.ccb_class.help_text }}</p>{% endif %}
+      {% if form.ccb_class.errors %}<p class="form-error">{{ form.ccb_class.errors.as_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  <!-- Analisi istruttoria -->
+  <div class="form-section">
+    <div class="form-section-title">Analisi istruttoria</div>
+
+    <div class="form-group">
+      <label class="form-label">{{ form.ccb_requirements.label }} <span class="text-red-500">*</span></label>
+      {{ form.ccb_requirements }}
+      {% if form.ccb_requirements.help_text %}<p class="form-help">{{ form.ccb_requirements.help_text }}</p>{% endif %}
+      {% if form.ccb_requirements.errors %}<p class="form-error">{{ form.ccb_requirements.errors.as_text }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">{{ form.ccb_technical_impact.label }} <span class="text-red-500">*</span></label>
+      {{ form.ccb_technical_impact }}
+      {% if form.ccb_technical_impact.help_text %}<p class="form-help">{{ form.ccb_technical_impact.help_text }}</p>{% endif %}
+      {% if form.ccb_technical_impact.errors %}<p class="form-error">{{ form.ccb_technical_impact.errors.as_text }}</p>{% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="form-group mb-0">
+        <label class="form-label">{{ form.ccb_cost_impact.label }}</label>
+        {{ form.ccb_cost_impact }}
+        {% if form.ccb_cost_impact.errors %}<p class="form-error">{{ form.ccb_cost_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label">{{ form.ccb_time_impact.label }}</label>
+        {{ form.ccb_time_impact }}
+        {% if form.ccb_time_impact.errors %}<p class="form-error">{{ form.ccb_time_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label">{{ form.ccb_quality_impact.label }}</label>
+        {{ form.ccb_quality_impact }}
+        {% if form.ccb_quality_impact.errors %}<p class="form-error">{{ form.ccb_quality_impact.errors.as_text }}</p>{% endif %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label">{{ form.ccb_other_impact.label }}</label>
+        {{ form.ccb_other_impact }}
+        {% if form.ccb_other_impact.errors %}<p class="form-error">{{ form.ccb_other_impact.errors.as_text }}</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="form-group mb-0 mt-4">
+      <label class="form-label">{{ form.ccb_notes.label }}</label>
+      {{ form.ccb_notes }}
+      {% if form.ccb_notes.errors %}<p class="form-error">{{ form.ccb_notes.errors.as_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="flex items-center gap-3 flex-wrap">
+    <button type="submit" name="dossier_action" value="save" class="btn-secondary">
+      Salva bozza istruttoria
+    </button>
+    {% if can_submit %}
+    <button type="submit" name="dossier_action" value="submit" class="btn-primary"
+            onclick="return confirm('Inviare il dossier alla CCB per avviare la votazione?')">
+      Invia alla CCB per approvazione
+    </button>
+    {% endif %}
+    <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary">Annulla</a>
+  </div>
+
+  <p class="meta mt-3"><span class="text-red-500">*</span> Obbligatori prima dell'invio alla CCB.</p>
+</form>
+
+{% else %}
+{# Visualizzazione read-only del dossier #}
+<div class="form-section">
+  <div class="form-section-title">Contenuto dossier</div>
+  <div class="dl-grid">
+    {% if ecn.ccb_class %}
+    <dt>Classificazione</dt>   <dd>{{ ecn.get_ccb_class_display }}</dd>
+    {% endif %}
+    {% if ecn.ccb_requirements %}
+    <dt>Analisi requisiti</dt> <dd class="whitespace-pre-wrap">{{ ecn.ccb_requirements }}</dd>
+    {% endif %}
+    {% if ecn.ccb_technical_impact %}
+    <dt>Impatto tecnico</dt>   <dd class="whitespace-pre-wrap">{{ ecn.ccb_technical_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_cost_impact %}
+    <dt>Impatto costi</dt>     <dd class="whitespace-pre-wrap">{{ ecn.ccb_cost_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_time_impact %}
+    <dt>Impatto tempi</dt>     <dd class="whitespace-pre-wrap">{{ ecn.ccb_time_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_quality_impact %}
+    <dt>Impatto qualità</dt>   <dd class="whitespace-pre-wrap">{{ ecn.ccb_quality_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_other_impact %}
+    <dt>Impatto altri doc.</dt><dd class="whitespace-pre-wrap">{{ ecn.ccb_other_impact }}</dd>
+    {% endif %}
+    {% if ecn.ccb_notes %}
+    <dt>Note CCB</dt>          <dd class="whitespace-pre-wrap">{{ ecn.ccb_notes }}</dd>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

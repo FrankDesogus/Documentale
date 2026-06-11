@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Notifiche{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl">
+  <h1 class="text-2xl font-bold text-brand-900 mb-4">Notifiche</h1>
+
+  <!-- Filtri lettura / categoria -->
+  <div class="flex flex-wrap gap-2 mb-3 items-center">
+    <div class="flex gap-1">
+      <a href="?filter=all&category={{ filter_cat }}"
+         class="{% if filter_read == 'all' %}btn-primary btn-sm{% else %}btn-secondary btn-sm{% endif %}">
+        Tutte
+      </a>
+      <a href="?filter=unread&category={{ filter_cat }}"
+         class="{% if filter_read == 'unread' %}btn-primary btn-sm{% else %}btn-secondary btn-sm{% endif %}">
+        Non lette{% if unread_count > 0 %} ({{ unread_count }}){% endif %}
+      </a>
+    </div>
+    <div class="flex gap-1">
+      <a href="?filter={{ filter_read }}&category="
+         class="{% if not filter_cat %}btn-primary btn-sm{% else %}btn-secondary btn-sm{% endif %}">
+        Tutte le categorie
+      </a>
+      <a href="?filter={{ filter_read }}&category=action_required"
+         class="{% if filter_cat == 'action_required' %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 transition-colors{% else %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-amber-500 text-amber-700 bg-white hover:bg-amber-50 transition-colors{% endif %}">
+        Azioni richieste
+      </a>
+      <a href="?filter={{ filter_read }}&category=information"
+         class="{% if filter_cat == 'information' %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-800 transition-colors{% else %}inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-brand-500 text-brand-700 bg-white hover:bg-brand-50 transition-colors{% endif %}">
+        Informazioni
+      </a>
+    </div>
+  </div>
+
+  <!-- Segna tutte come lette -->
+  {% if unread_count > 0 %}
+  <form method="post" action="{% url 'notifications:mark_all_read' %}" class="mb-3">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button type="submit" class="btn-secondary btn-sm">
+      Segna tutte come lette ({{ unread_count }})
+    </button>
+  </form>
+  {% endif %}
+
+  <!-- Lista notifiche -->
+  {% if page_obj.object_list %}
+  <div class="flex flex-col gap-2">
+    {% for notification in page_obj %}
+    <div class="bg-white rounded-lg border {% if not notification.is_read %}border-l-4 border-l-brand-600 border-gray-200{% else %}border-gray-100 opacity-80{% endif %} px-4 py-3 shadow-sm">
+      <div class="flex justify-between items-start gap-4">
+        <div class="flex-1 min-w-0">
+          {% if notification.category == 'action_required' %}
+          <span class="badge-status-in_approval mb-1 inline-block">Azione richiesta</span>
+          {% else %}
+          <span class="badge-status-draft mb-1 inline-block">Info</span>
+          {% endif %}
+          <div class="text-sm {% if not notification.is_read %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}">
+            {{ notification.title }}
+          </div>
+          {% if notification.message %}
+          <div class="text-xs text-gray-500 mt-0.5">{{ notification.message }}</div>
+          {% endif %}
+        </div>
+        <div class="text-right flex-shrink-0 flex flex-col items-end gap-1.5">
+          <span class="text-xs text-gray-400">{{ notification.created_at|timesince }} fa</span>
+          <div class="flex gap-1.5 flex-wrap justify-end">
+            {% if not notification.is_read %}
+            <form method="post" action="{% url 'notifications:mark_read' notification.pk %}" class="m-0">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" class="btn-secondary btn-sm">Segna letta</button>
+            </form>
+            {% endif %}
+            {% if notification.target_url %}
+            <a href="{{ notification.target_url }}" class="btn-primary btn-sm">Apri</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Paginazione -->
+  {% if page_obj.has_other_pages %}
+  <nav class="pagination mt-4">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}&filter={{ filter_read }}&category={{ filter_cat }}">&laquo;</a>
+    {% else %}
+    <span class="disabled">&laquo;</span>
+    {% endif %}
+    <span class="current">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}&filter={{ filter_read }}&category={{ filter_cat }}">&raquo;</a>
+    {% else %}
+    <span class="disabled">&raquo;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <div class="card">
+    <div class="empty-state">
+      <div class="empty-state-icon">🔕</div>
+      <div class="empty-state-title">Nessuna notifica</div>
+      <div class="empty-state-desc">Non ci sono notifiche al momento.</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

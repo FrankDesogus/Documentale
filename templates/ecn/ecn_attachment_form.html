@@ -2,34 +2,48 @@
 {% block title %}Aggiungi allegato — {{ ecn.code }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta">
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">← {{ ecn.code }}</a>
-</p>
-<h1>Aggiungi allegato — {{ ecn.code }}</h1>
+<nav class="breadcrumb">
+  <a href="{% url 'ecn:ecn_detail' ecn.pk %}">{{ ecn.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Aggiungi allegato</span>
+</nav>
+
+<div class="page-header">
+  <h1>Aggiungi allegato</h1>
+  <p class="page-header-sub">{{ ecn.code }} — {{ ecn.title }}</p>
+</div>
 
 <form method="post" enctype="multipart/form-data">
   {% csrf_token %}
 
-  <div class="card">
-    <div style="margin-bottom:1rem">
-      <label for="id_file">{{ form.file.label }} *</label>
+  <div class="form-section">
+    <div class="form-section-title">Allegato</div>
+
+    <div class="form-group">
+      <label class="form-label" for="id_file">
+        {{ form.file.label }} <span class="text-red-500">*</span>
+      </label>
       {{ form.file }}
-      {% if form.file.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.file.errors.as_text }}</p>{% endif %}
+      {% if form.file.errors %}<p class="form-error">{{ form.file.errors.as_text }}</p>{% endif %}
     </div>
-    <div style="margin-bottom:1rem">
-      <label for="id_title">{{ form.title.label }}</label>
+
+    <div class="form-group">
+      <label class="form-label" for="id_title">{{ form.title.label }}</label>
       {{ form.title }}
-      <p class="meta" style="margin:.2rem 0 0">{{ form.title.help_text }}</p>
-      {% if form.title.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.title.errors.as_text }}</p>{% endif %}
+      {% if form.title.help_text %}<p class="form-help">{{ form.title.help_text }}</p>{% endif %}
+      {% if form.title.errors %}<p class="form-error">{{ form.title.errors.as_text }}</p>{% endif %}
     </div>
-    <div style="margin-bottom:1rem">
-      <label for="id_description">{{ form.description.label }}</label>
+
+    <div class="form-group mb-0">
+      <label class="form-label" for="id_description">{{ form.description.label }}</label>
       {{ form.description }}
-      {% if form.description.errors %}<p style="color:#dc3545;font-size:.85rem;margin:.2rem 0 0">{{ form.description.errors.as_text }}</p>{% endif %}
+      {% if form.description.errors %}<p class="form-error">{{ form.description.errors.as_text }}</p>{% endif %}
     </div>
   </div>
 
-  <button type="submit" class="btn btn-primary">Carica allegato</button>
-  <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Carica allegato</button>
+    <a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 {% endblock %}

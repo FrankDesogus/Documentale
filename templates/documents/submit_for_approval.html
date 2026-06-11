@@ -2,122 +2,174 @@
 {% block title %}Invia in approvazione — {{ document.code }} rev.{{ version.revision_label }} — Documentale{% endblock %}
 
 {% block content %}
-<p class="meta"><a href="{% url 'my_drafts' %}">← Mie bozze</a></p>
-<h1>Invia in approvazione</h1>
+<nav class="breadcrumb">
+  <a href="{% url 'my_drafts' %}">Il mio lavoro</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Richiedi approvazione</span>
+</nav>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="page-header">
+  <h1>Richiedi approvazione</h1>
+  <p class="page-header-sub">{{ document.code }} rev.{{ version.revision_label }}</p>
+</div>
+
+<!-- Riepilogo documento (read-only) -->
+<div class="form-section">
+  <div class="form-section-title">Documento</div>
   <dl class="dl-grid">
-    <dt>Documento</dt>  <dd>{{ document.code }} — {{ document.title }}</dd>
-    <dt>Revisione</dt>  <dd>Rev. {{ version.revision_label }} (n. {{ version.revision_number }})</dd>
-    <dt>Stato</dt>      <dd><span class="badge badge-{{ version.status }}">{{ version.get_status_display }}</span></dd>
+    <dt>Codice</dt>
+    <dd class="font-mono font-semibold text-brand-800">{{ document.code }}</dd>
+    <dt>Titolo</dt>
+    <dd>{{ document.title }}</dd>
+    <dt>Revisione</dt>
+    <dd>Rev. {{ version.revision_label }} (n. {{ version.revision_number }})</dd>
+    <dt>Stato</dt>
+    <dd>
+      {% if version.status == 'draft' %}
+      <span class="badge-status-draft">{{ version.get_status_display }}</span>
+      {% elif version.status == 'rejected' %}
+      <span class="badge-status-rejected">{{ version.get_status_display }}</span>
+      {% else %}
+      <span class="badge-status-draft">{{ version.get_status_display }}</span>
+      {% endif %}
+    </dd>
     {% if version.change_summary %}
-    <dt>Sommario</dt>   <dd>{{ version.change_summary }}</dd>
+    <dt>Sommario</dt>
+    <dd>{{ version.change_summary }}</dd>
     {% endif %}
     {% if version.rejection_reason %}
     <dt>Motivo rifiuto precedente</dt>
-    <dd style="color:#721c24">{{ version.rejection_reason }}</dd>
+    <dd class="text-red-700 font-medium">{{ version.rejection_reason }}</dd>
     {% endif %}
   </dl>
 </div>
 
 <form method="post" enctype="multipart/form-data" id="submit-form">
   {% csrf_token %}
-  <div class="card">
 
-    <div style="margin-bottom:1.25rem">
-      <label for="{{ form.approval_policy.id_for_label }}">{{ form.approval_policy.label }}</label>
+  <!-- Policy approvazione -->
+  <div class="form-section">
+    <div class="form-section-title">Policy approvazione</div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.approval_policy.id_for_label }}">
+        {{ form.approval_policy.label }}
+      </label>
       {{ form.approval_policy }}
       {% for error in form.approval_policy.errors %}
-      <div style="color:#dc3545;font-size:.85rem;margin-top:.3rem">{{ error }}</div>
+      <p class="form-error mt-1">{{ error }}</p>
       {% endfor %}
+      <div class="mt-3 space-y-1 text-sm text-gray-600">
+        <p><strong class="text-gray-700">ANY</strong> — Basta un voto: la prima approvazione è sufficiente</p>
+        <p><strong class="text-gray-700">ALL</strong> — Tutti devono approvare</p>
+        <p><strong class="text-gray-700">SEQUENTIAL</strong> — Voto in ordine: gli approvatori votano in sequenza</p>
+      </div>
     </div>
 
-    <div id="sequential-hint" style="display:none;padding:.5rem .75rem;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;margin-bottom:1rem;font-size:.9rem">
-      In modalità sequenziale gli approvatori firmeranno nell'ordine mostrato.
+    <div id="sequential-hint" class="alert-warning mt-3" style="display:none">
+      In modalità sequenziale gli approvatori firmeranno nell'ordine mostrato nella tabella sottostante.
     </div>
+  </div>
 
-    <div style="margin-bottom:.5rem">
-      <strong>Firmatari / approvatori <span style="color:#dc3545">*</span></strong>
-    </div>
+  <!-- Approvatori -->
+  <div class="form-section">
+    <div class="form-section-title">Approvatori <span class="text-red-500">*</span></div>
 
     {{ approver_formset.management_form }}
 
     {% if approver_formset.non_form_errors %}
-    <div style="color:#dc3545;font-size:.9rem;margin-bottom:.75rem">
+    <div class="alert-danger mb-3">
       {% for error in approver_formset.non_form_errors %}
-      <div>{{ error }}</div>
+      <p>{{ error }}</p>
       {% endfor %}
     </div>
     {% endif %}
 
-    <table style="width:100%;border-collapse:collapse;margin-bottom:.75rem">
-      <thead>
-        <tr>
-          <th style="width:2.5rem;text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">#</th>
-          <th style="text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Approvatore</th>
-          <th style="width:7rem;text-align:left;padding:.3rem .5rem;border-bottom:1px solid #dee2e6">Azioni</th>
-        </tr>
-      </thead>
-      <tbody id="approver-rows">
-        {% for approver_form in approver_formset %}
-        <tr class="approver-row">
-          <td style="padding:.3rem .5rem;vertical-align:middle" class="row-number">{{ forloop.counter }}.</td>
-          <td style="padding:.3rem .5rem">
-            {{ approver_form.approver }}
-            {% for error in approver_form.approver.errors %}
-            <div style="color:#dc3545;font-size:.8rem">{{ error }}</div>
-            {% endfor %}
-          </td>
-          <td style="padding:.3rem .5rem;white-space:nowrap">
-            <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↑</button>
-            <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↓</button>
-            <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn btn-danger" style="padding:.15rem .45rem;font-size:.8rem">✕</button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-container mb-3">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="w-10">#</th>
+            <th>Approvatore</th>
+            <th class="w-28">Azioni</th>
+          </tr>
+        </thead>
+        <tbody id="approver-rows">
+          {% for approver_form in approver_formset %}
+          <tr class="approver-row">
+            <td class="row-number text-gray-500">{{ forloop.counter }}.</td>
+            <td>
+              {{ approver_form.approver }}
+              {% for error in approver_form.approver.errors %}
+              <p class="form-error">{{ error }}</p>
+              {% endfor %}
+            </td>
+            <td class="whitespace-nowrap">
+              <div class="flex items-center gap-1">
+                <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn-ghost btn-sm px-2 py-1">↑</button>
+                <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn-ghost btn-sm px-2 py-1">↓</button>
+                <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn-danger btn-sm px-2 py-1">✕</button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
-    <button type="button" onclick="addRow()" class="btn btn-secondary" style="margin-bottom:1rem">
+    <button type="button" onclick="addRow()" class="btn-secondary btn-sm">
       + Aggiungi approvatore
     </button>
-
-    <div style="max-width:240px">
-      <label for="{{ form.due_date.id_for_label }}">{{ form.due_date.label }}</label>
-      {{ form.due_date }}
-      {% for error in form.due_date.errors %}
-      <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
-      {% endfor %}
-    </div>
-
-    <div style="margin-top:1.25rem">
-      <label for="{{ form.signature_template_file.id_for_label }}">
-        {{ form.signature_template_file.label }}
-        <span class="meta" style="font-weight:normal"> — Opzionale</span>
-      </label>
-      {{ form.signature_template_file }}
-      {% if form.signature_template_file.help_text %}
-      <div class="meta" style="margin-top:.25rem">{{ form.signature_template_file.help_text }}</div>
-      {% endif %}
-      {% for error in form.signature_template_file.errors %}
-      <div style="color:#dc3545;font-size:.85rem">{{ error }}</div>
-      {% endfor %}
-    </div>
-
   </div>
 
-  <button type="submit" class="btn btn-primary">Invia in approvazione</button>
-  <a href="{% url 'my_drafts' %}" class="btn btn-secondary" style="margin-left:.5rem">Annulla</a>
+  <!-- Scadenza -->
+  <div class="form-section">
+    <div class="form-section-title">Scadenza <span class="text-gray-400 font-normal text-xs">(opzionale)</span></div>
+    <div class="form-group mb-0" style="max-width:220px">
+      <label class="form-label" for="{{ form.due_date.id_for_label }}">
+        {{ form.due_date.label }}
+      </label>
+      {{ form.due_date }}
+      {% for error in form.due_date.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Allegati -->
+  <div class="form-section">
+    <div class="form-section-title">Allegati <span class="text-gray-400 font-normal text-xs">(opzionale)</span></div>
+    <div class="form-group mb-0">
+      <label class="form-label" for="{{ form.signature_template_file.id_for_label }}">
+        {{ form.signature_template_file.label }}
+      </label>
+      {% if form.signature_template_file.help_text %}
+      <p class="form-help">{{ form.signature_template_file.help_text }}</p>
+      {% endif %}
+      {{ form.signature_template_file }}
+      {% for error in form.signature_template_file.errors %}
+      <p class="form-error">{{ error }}</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Invia richiesta</button>
+    <a href="{% url 'my_drafts' %}" class="btn-secondary">Annulla</a>
+  </div>
 </form>
 
 {# Template per nuove righe: il server renderizza il widget con __prefix__; il JS lo clona e rimpiazza #}
 <script type="text/x-approver-template" id="empty-approver-row">
-  <td style="padding:.3rem .5rem;vertical-align:middle" class="row-number"></td>
-  <td style="padding:.3rem .5rem">{{ approver_formset.empty_form.approver }}</td>
-  <td style="padding:.3rem .5rem;white-space:nowrap">
-    <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↑</button>
-    <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn btn-secondary" style="padding:.15rem .45rem;font-size:.8rem">↓</button>
-    <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn btn-danger" style="padding:.15rem .45rem;font-size:.8rem">✕</button>
+  <td class="row-number text-gray-500"></td>
+  <td>{{ approver_formset.empty_form.approver }}</td>
+  <td class="whitespace-nowrap">
+    <div class="flex items-center gap-1">
+      <button type="button" onclick="moveRowUp(this)" title="Sposta su" class="btn-ghost btn-sm px-2 py-1">↑</button>
+      <button type="button" onclick="moveRowDown(this)" title="Sposta giù" class="btn-ghost btn-sm px-2 py-1">↓</button>
+      <button type="button" onclick="removeRow(this)" title="Rimuovi" class="btn-danger btn-sm px-2 py-1">✕</button>
+    </div>
   </td>
 </script>
 
@@ -131,9 +183,7 @@
 
   function updateFormset() {
     var allRows = rows();
-    // Aggiorna TOTAL_FORMS
     document.getElementById('id_' + PREFIX + '-TOTAL_FORMS').value = allRows.length;
-    // Rinumera nomi/id dei campi e il numero visibile
     allRows.forEach(function (row, idx) {
       var numCell = row.querySelector('.row-number');
       if (numCell) numCell.textContent = (idx + 1) + '.';

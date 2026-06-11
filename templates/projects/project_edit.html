@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Modifica {{ project.code }} — Documentale{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a href="{% url 'folder_list' %}">Archivio</a>
+  {% if project.root_folder and project.root_folder.parent %}
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'folder_detail' project.root_folder.parent.pk %}">{{ project.root_folder.parent.name }}</a>
+  {% endif %}
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'project_detail' project.pk %}">{{ project.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Modifica progetto</span>
+</nav>
+
+<div class="page-header">
+  <h1>Modifica progetto — {{ project.code }}</h1>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="form-section">
+    <div class="form-section-title">Dati progetto</div>
+
+    <!-- Campi read-only -->
+    <div class="form-group">
+      <label class="form-label text-gray-400">Codice progetto</label>
+      <div class="px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-500 font-mono">{{ project.code }}</div>
+      <p class="form-help">Il codice progetto non è modificabile dopo la creazione.</p>
+    </div>
+
+    {% if project.root_folder and project.root_folder.parent %}
+    <div class="form-group">
+      <label class="form-label text-gray-400">Cartella padre</label>
+      <div class="px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-500">
+        <a href="{% url 'folder_detail' project.root_folder.parent.pk %}" class="text-brand-600 hover:underline">
+          {{ project.root_folder.parent.code }} – {{ project.root_folder.parent.name }}
+        </a>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Nome -->
+    <div class="form-group">
+      <label class="form-label" for="{{ form.name.id_for_label }}">
+        {{ form.name.label }} <span class="text-red-500">*</span>
+      </label>
+      {{ form.name }}
+      {% for error in form.name.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+    </div>
+
+    <!-- Descrizione -->
+    <div class="form-group">
+      <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% for error in form.description.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+    </div>
+
+    <!-- Responsabile -->
+    <div class="form-group">
+      <label class="form-label" for="{{ form.manager.id_for_label }}">{{ form.manager.label }}</label>
+      {{ form.manager }}
+      {% for error in form.manager.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+    </div>
+
+    <!-- Schema versione e Versione -->
+    <div class="grid grid-cols-2 gap-4 mb-0">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.version_scheme.id_for_label }}">
+          {{ form.version_scheme.label }}
+        </label>
+        {{ form.version_scheme }}
+        {% if form.version_scheme.help_text %}<p class="form-help">{{ form.version_scheme.help_text }}</p>{% endif %}
+        {% for error in form.version_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.version.id_for_label }}">
+          {{ form.version.label }}
+        </label>
+        {{ form.version }}
+        {% if form.version.help_text %}<p class="form-help">{{ form.version.help_text }}</p>{% endif %}
+        {% for error in form.version.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+    </div>
+
+    <!-- Schema revisione e Revisione -->
+    <div class="grid grid-cols-2 gap-4 mb-0 mt-4">
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision_scheme.id_for_label }}">
+          {{ form.revision_scheme.label }}
+        </label>
+        {{ form.revision_scheme }}
+        {% if form.revision_scheme.help_text %}<p class="form-help">{{ form.revision_scheme.help_text }}</p>{% endif %}
+        {% for error in form.revision_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-group mb-0">
+        <label class="form-label" for="{{ form.revision.id_for_label }}">
+          {{ form.revision.label }}
+        </label>
+        {{ form.revision }}
+        {% if form.revision.help_text %}<p class="form-help">{{ form.revision.help_text }}</p>{% endif %}
+        {% for error in form.revision.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+    </div>
+    <p class="form-help text-slate-500 mt-1">
+      Cambiando schema inserire manualmente un valore coerente. Lo storico non viene modificato.
+    </p>
+
+    <!-- Avviso snapshot facoltativo (link attivi da VH-3) -->
+    <div class="alert-info mt-4 text-sm">
+      Prima di modificare versione o revisione puoi salvare lo stato corrente nello storico del progetto.
+      {% if project.pk and snapshot_urls_available %}
+      <span class="ml-2">
+        <a href="{{ save_version_url }}" class="text-brand-700 underline hover:no-underline">Salva versione</a>
+        &nbsp;·&nbsp;
+        <a href="{{ save_revision_url }}" class="text-brand-700 underline hover:no-underline">Salva revisione</a>
+      </span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% include "auditlog/sanatoria_fields.html" %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn-primary">Salva modifiche</button>
+    <a href="{% url 'project_detail' project.pk %}" class="btn-secondary">Annulla</a>
+  </div>
+</form>
+{% endblock %}

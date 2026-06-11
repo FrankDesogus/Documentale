@@ -1,0 +1,324 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --app-bg: #F6F8FC;
+    --app-bg-subtle: #EEF3F8;
+    --panel-bg: #FFFFFF;
+    --panel-bg-muted: #F8FAFC;
+    --text-primary: #081331;
+    --text-secondary: #64748B;
+    --text-inverse: #F8FAFC;
+    --border-soft: #DCE4EF;
+    --border-accent: rgba(16, 184, 212, 0.32);
+    --hover-soft: rgba(16, 184, 212, 0.08);
+    --shadow-soft: 0 10px 24px rgba(8, 19, 49, 0.06);
+    --field-bg: #FFFFFF;
+    --field-border: #CBD5E1;
+    --topbar-bg: rgba(255, 255, 255, 0.92);
+    --topbar-text: #081331;
+    --code-bg: rgba(8, 19, 49, 0.06);
+  }
+
+  .dark {
+    color-scheme: dark;
+    --app-bg: #050B24;
+    --app-bg-subtle: #081331;
+    --panel-bg: rgba(16, 33, 67, 0.70);
+    --panel-bg-muted: rgba(255, 255, 255, 0.05);
+    --text-primary: #F8FAFC;
+    --text-secondary: rgba(203, 213, 225, 0.74);
+    --text-inverse: #050B24;
+    --border-soft: rgba(255, 255, 255, 0.10);
+    --border-accent: rgba(103, 227, 238, 0.24);
+    --hover-soft: rgba(16, 184, 212, 0.10);
+    --shadow-soft: 0 18px 38px rgba(0, 0, 0, 0.24);
+    --field-bg: rgba(255, 255, 255, 0.06);
+    --field-border: rgba(255, 255, 255, 0.14);
+    --topbar-bg: rgba(8, 19, 49, 0.88);
+    --topbar-text: #CBD5E1;
+    --code-bg: rgba(255, 255, 255, 0.07);
+  }
+
+  body {
+    background: var(--app-bg);
+    color: var(--text-primary);
+    @apply antialiased;
+  }
+
+  a {
+    @apply transition-colors;
+  }
+
+  input,
+  select,
+  textarea {
+    background-color: var(--field-bg);
+    border-color: var(--field-border);
+    color: var(--text-primary);
+    @apply rounded-md placeholder:text-slate-400 focus:border-elt-cyan-500 focus:ring-2 focus:ring-elt-cyan-500/40;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    background-color: var(--field-bg);
+    border-color: var(--field-border);
+    @apply text-elt-cyan-500 focus:ring-elt-cyan-500/40;
+  }
+}
+
+@layer components {
+  /* Badge stati documento */
+  .badge-status-draft       { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200; }
+  .badge-status-in_approval { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-sky-100 text-sky-800 border border-sky-200; }
+  .badge-status-approved    { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200; }
+  .badge-status-rejected    { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800 border border-red-200; }
+  .badge-status-superseded  { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200; }
+  .badge-status-archived    { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500 border border-slate-200; }
+
+  /* Badge stati ECN */
+  .badge-ecn-draft          { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200; }
+  .badge-ecn-ccb_prep       { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-cyan-100 text-cyan-800 border border-cyan-200; }
+  .badge-ecn-under_review   { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-sky-100 text-sky-800 border border-sky-200; }
+  .badge-ecn-approved       { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200; }
+  .badge-ecn-rejected       { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800 border border-red-200; }
+  .badge-ecn-closed         { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200; }
+
+  .dark .badge-status-draft,
+  .dark .badge-ecn-draft { @apply bg-amber-400/14 text-amber-200 border-amber-300/20; }
+  .dark .badge-status-in_approval,
+  .dark .badge-ecn-under_review { @apply bg-sky-400/14 text-sky-200 border-sky-300/20; }
+  .dark .badge-status-approved,
+  .dark .badge-ecn-approved { @apply bg-emerald-400/14 text-emerald-200 border-emerald-300/20; }
+  .dark .badge-status-rejected,
+  .dark .badge-ecn-rejected { @apply bg-red-400/14 text-red-200 border-red-300/20; }
+  .dark .badge-status-superseded,
+  .dark .badge-status-archived,
+  .dark .badge-ecn-closed { @apply bg-slate-400/12 text-slate-300 border-white/10; }
+  .dark .badge-ecn-ccb_prep { @apply bg-elt-cyan-500/13 text-elt-cyan-300 border-elt-cyan-300/20; }
+
+  /* Bottoni */
+  .btn-primary   { @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold bg-elt-blue-600 text-white hover:bg-elt-cyan-500 focus:outline-none focus:ring-2 focus:ring-elt-cyan-500/50 shadow-sm transition-colors; }
+  .btn-secondary { @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-elt-cyan-500/40 transition-colors; background-color: var(--panel-bg); color: var(--text-primary); border: 1px solid var(--border-soft); }
+  .btn-secondary:hover { background-color: var(--hover-soft); border-color: var(--border-accent); }
+  .btn-danger    { @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium bg-red-600 text-white hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-colors; }
+  .btn-success   { @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-colors; }
+  .btn-sm        { @apply px-3 py-1.5 text-xs; }
+  .btn-ghost     { @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors; color: var(--text-secondary); }
+  .btn-ghost:hover { background-color: var(--hover-soft); color: var(--text-primary); }
+  .btn-outline   { @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-elt-cyan-500/40 transition-colors; background-color: var(--panel-bg); color: var(--text-primary); border: 1px solid var(--border-soft); }
+  .btn-outline:hover { background-color: var(--hover-soft); border-color: var(--border-accent); }
+
+  /* Card */
+  .card { @apply rounded-lg p-5 mb-4 backdrop-blur-sm; background-color: var(--panel-bg); border: 1px solid var(--border-soft); box-shadow: var(--shadow-soft); }
+  .card-header { @apply pb-3 mb-4; border-bottom: 1px solid var(--border-soft); }
+
+  /* Form fields */
+  .form-label { @apply block text-sm font-medium mb-1; color: var(--text-primary); }
+  .form-help  { @apply mt-1 text-xs; color: var(--text-secondary); }
+  .form-error { @apply mt-1 text-xs text-red-600; }
+  .dark .form-error { @apply text-red-200; }
+
+  /* Breadcrumb */
+  .breadcrumb { @apply flex items-center gap-1 text-sm mb-4; color: var(--text-secondary); }
+  .breadcrumb-sep { @apply text-slate-400; }
+  .breadcrumb a { @apply text-elt-blue-600 hover:text-elt-cyan-500 hover:underline; }
+  .dark .breadcrumb a { @apply text-elt-cyan-300 hover:text-white; }
+
+  /* Empty state */
+  .empty-state { @apply flex flex-col items-center justify-center py-16 text-center; color: var(--text-secondary); }
+  .empty-state-icon { @apply text-4xl mb-3 opacity-80; }
+  .empty-state-title { @apply text-base font-medium mb-1; color: var(--text-primary); }
+  .empty-state-desc { @apply text-sm; color: var(--text-secondary); }
+
+  /* Box prossima azione */
+  .next-action-box { @apply rounded-lg p-4 mb-4 bg-cyan-50 border border-cyan-200; }
+  .next-action-box-title { @apply text-sm font-semibold text-cyan-900 mb-1; }
+  .next-action-box-text { @apply text-sm text-cyan-800; }
+  .dark .next-action-box { @apply bg-elt-cyan-500/10 border-elt-cyan-300/20; }
+  .dark .next-action-box-title { @apply text-elt-cyan-300; }
+  .dark .next-action-box-text { @apply text-slate-200; }
+
+  /* Alert */
+  .alert-info    { @apply bg-sky-50 border border-sky-200 text-sky-800 rounded-md p-3 text-sm; }
+  .alert-success { @apply bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-md p-3 text-sm; }
+  .alert-warning { @apply bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-sm; }
+  .alert-danger  { @apply bg-red-50 border border-red-200 text-red-800 rounded-md p-3 text-sm; }
+  .dark .alert-info    { @apply bg-sky-400/12 border-sky-300/20 text-sky-100; }
+  .dark .alert-success { @apply bg-emerald-400/12 border-emerald-300/20 text-emerald-100; }
+  .dark .alert-warning { @apply bg-amber-400/12 border-amber-300/20 text-amber-100; }
+  .dark .alert-danger  { @apply bg-red-400/12 border-red-300/20 text-red-100; }
+
+  /* KPI card */
+  .kpi-card { @apply rounded-lg p-5 flex flex-col gap-1 hover:shadow-md transition-all backdrop-blur-sm; background-color: var(--panel-bg); border: 1px solid var(--border-soft); box-shadow: var(--shadow-soft); }
+  .kpi-card:hover { background-color: var(--panel-bg-muted); border-color: var(--border-accent); }
+  .kpi-value { @apply text-3xl font-bold; color: var(--text-primary); }
+  .kpi-label { @apply text-sm font-medium; color: var(--text-secondary); }
+  .kpi-icon  { @apply text-2xl mb-1 opacity-90; }
+
+  /* Tile cartella/progetto */
+  .folder-tile,
+  .project-tile { @apply rounded-lg p-4 transition-all cursor-pointer backdrop-blur-sm; background-color: var(--panel-bg); border: 1px solid var(--border-soft); box-shadow: var(--shadow-soft); }
+  .folder-tile:hover,
+  .project-tile:hover { background-color: var(--hover-soft); border-color: var(--border-accent); }
+  .folder-tile-icon { @apply text-2xl mb-2; }
+  .folder-tile-name { @apply text-sm font-semibold truncate; color: var(--text-primary); }
+  .folder-tile-meta { @apply text-xs mt-1; color: var(--text-secondary); }
+
+  /* Tabella */
+  .table-container { @apply rounded-lg overflow-hidden mb-4 backdrop-blur-sm; background-color: var(--panel-bg); border: 1px solid var(--border-soft); box-shadow: var(--shadow-soft); }
+  .table-header { @apply flex items-center justify-between px-4 py-3; border-bottom: 1px solid var(--border-soft); }
+  .table-title { @apply text-sm font-semibold; color: var(--text-primary); }
+  .data-table { @apply w-full text-sm; }
+  .data-table thead tr { background-color: var(--panel-bg-muted); border-bottom: 1px solid var(--border-soft); }
+  .data-table th { @apply px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide; color: var(--text-secondary); }
+  .data-table td { @apply px-4 py-3 align-middle; color: var(--text-primary); border-bottom: 1px solid var(--border-soft); }
+  .data-table tbody tr:hover td { background-color: var(--hover-soft); }
+  .data-table tbody tr:last-child td { border-bottom: 0; }
+
+  /* Paginazione */
+  .pagination { @apply flex items-center gap-1 mt-4; }
+  .pagination a, .pagination span { @apply px-3 py-1.5 rounded text-sm; }
+  .pagination a { @apply text-elt-blue-600 hover:bg-cyan-50 transition-colors; }
+  .pagination .current { @apply bg-elt-blue-600 text-white font-semibold; }
+  .pagination .disabled { @apply text-slate-300 cursor-not-allowed; }
+  .pagination-info { @apply text-xs ml-2; color: var(--text-secondary); }
+  .dark .pagination a { @apply text-elt-cyan-300 hover:bg-elt-cyan-500/10; }
+  .dark .pagination .current { @apply bg-elt-cyan-500 text-elt-navy-950; }
+  .dark .pagination .disabled { @apply text-slate-600; }
+
+  /* Filtri search bar */
+  .filter-bar { @apply rounded-lg p-4 mb-4 flex flex-wrap gap-3 items-end backdrop-blur-sm; background-color: var(--panel-bg); border: 1px solid var(--border-soft); box-shadow: var(--shadow-soft); }
+  .filter-group { @apply flex flex-col gap-1; }
+  .filter-actions { @apply flex items-end gap-2 ml-auto; }
+
+  /* Meta testo */
+  .meta { @apply text-sm; color: var(--text-secondary); }
+
+  /* DL grid per dettagli */
+  .dl-grid { @apply grid gap-y-2 gap-x-4; grid-template-columns: max-content 1fr; }
+  .dl-grid dt { @apply font-semibold text-sm; color: var(--text-secondary); }
+  .dl-grid dd { @apply text-sm; color: var(--text-primary); }
+
+  /* State empty */
+  .state-empty { @apply text-center py-8 text-sm; color: var(--text-secondary); }
+
+  /* Page header */
+  .page-header { @apply mb-6; }
+  .page-header h1 { @apply text-2xl font-bold mb-1; color: var(--text-primary); }
+  .page-header-sub { @apply text-sm; color: var(--text-secondary); }
+
+  /* Section */
+  .section-title { @apply text-base font-semibold mb-3; color: var(--text-primary); }
+
+  /* Detail layout */
+  .detail-grid { @apply grid grid-cols-1 md:grid-cols-2 gap-4 mb-4; }
+  .detail-item { @apply flex flex-col gap-0.5; }
+  .detail-label { @apply text-xs font-medium uppercase tracking-wide; color: var(--text-secondary); }
+  .detail-value { @apply text-sm; color: var(--text-primary); }
+
+  /* Form section */
+  .form-section { @apply rounded-lg p-5 mb-4 backdrop-blur-sm; background-color: var(--panel-bg); border: 1px solid var(--border-soft); box-shadow: var(--shadow-soft); }
+  .form-section-title { @apply text-sm font-semibold mb-4 pb-2 text-elt-blue-600; border-bottom: 1px solid var(--border-soft); }
+  .dark .form-section-title { @apply text-elt-cyan-300; }
+  .form-group { @apply mb-4; }
+  .form-actions { @apply flex items-center gap-3 pt-4 mt-4; border-top: 1px solid var(--border-soft); }
+
+  /* Badge generic */
+  .badge { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border; }
+  .badge-project { @apply bg-cyan-50 text-cyan-800 border-cyan-200; }
+  .badge-orphan  { @apply bg-amber-50 text-amber-800 border-amber-200; }
+  .badge-folder  { @apply bg-slate-100 text-slate-700 border-slate-200; }
+  .dark .badge-project { @apply bg-elt-cyan-500/13 text-elt-cyan-300 border-elt-cyan-300/20; }
+  .dark .badge-orphan  { @apply bg-amber-400/14 text-amber-200 border-amber-300/20; }
+  .dark .badge-folder  { @apply bg-white/[0.06] text-slate-300 border-white/10; }
+
+  /* Shell */
+  .sidebar-shell {
+    @apply w-64 flex-shrink-0 flex flex-col overflow-y-auto border-r border-white/10 shadow-2xl shadow-black/30 backdrop-blur-md;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(103, 227, 238, 0.18), transparent 22rem),
+      linear-gradient(160deg, rgba(5, 11, 36, 0.82), rgba(8, 19, 49, 0.90) 48%, rgba(11, 94, 168, 0.34));
+  }
+  .sidebar-brand { @apply relative block overflow-hidden border-b border-white/10 px-5 py-5 text-white; }
+  .sidebar-brand::before {
+    content: "";
+    @apply absolute inset-0;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(16, 184, 212, 0.30), transparent 30%),
+      linear-gradient(135deg, rgba(8, 19, 49, 0.62), rgba(11, 94, 168, 0.36)),
+      repeating-linear-gradient(135deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 14px);
+  }
+  .sidebar-brand > * { @apply relative; }
+  .sidebar-section { @apply mt-4 first:mt-1 rounded-lg py-2; background-color: rgba(255, 255, 255, 0.035); border: 1px solid rgba(255, 255, 255, 0.055); }
+  .sidebar-section-title { @apply px-3 pb-1 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-elt-cyan-300/75; }
+  .sidebar-link { @apply mx-1 flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-300 hover:text-white transition-colors; }
+  .sidebar-link:hover { background-color: rgba(103, 227, 238, 0.10); }
+  .sidebar-link-active { @apply text-white font-semibold shadow-sm shadow-elt-cyan-500/10 ring-1 ring-elt-cyan-300/20; background-color: rgba(16, 184, 212, 0.18); }
+  .sidebar-count { @apply text-xs bg-elt-cyan-500 text-elt-navy-950 rounded-full px-1.5 py-0.5 font-bold min-w-[1.25rem] text-center; }
+  .sidebar-count-warn { @apply bg-amber-300 text-elt-navy-950; }
+  .topbar { @apply flex-shrink-0 h-12 border-b backdrop-blur-sm flex items-center justify-end px-5 gap-3 text-sm; background-color: var(--topbar-bg); color: var(--topbar-text); border-color: var(--border-soft); }
+  .topbar-action { @apply relative flex h-8 w-8 items-center justify-center rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-elt-cyan-500/50; background-color: var(--panel-bg); color: var(--topbar-text); border: 1px solid var(--border-soft); }
+  .topbar-action:hover { background-color: var(--hover-soft); border-color: var(--border-accent); }
+  .notification-button { @apply relative flex h-8 w-8 items-center justify-center rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-elt-cyan-500/50; background-color: var(--panel-bg); color: var(--topbar-text); border: 1px solid var(--border-soft); }
+  .notification-button:hover { background-color: var(--hover-soft); border-color: var(--border-accent); }
+  .notification-badge { @apply absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full min-w-[1rem] h-4 flex items-center justify-center px-1 font-bold leading-none; }
+}
+
+@layer utilities {
+  .bg-elt-app {
+    background:
+      radial-gradient(circle at top right, rgba(16, 184, 212, 0.06), transparent 34rem),
+      linear-gradient(180deg, var(--app-bg) 0%, var(--app-bg-subtle) 100%);
+  }
+}
+
+/* Compatibility pass for templates already migrated with utility colors. */
+.theme-elt main .text-brand-900,
+.theme-elt main .text-brand-800,
+.theme-elt main .text-gray-900,
+.theme-elt main .text-gray-800,
+.theme-elt main .text-gray-700,
+.theme-elt main .text-elt-white {
+  color: var(--text-primary);
+}
+
+.theme-elt main .text-brand-700,
+.theme-elt main .text-brand-600 {
+  color: #0B5EA8;
+}
+
+.dark .theme-elt main .text-brand-700,
+.dark .theme-elt main .text-brand-600 {
+  color: #67E3EE;
+}
+
+.theme-elt main .text-gray-600,
+.theme-elt main .text-gray-500,
+.theme-elt main .text-gray-400,
+.theme-elt main .text-slate-400,
+.theme-elt main .text-slate-300 {
+  color: var(--text-secondary);
+}
+
+.theme-elt main .bg-white,
+.theme-elt main .bg-gray-50,
+.theme-elt main .bg-gray-100,
+.theme-elt main .bg-brand-50 {
+  background-color: var(--panel-bg);
+}
+
+.theme-elt main .border-gray-100,
+.theme-elt main .border-gray-200,
+.theme-elt main .border-gray-300,
+.theme-elt main .border-brand-200 {
+  border-color: var(--border-soft);
+}
+
+.theme-elt main code {
+  background-color: var(--code-bg);
+  color: var(--text-primary);
+}

@@ -46,3 +46,7 @@ desktop.ini
 
 # ── Claude Code ───────────────────────────────────────────────────────────────
 .claude/
+
+# ── Node.js / Frontend ────────────────────────────────────────────────────────
+node_modules/
+# static/css/tailwind.css è committato intenzionalmente (no Node in produzione)
