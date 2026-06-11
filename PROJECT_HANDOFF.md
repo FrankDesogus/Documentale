@@ -4,10 +4,12 @@
 
 Branch di lavoro: `authz-foundation`
 
-Checkpoint stabile: `d5c7f69 feat(documents): add configurable ECN policy per document (ECNPOL-1)`
+Checkpoint stabile: `08f293b feat(deploy): production-ready settings, env template and deploy guide`
 
 Commit recenti (dal più recente):
 ```
+08f293b feat(deploy): production-ready settings, env template and deploy guide
+fd66ef6 docs: update handoff branch and commit log after ECNPOL-1 merge
 d5c7f69 feat(documents): add configurable ECN policy per document (ECNPOL-1)  ← merge ECNPOL-1
 4a56b96 docs(ecnpol): update handoff with final test count and coverage detail
 c1ed8cb test(ecnpol): add button visibility and context tests for exempt documents
@@ -19,8 +21,6 @@ c61dcee test(documents): add ECNPolicyServiceTests and ECNPolicyViewTests
 69856a1 feat(documents): wire ecn policy to form and views
 4877bed feat(documents): enforce ecn policy in create_new_revision service
 e981b77 feat(documents): add requires_ecn_for_revision policy to Document
-b0c878e docs: update sanatoria mode handoff (SAN-6)
-fe32980 fix(ecn): allow assigned coordinator to view dossier (ECN-FIX-1)
 ```
 
 ## Blocchi principali già completati
@@ -378,24 +378,39 @@ Copertura view tests:
 
 ---
 
-## Stato corrente (2026-06-10)
+## Stato corrente (2026-06-11)
 
-Suite completa eseguita e verificata verde (1207 test, 0 errori, 2026-06-10).
-Nessuna regressione nei blocchi VH e SAN. ECNPOL-1 incluso (23 test nuovi).
+Suite completa eseguita e verificata verde (1207 test, 0 errori, 2026-06-11).
+Nessuna regressione nei blocchi VH, SAN, ECNPOL-1 e deploy prep.
 
-Revisione strutturale completata (2026-06-10):
+Blocchi completati in questa sessione:
+- **ECNPOL-1** — policy ECN configurabile per documento (23 test nuovi, mergiato su `authz-foundation`)
+- **Deploy prep** — settings refactored con `python-decouple`, `.env.example`, `gunicorn`, `DEPLOY.md`
 - Docstring obsoleta in `projects/resolver.py` corretta — il resolver è integrato in produzione.
-- `PROJECT_HANDOFF.md` aggiornato: rimossa indicazione errata su flag `is_demo_supervisor`
-  (non esiste come campo modello; la verifica è runtime in `config/demo_utils.py`).
-- Sistema permessi: due layer coesistono correttamente (`FolderPermissionGrant` modulare +
-  `ProjectFolderMembership` legacy con fallback). Strategia di migrazione operativa.
+
+## Deploy prep — completato
+
+Commit: `08f293b feat(deploy): production-ready settings, env template and deploy guide`
+
+| File | Modifica |
+|---|---|
+| `config/settings.py` | Tutti i valori sensibili letti da env via `python-decouple` |
+| `.env` | Configurazione locale dev (git-ignored) |
+| `.env.example` | Template committato — copiare sul server e compilare |
+| `requirements.txt` | Aggiunto `gunicorn==23.0.0` |
+| `DEPLOY.md` | Procedura completa: PostgreSQL, systemd, nginx, SSL, aggiornamenti |
+
+Variabili d'ambiente gestite: `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`,
+`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_*`,
+`DB_ENGINE` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT`,
+`DOCUMENTALE_DEMO_MODE`, email settings.
 
 ## Prossimo passo
 
 Scegliere tra:
-1. **Task backlog** — wizard sanatoria multi-step, admin HistoricalRecord con filtri, export audit trail PDF.
-2. **Deploy prep** — migrazione da SQLite a PostgreSQL, configurazione production settings, ALLOWED_HOSTS, STATIC_ROOT.
-3. **Completare migrazione permessi** — eseguire `backfill_folder_permission_grants` per convertire tutti i ProjectFolderMembership legacy in FolderPermissionGrant modulari, poi rimuovere il fallback legacy.
+1. **Deploy effettivo** — eseguire la procedura `DEPLOY.md` sul server aziendale.
+2. **Completare migrazione permessi** — eseguire `backfill_folder_permission_grants` per convertire tutti i `ProjectFolderMembership` legacy in `FolderPermissionGrant` modulari, poi rimuovere il fallback legacy.
+3. **Task backlog** — wizard sanatoria multi-step, admin HistoricalRecord con filtri, export audit trail PDF.
 
 Comando sviluppo:
 
