@@ -266,6 +266,8 @@ def can_submit_for_approval(user, version):
     """
     if not user.is_authenticated:
         return False
+    if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
+        return False
     if user.is_superuser:
         return True
     if _in_group(user, GROUP_MANAGERS):

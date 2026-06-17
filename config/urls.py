@@ -8,6 +8,7 @@ from documents.views import (
     edit_version,
     my_drafts,
     submit_for_approval,
+    version_detail,
     workspace_my_work,
     workspace_quality,
 )
@@ -19,6 +20,7 @@ urlpatterns = [
     path('workspace/quality/', workspace_quality, name='workspace_quality'),
     path('documents/', include('documents.urls')),
     path('my-drafts/', my_drafts, name='my_drafts'),
+    path('versions/<int:version_id>/', version_detail, name='version_detail'),
     path('versions/<int:version_id>/submit/', submit_for_approval, name='version_submit'),
     path('versions/<int:version_id>/edit/', edit_version, name='version_edit'),
     path('versions/<int:version_id>/download/', download_version_file, name='version_download'),

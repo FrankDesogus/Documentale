@@ -131,7 +131,7 @@
     <tbody>
       {% for doc in doc_page_obj %}
       <tr>
-        <td class="font-mono font-semibold text-brand-800">{{ doc.code }}</td>
+        <td class="font-mono font-semibold"><a href="{% url 'document_detail' doc.pk %}" class="text-brand-800 hover:underline">{{ doc.code }}</a></td>
         <td>{{ doc.title }}</td>
         <td class="meta text-xs">
           {% if doc.project_folder and doc.project_folder.pk != project.root_folder.pk %}
@@ -141,7 +141,7 @@
           {% endif %}
         </td>
         <td class="meta text-xs">{{ doc.document_type|default:"—" }}</td>
-        <td>{% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}{% else %}<span class="meta">—</span>{% endif %}</td>
+        <td>{% if doc.current_version %}<a href="{% url 'version_detail' doc.current_version.pk %}" class="text-brand-600 hover:underline">Rev. {{ doc.current_version.revision_label }}</a>{% else %}<span class="meta">—</span>{% endif %}</td>
         <td>
           {% if doc.current_version %}
             {% with s=doc.current_version.status %}
@@ -202,7 +202,7 @@
     <tbody>
       {% for ecn in project_ecns %}
       <tr>
-        <td class="font-mono font-semibold text-brand-800">{{ ecn.code }}</td>
+        <td class="font-mono font-semibold"><a href="{% url 'ecn:ecn_detail' ecn.pk %}" class="text-brand-800 hover:underline">{{ ecn.code }}</a></td>
         <td>{{ ecn.title }}</td>
         <td><a href="{% url 'document_detail' ecn.document_id %}" class="text-brand-600 hover:underline">{{ ecn.document.code }}</a></td>
         <td>

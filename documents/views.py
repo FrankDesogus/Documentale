@@ -349,6 +349,33 @@ def document_detail(request, document_id):
     except Exception:
         pass
 
+    # Record storici sanatoria visibili all'auditor/supervisor
+    historical_records = []
+    from auditlog.permissions import can_use_sanatoria
+    if show_history or can_use_sanatoria(request.user):
+        from auditlog.models import HistoricalRecord
+        historical_records = list(
+            HistoricalRecord.objects.filter(
+                target_app='documents',
+                target_model='document',
+                target_id=str(doc.pk),
+            ).select_related('recorded_by', 'import_batch').order_by('-historical_date')
+        )
+        if versions:
+            version_ids = [str(v.pk) for v in versions]
+            ver_records = list(
+                HistoricalRecord.objects.filter(
+                    target_app='documents',
+                    target_model='documentversion',
+                    target_id__in=version_ids,
+                ).select_related('recorded_by', 'import_batch').order_by('-historical_date')
+            )
+            historical_records = sorted(
+                historical_records + ver_records,
+                key=lambda r: (r.historical_date or __import__('datetime').date.min),
+                reverse=True,
+            )
+
     return render(request, 'documents/document_detail.html', {
         'document': doc,
         'versions': versions,
@@ -361,6 +388,59 @@ def document_detail(request, document_id):
         'show_create_ecn': show_create_ecn,
         'show_create_revision': can_create_revision(request.user, doc),
         'show_edit_metadata': can_edit_document_metadata(request.user, doc),
+        'historical_records': historical_records,
+    })
+
+
+@login_required
+def version_detail(request, version_id):
+    version = get_object_or_404(DocumentVersion, pk=version_id)
+    doc = version.document
+
+    if not can_view_document(request.user, doc) or not can_view_version(request.user, version):
+        raise Http404
+
+    # Richieste di approvazione per questa versione
+    from approvals.models import ApprovalRequest
+    approval_requests = (
+        version.approval_requests
+        .prefetch_related('approvers__approver', 'decisions__approver', 'attachments')
+        .order_by('-requested_at')
+    )
+
+    # ECN che ha originato questa revisione
+    ecn_origin = None
+    try:
+        from ecn.models import ChangeNotice
+        from ecn.permissions import can_view_ecn
+        ecn_origin = version.ecns_executed.select_related('proposed_by').first()
+        if ecn_origin and not can_view_ecn(request.user, ecn_origin):
+            ecn_origin = None
+    except Exception:
+        pass
+
+    # Record storici sanatoria per questa versione
+    historical_records = []
+    from auditlog.permissions import can_use_sanatoria
+    if can_view_audit(request.user, folder=doc.project_folder) or can_use_sanatoria(request.user):
+        from auditlog.models import HistoricalRecord
+        historical_records = list(
+            HistoricalRecord.objects.filter(
+                target_app='documents',
+                target_model='documentversion',
+                target_id=str(version.pk),
+            ).select_related('recorded_by', 'import_batch').order_by('-historical_date')
+        )
+
+    return render(request, 'documents/version_detail.html', {
+        'version': version,
+        'document': doc,
+        'approval_requests': approval_requests,
+        'ecn_origin': ecn_origin,
+        'historical_records': historical_records,
+        'show_history': can_view_audit(request.user, folder=doc.project_folder),
+        'show_edit': can_edit_version(request.user, version),
+        'show_submit': can_submit_for_approval(request.user, version),
     })
 
 

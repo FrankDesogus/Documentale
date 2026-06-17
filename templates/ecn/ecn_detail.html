@@ -193,7 +193,7 @@
   <dl class="dl-grid">
     <dt>Codice</dt>         <dd>{{ ecn.code }}</dd>
     <dt>Documento</dt>      <dd><a href="{% url 'document_detail' ecn.document_id %}" class="text-brand-600 hover:underline">{{ ecn.document.code }} — {{ ecn.document.title }}</a></dd>
-    <dt>Rev. riferimento</dt><dd>Rev. {{ ecn.document_version.revision_label }}</dd>
+    <dt>Rev. riferimento</dt><dd><a href="{% url 'version_detail' ecn.document_version.pk %}" class="text-brand-600 hover:underline">Rev. {{ ecn.document_version.revision_label }}</a></dd>
     {% if ecn.project %}
     <dt>Progetto</dt>       <dd>{{ ecn.project }}</dd>
     {% endif %}
@@ -325,8 +325,8 @@
   <dl class="dl-grid">
     <dt>Revisione eseguita</dt>
     <dd>
-      Rev. {{ ecn.executed_version.revision_label }} —
-      <span class="badge-status-{{ ecn.executed_version.status }}">{{ ecn.executed_version.get_status_display }}</span>
+      <a href="{% url 'version_detail' ecn.executed_version.pk %}" class="text-brand-600 hover:underline">Rev. {{ ecn.executed_version.revision_label }}</a>
+      — <span class="badge-status-{{ ecn.executed_version.status }}">{{ ecn.executed_version.get_status_display }}</span>
     </dd>
   </dl>
   {% else %}
@@ -352,6 +352,39 @@
     <dt>Note chiusura</dt><dd class="whitespace-pre-wrap">{{ ecn.close_notes }}</dd>
     {% endif %}
   </dl>
+</div>
+{% endif %}
+
+{# ── Dati storici sanatoria ── #}
+{% if historical_records %}
+<div class="card">
+  <div class="card-header">
+    <h2 class="section-title mb-0">Dati storici (sanatoria)</h2>
+  </div>
+  <div class="table-container mt-0 mb-0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Data dichiarata</th>
+        <th>Evento</th>
+        <th>Attore storico</th>
+        <th>Fonte</th>
+        <th>Registrato da</th>
+        <th>Note</th>
+      </tr></thead>
+      <tbody>
+        {% for hr in historical_records %}
+        <tr>
+          <td class="meta whitespace-nowrap">{{ hr.historical_date|date:"d/m/Y"|default:"—" }}</td>
+          <td>{{ hr.get_event_type_display }}</td>
+          <td>{{ hr.get_actor_display }}</td>
+          <td class="meta text-xs">{{ hr.source_description|default:"—" }}</td>
+          <td class="meta">{{ hr.recorded_by.get_full_name|default:hr.recorded_by.username|default:"—" }}</td>
+          <td class="meta text-xs">{{ hr.notes|default:"—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 

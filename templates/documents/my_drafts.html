@@ -29,10 +29,10 @@
       {% for v in versions %}
       <tr>
         <td>
-          <span class="font-semibold text-brand-800 font-mono">{{ v.document.code }}</span>
+          <a href="{% url 'document_detail' v.document.pk %}" class="font-semibold text-brand-800 font-mono hover:underline">{{ v.document.code }}</a>
           <div class="text-xs text-gray-500 mt-0.5">{{ v.document.title }}</div>
         </td>
-        <td class="whitespace-nowrap">Rev. {{ v.revision_label }}</td>
+        <td class="whitespace-nowrap"><a href="{% url 'version_detail' v.pk %}" class="text-brand-600 hover:underline">Rev. {{ v.revision_label }}</a></td>
         <td>
           {% if v.status == 'draft' %}
           <span class="badge-status-draft">{{ v.get_status_display }}</span>

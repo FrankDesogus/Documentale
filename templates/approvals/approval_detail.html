@@ -6,7 +6,11 @@
 <nav class="breadcrumb">
   <a href="{% url 'approval_queue' %}">Approvazioni</a>
   <span class="breadcrumb-sep">›</span>
-  <span>{{ document.code }} Rev. {{ version.revision_label }}</span>
+  <a href="{% url 'document_detail' document.pk %}">{{ document.code }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <a href="{% url 'version_detail' version.pk %}">Rev. {{ version.revision_label }}</a>
+  <span class="breadcrumb-sep">›</span>
+  <span>Approvazione</span>
 </nav>
 
 <h1 class="text-2xl font-bold text-brand-900 mb-4">{{ document.code }} — Rev. {{ version.revision_label }}</h1>
@@ -14,8 +18,8 @@
 <!-- Metadati -->
 <div class="card">
   <dl class="dl-grid">
-    <dt>Documento</dt>    <dd>{{ document.code }} — {{ document.title }}</dd>
-    <dt>Revisione</dt>    <dd>{{ version.revision_label }} (n. {{ version.revision_number }})</dd>
+    <dt>Documento</dt>    <dd><a href="{% url 'document_detail' document.pk %}" class="link">{{ document.code }} — {{ document.title }}</a></dd>
+    <dt>Revisione</dt>    <dd><a href="{% url 'version_detail' version.pk %}" class="link">{{ version.revision_label }} (n. {{ version.revision_number }})</a></dd>
     <dt>Autore</dt>       <dd>{{ version.created_by.get_full_name|default:version.created_by.username }}</dd>
     <dt>Richiedente</dt>  <dd>{{ approval_request.requested_by.get_full_name|default:approval_request.requested_by.username }}</dd>
     <dt>Richiesta il</dt> <dd>{{ approval_request.requested_at|date:"d/m/Y H:i" }}</dd>
@@ -190,6 +194,38 @@
 {% else %}
 <div class="alert-info mt-4">
   Questa richiesta è già stata <strong>{{ approval_request.get_status_display|lower }}</strong>{% if approval_request.completed_at %} il {{ approval_request.completed_at|date:"d/m/Y H:i" }}{% endif %}.
+</div>
+{% endif %}
+
+{% if historical_records %}
+<div class="card mt-6">
+  <div class="card-header">
+    <h2 class="section-title mb-0">Dati storici (sanatoria)</h2>
+  </div>
+  <div class="table-container mt-0 mb-0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Data dichiarata</th>
+        <th>Evento</th>
+        <th>Attore storico</th>
+        <th>Fonte</th>
+        <th>Registrato da</th>
+        <th>Note</th>
+      </tr></thead>
+      <tbody>
+        {% for hr in historical_records %}
+        <tr>
+          <td class="meta whitespace-nowrap">{{ hr.historical_date|date:"d/m/Y"|default:"—" }}</td>
+          <td>{{ hr.get_event_type_display }}</td>
+          <td>{{ hr.get_actor_display }}</td>
+          <td class="meta text-xs">{{ hr.source_description|default:"—" }}</td>
+          <td class="meta">{{ hr.recorded_by.get_full_name|default:hr.recorded_by.username|default:"—" }}</td>
+          <td class="meta text-xs">{{ hr.notes|default:"—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

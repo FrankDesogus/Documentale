@@ -141,8 +141,11 @@
 <!-- Approvazione ultima revisione (se approvata) -->
 {% if document.current_version and document.current_version.status == 'approved' %}
 <div class="card mb-4">
-  <div class="card-header">
+  <div class="card-header flex items-center justify-between">
     <h2 class="section-title mb-0">Approvazione revisione corrente</h2>
+    {% if latest_approval_request %}
+    <a href="{% url 'approval_detail' latest_approval_request.pk %}" class="btn-secondary btn-sm">Apri dettaglio</a>
+    {% endif %}
   </div>
   {% if latest_approval_request %}
   <div class="detail-grid mb-4">
@@ -287,8 +290,10 @@
       </tr></thead>
       <tbody>
         {% for v in versions %}
-        <tr>
-          <td class="font-mono font-semibold">{{ v.revision_label }}</td>
+        <tr class="cursor-pointer hover:bg-gray-50" onclick="window.location='{% url 'version_detail' v.pk %}'">
+          <td class="font-mono font-semibold">
+            <a href="{% url 'version_detail' v.pk %}" class="text-brand-700 hover:underline">{{ v.revision_label }}</a>
+          </td>
           <td class="text-gray-500">{{ v.revision_number }}</td>
           <td>
             {% if v.status == 'approved' %}<span class="badge-status-approved">Approvato</span>
@@ -303,9 +308,11 @@
           <td>{% if v.is_current %}<span class="text-green-600 font-semibold">✔</span>{% endif %}</td>
           <td>{{ v.created_by.get_full_name|default:v.created_by.username }}</td>
           <td class="meta whitespace-nowrap">{{ v.approved_at|date:"d/m/Y"|default:"—" }}</td>
-          <td>
+          <td onclick="event.stopPropagation()">
             {% if v.status == 'draft' or v.status == 'rejected' %}
             <a href="{% url 'version_edit' v.pk %}" class="btn-secondary btn-sm">Modifica</a>
+            {% else %}
+            <a href="{% url 'version_detail' v.pk %}" class="btn-secondary btn-sm">Dettaglio</a>
             {% endif %}
           </td>
         </tr>
@@ -333,11 +340,23 @@
       </tr></thead>
       <tbody>
         {% for entry in audit_logs %}
-        <tr>
+        <tr class="hover:bg-gray-50">
           <td class="meta whitespace-nowrap">{{ entry.timestamp|date:"d/m/Y H:i" }}</td>
           <td>{% if entry.user %}{{ entry.user.get_full_name|default:entry.user.username }}{% else %}—{% endif %}</td>
           <td><code class="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">{{ entry.action }}</code></td>
-          <td class="meta text-xs">{{ entry.object_repr }}</td>
+          <td class="text-xs">
+            {% if entry.model_name == 'documentversion' %}
+              <a href="{% url 'version_detail' entry.object_id %}" class="text-brand-700 hover:underline font-mono">{{ entry.object_repr }}</a>
+            {% elif entry.model_name == 'document' %}
+              <a href="{% url 'document_detail' entry.object_id %}" class="text-brand-700 hover:underline font-mono">{{ entry.object_repr }}</a>
+            {% elif entry.model_name == 'approvalrequest' %}
+              <a href="{% url 'approval_detail' entry.object_id %}" class="text-brand-700 hover:underline">{{ entry.object_repr }}</a>
+            {% elif entry.model_name == 'changenotice' %}
+              <a href="{% url 'ecn:ecn_detail' entry.object_id %}" class="text-brand-700 hover:underline font-mono">{{ entry.object_repr }}</a>
+            {% else %}
+              <span class="text-gray-500">{{ entry.object_repr }}</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -348,4 +367,48 @@
   {% endif %}
 </div>
 {% endif %}
+
+<!-- Record storici sanatoria -->
+{% if historical_records %}
+<div class="card mb-4">
+  <div class="card-header">
+    <h2 class="section-title mb-0">Dati storici (sanatoria)</h2>
+  </div>
+  <div class="table-container mt-0 mb-0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Data dichiarata</th>
+        <th>Evento</th>
+        <th>Revisione</th>
+        <th>Attore storico</th>
+        <th>Fonte</th>
+        <th>Note</th>
+      </tr></thead>
+      <tbody>
+        {% for hr in historical_records %}
+        <tr>
+          <td class="meta whitespace-nowrap">{{ hr.historical_date|date:"d/m/Y"|default:"—" }}</td>
+          <td>{{ hr.get_event_type_display }}</td>
+          <td class="font-mono text-xs">
+            {% if hr.target_model == 'documentversion' %}
+            <a href="{% url 'version_detail' hr.target_id %}" class="text-brand-700 hover:underline">Rev. {{ hr.target_repr }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if hr.historical_actor_user %}
+              {{ hr.historical_actor_user.get_full_name|default:hr.historical_actor_user.username }}
+            {% else %}
+              {{ hr.historical_actor_name|default:"—" }}
+            {% endif %}
+          </td>
+          <td class="meta text-xs">{{ hr.source_description|default:"—" }}</td>
+          <td class="meta text-xs">{{ hr.notes|default:"—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}

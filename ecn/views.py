@@ -185,6 +185,17 @@ def ecn_detail(request, ecn_id):
     has_ccb_configured = ecn.approvers.exists()
     has_decisions = ecn.decisions.exists()
 
+    historical_records = []
+    if can_use_sanatoria(request.user):
+        from auditlog.models import HistoricalRecord
+        historical_records = list(
+            HistoricalRecord.objects.filter(
+                target_app='ecn',
+                target_model='changenotice',
+                target_id=str(ecn.pk),
+            ).select_related('recorded_by').order_by('-historical_date')
+        )
+
     return render(request, 'ecn/ecn_detail.html', {
         'ecn': ecn,
         'attachments': attachments,
@@ -197,13 +208,13 @@ def ecn_detail(request, ecn_id):
         'can_close': can_close_ecn(request.user, ecn),
         'can_attach': can_add_ecn_attachment(request.user, ecn),
         'can_create_rev_from_ecn': can_create_rev_from_ecn,
-        # Modificabilità
         'can_edit': can_edit_ecn(request.user, ecn),
         'can_reconfigure': can_reconfigure_ccb(request.user, ecn),
         'can_reopen': can_reopen_ccb(request.user, ecn),
         'has_decisions': has_decisions,
-        # STEP I: dossier istruttorio
         'can_compile_dossier': can_compile_dossier(request.user, ecn),
+        'historical_records': historical_records,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })
 
 

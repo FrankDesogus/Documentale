@@ -197,6 +197,17 @@ def approval_detail(request, approval_request_id):
         next_slot = approvers.filter(status=ApprovalRequestApprover.ApproverStatus.PENDING).first()
         next_approver = next_slot.approver if next_slot else None
 
+    historical_records = []
+    if can_use_sanatoria(request.user):
+        from auditlog.models import HistoricalRecord
+        historical_records = list(
+            HistoricalRecord.objects.filter(
+                target_app='documents',
+                target_model='documentversion',
+                target_id=str(version.pk),
+            ).select_related('recorded_by').order_by('-historical_date')
+        )
+
     return render(request, 'approvals/approval_detail.html', {
         'approval_request': ar,
         'version': version,
@@ -205,4 +216,6 @@ def approval_detail(request, approval_request_id):
         'approvers': approvers,
         'next_approver': next_approver,
         'form': sanatoria_form,
+        'historical_records': historical_records,
+        'sanatoria_available': can_use_sanatoria(request.user),
     })

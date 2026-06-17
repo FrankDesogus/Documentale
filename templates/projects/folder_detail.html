@@ -104,7 +104,12 @@
           {% elif kind == 'document' %}<span>📄 Documento</span>
           {% endif %}
         </td>
-        <td class="font-mono font-semibold text-brand-800">{{ item.code }}</td>
+        <td class="font-mono font-semibold">
+          {% if kind == 'folder' %}<a href="{% url 'folder_detail' item.pk %}" class="text-brand-800 hover:underline">{{ item.code }}</a>
+          {% elif kind == 'project' %}<a href="{% url 'project_detail' item.pk %}" class="text-brand-800 hover:underline">{{ item.code }}</a>
+          {% elif kind == 'document' %}<a href="{% url 'document_detail' item.pk %}" class="text-brand-800 hover:underline">{{ item.code }}</a>
+          {% endif %}
+        </td>
         <td>{% if kind == 'document' %}{{ item.title }}{% else %}{{ item.name }}{% endif %}</td>
         <td class="meta text-xs">
           {% if kind == 'document' and item.project_folder %}{{ item.project_folder.name }}
@@ -213,11 +218,11 @@
     <tbody>
       {% for doc in documents %}
       <tr>
-        <td class="font-mono font-semibold text-brand-800">{{ doc.code }}</td>
+        <td class="font-mono font-semibold"><a href="{% url 'document_detail' doc.pk %}" class="text-brand-800 hover:underline">{{ doc.code }}</a></td>
         <td>{{ doc.title }}</td>
         <td class="meta">{{ doc.get_category_display }}</td>
         <td>
-          {% if doc.current_version %}Rev. {{ doc.current_version.revision_label }}
+          {% if doc.current_version %}<a href="{% url 'version_detail' doc.current_version.pk %}" class="text-brand-600 hover:underline">Rev. {{ doc.current_version.revision_label }}</a>
           {% else %}<span class="meta">—</span>{% endif %}
         </td>
         <td>

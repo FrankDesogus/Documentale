@@ -378,15 +378,56 @@ Copertura view tests:
 
 ---
 
-## Stato corrente (2026-06-11)
+## Stato corrente (2026-06-17)
 
-Suite completa eseguita e verificata verde (1207 test, 0 errori, 2026-06-11).
-Nessuna regressione nei blocchi VH, SAN, ECNPOL-1 e deploy prep.
+Suite completa eseguita e verificata verde (1127 test, 0 errori, 2026-06-17).
+Nessuna regressione.
 
-Blocchi completati in questa sessione:
-- **ECNPOL-1** — policy ECN configurabile per documento (23 test nuovi, mergiato su `authz-foundation`)
-- **Deploy prep** — settings refactored con `python-decouple`, `.env.example`, `gunicorn`, `DEPLOY.md`
-- Docstring obsoleta in `projects/resolver.py` corretta — il resolver è integrato in produzione.
+Branch: `main` — tutto committato e pushato su `origin/main`.
+
+Blocchi completati nell'ultima sessione (2026-06-17):
+
+### UI-NAV-1 — version_detail page
+- Nuova pagina `/versions/<id>/` → `version_detail`
+- Mostra: metadati revisione, ECN di origine (se presente), cicli di approvazione con decisioni, dati storici sanatoria
+- Template: `templates/documents/version_detail.html`
+- URL registrato in `config/urls.py`
+- View in `documents/views.py`
+
+### UI-NAV-2 — interattività UI globale
+Tutti i riferimenti a documenti, versioni, ECN nelle pagine principali sono ora link cliccabili:
+
+| Template | Elemento linkato |
+|---|---|
+| `document_list.html` | Riga cliccabile, codice → `document_detail`, revisione → `version_detail` |
+| `my_drafts.html` | Codice → `document_detail`, revisione → `version_detail` |
+| `project_detail.html` | Codice doc + revisione + codice ECN linkati |
+| `folder_detail.html` | Codice doc/progetto/cartella linkati in ricerca e lista |
+| `ecn_detail.html` | "Rev. riferimento" + "Revisione eseguita" → `version_detail` |
+| `ecn_dashboard.html` | Codici ECN → `ecn_detail` |
+| `document_detail.html` | Righe versioni cliccabili, "Storico eventi" → link per tipo oggetto |
+| `approval_detail.html` | Breadcrumb con link a documento e versione |
+
+### UI-NAV-3 — sanatoria in approval_detail e ecn_detail
+- `approvals/views.py`: passa `historical_records` filtrati per versione
+- `ecn/views.py`: passa `historical_records` filtrati per ECN
+- Sezione "Dati storici (sanatoria)" aggiunta in fondo a entrambi i template
+
+### FIX — can_submit_for_approval
+- `documents/permissions.py`: guard aggiunto — versioni non in stato `draft` o `rejected` non sono mai inviabili in approvazione, nemmeno per superuser
+- Bug: il pulsante "Invia in approvazione" compariva su versioni `superseded`
+
+### DEMO — demo_full command
+- `documents/management/commands/demo_full.py` (596 righe)
+- Chiama `demo_company` come base e aggiunge 7 scenari estesi:
+  1. Documento con 3 revisioni (storico completo, versioni superate)
+  2. Documento con revisione rifiutata
+  3. ECN in tutti e 6 gli stati (draft → ccb_preparation → under_review → approved → rejected → closed)
+  4. ECN che origina una revisione (ECN di origine visibile in version_detail)
+  5. Documento esente ECN (approvazione diretta)
+  6. Approvazione con policy ANY e SEQUENTIAL (in attesa)
+  7. Batch sanatoria con 5 record storici per DEMO-MULTI-001
+- Uso: `py manage.py demo_full --reset --no-email`
 
 ## Deploy prep — completato
 
@@ -411,9 +452,12 @@ Scegliere tra:
 1. **Deploy effettivo** — eseguire la procedura `DEPLOY.md` sul server aziendale.
 2. **Completare migrazione permessi** — eseguire `backfill_folder_permission_grants` per convertire tutti i `ProjectFolderMembership` legacy in `FolderPermissionGrant` modulari, poi rimuovere il fallback legacy.
 3. **Task backlog** — wizard sanatoria multi-step, admin HistoricalRecord con filtri, export audit trail PDF.
+4. **Avvio rapido demo** — `py manage.py demo_full --reset --no-email` per avere il DB demo completo.
 
 Comando sviluppo:
 
 ```powershell
+$env:DOCUMENTALE_DEMO_MODE = "true"
+py manage.py runserver
 py manage.py test auditlog documents approvals ecn projects accounts notifications --keepdb --failfast --verbosity=1
 ```
