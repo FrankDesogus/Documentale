@@ -378,14 +378,55 @@ Copertura view tests:
 
 ---
 
-## Stato corrente (2026-06-17)
+## Stato corrente (2026-06-29)
 
-Suite completa eseguita e verificata verde (1127 test, 0 errori, 2026-06-17).
+Suite completa eseguita e verificata verde (1157 test, 0 errori, 2026-06-29).
 Nessuna regressione.
 
-Branch: `main` — tutto committato e pushato su `origin/main`.
+Branch: `main` — tutto committato. Push locale in attesa (fare `git push origin main`).
 
-Blocchi completati nell'ultima sessione (2026-06-17):
+Ultimo commit: `851c54c feat(documents): dual-axis versioning — revision + version labels (DOC-VER)`
+
+---
+
+## DOC-VER — Dual-axis versioning (completato 2026-06-29)
+
+Aggiunge un asse **versione** opzionale ai documenti, indipendente dall'asse revisione già esistente.
+
+### Campi aggiunti
+
+**`Document`**:
+- `versioning_mode` — VersioningMode enum: `REVISION_ONLY` (default) | `VERSION_ONLY` | `BOTH`
+- `revision_scheme` — SequenceScheme: `numeric` (default) | `alphabetic`
+- `version_scheme` — SequenceScheme: `numeric` (default) | `alphabetic`
+
+**`DocumentVersion`**:
+- `version_label` — CharField (vuoto su documenti REVISION_ONLY)
+- `version_number` — IntegerField (0 su documenti REVISION_ONLY)
+
+Migrazione: `documents/migrations/0006_add_version_axis.py`
+
+### Logica service
+
+`create_new_revision` e `update_draft_version` calcolano `revision_number` e `version_number`
+automaticamente dall'etichetta e dallo schema del documento. Non accettano più `revision_number`
+come parametro esplicito (rimosso). Fallback cross-schema per etichette non conformi allo schema dichiarato.
+
+### Template aggiornati
+
+| Template | Modifica |
+|---|---|
+| `document_detail.html` | Colonne Revisione/Versione condizionali nella tabella storico |
+| `version_detail.html` | Righe Revisione/Versione condizionali |
+| `edit_version.html` | Campo version_label condizionale |
+| `submit_for_approval.html` | Etichette Revisione/Versione condizionali |
+| `my_drafts.html` | Badge Rev./Ver. condizionale |
+| `new_document.html` | Sezione versioning con versioning_mode, revision_scheme, version_scheme |
+| `new_revision.html` | Label revisione/versione coerente con il modo del documento |
+
+---
+
+## Blocchi completati nell'ultima sessione (2026-06-17):
 
 ### UI-NAV-1 — version_detail page
 - Nuova pagina `/versions/<id>/` → `version_detail`
@@ -453,11 +494,22 @@ Scegliere tra:
 2. **Completare migrazione permessi** — eseguire `backfill_folder_permission_grants` per convertire tutti i `ProjectFolderMembership` legacy in `FolderPermissionGrant` modulari, poi rimuovere il fallback legacy.
 3. **Task backlog** — wizard sanatoria multi-step, admin HistoricalRecord con filtri, export audit trail PDF.
 4. **Avvio rapido demo** — `py manage.py demo_full --reset --no-email` per avere il DB demo completo.
+5. **DOC-VER demo** — aggiornare `demo_workflow.py` / `demo_full.py` per creare documenti con `versioning_mode=BOTH` e mostrare il doppio asse nella demo.
 
-Comando sviluppo:
+## Comandi sviluppo Windows PowerShell
 
 ```powershell
+.venv\Scripts\Activate.ps1
 $env:DOCUMENTALE_DEMO_MODE = "true"
+py manage.py migrate
 py manage.py runserver
-py manage.py test auditlog documents approvals ecn projects accounts notifications --keepdb --failfast --verbosity=1
+npm run dev
 ```
+
+## Suite test
+
+```powershell
+py manage.py test documents projects approvals notifications ecn --verbosity=1
+```
+
+Ultima esecuzione: 1157 test — OK (2026-06-29)
