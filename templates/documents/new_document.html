@@ -63,10 +63,20 @@
     </div>
   </div>
 
-  <!-- Sezione: Prima revisione -->
+  <!-- Sezione: Modalità versionamento -->
   <div class="form-section">
-    <div class="form-section-title">Prima revisione</div>
+    <div class="form-section-title">Versionamento</div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="form-group mb-0 md:col-span-2">
+        <label class="form-label" for="{{ form.versioning_mode.id_for_label }}">
+          {{ form.versioning_mode.label }} <span class="text-red-500">*</span>
+        </label>
+        {{ form.versioning_mode }}
+        {% if form.versioning_mode.help_text %}<p class="form-help">{{ form.versioning_mode.help_text }}</p>{% endif %}
+        {% for error in form.versioning_mode.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+
+      <!-- Asse Revisione -->
       <div class="form-group mb-0">
         <label class="form-label" for="{{ form.revision_scheme.id_for_label }}">
           {{ form.revision_scheme.label }} <span class="text-red-500">*</span>
@@ -83,13 +93,25 @@
         {% if form.revision_label.help_text %}<p class="form-help">{{ form.revision_label.help_text }}</p>{% endif %}
         {% for error in form.revision_label.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
-      <div class="form-group mb-0">
-        <label class="form-label" for="{{ form.revision_number.id_for_label }}">
-          {{ form.revision_number.label }} <span class="text-red-500">*</span>
+
+      <!-- Asse Versione (visibile solo se versioning_mode != revision_only) -->
+      <div class="form-group mb-0" id="version-scheme-group">
+        <label class="form-label" for="{{ form.version_scheme.id_for_label }}">
+          {{ form.version_scheme.label }}
         </label>
-        {{ form.revision_number }}
-        {% for error in form.revision_number.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+        {{ form.version_scheme }}
+        {% if form.version_scheme.help_text %}<p class="form-help">{{ form.version_scheme.help_text }}</p>{% endif %}
+        {% for error in form.version_scheme.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
+      <div class="form-group mb-0" id="version-label-group">
+        <label class="form-label" for="{{ form.version_label.id_for_label }}">
+          {{ form.version_label.label }}
+        </label>
+        {{ form.version_label }}
+        {% if form.version_label.help_text %}<p class="form-help">{{ form.version_label.help_text }}</p>{% endif %}
+        {% for error in form.version_label.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+
       <div class="form-group mb-0 md:col-span-2">
         <label class="form-label" for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
         {{ form.change_summary }}
@@ -101,6 +123,22 @@
       </div>
     </div>
   </div>
+
+  <script>
+    (function () {
+      const modeSelect = document.getElementById('{{ form.versioning_mode.id_for_label }}');
+      const verGroups = ['version-scheme-group', 'version-label-group'];
+      function toggle() {
+        const show = modeSelect.value !== 'revision_only';
+        verGroups.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = show ? '' : 'none';
+        });
+      }
+      modeSelect.addEventListener('change', toggle);
+      toggle();
+    })();
+  </script>
 
   <!-- Sezione: Governance revisioni -->
   <div class="form-section">

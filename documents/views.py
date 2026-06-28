@@ -492,7 +492,9 @@ def new_document(request):
                         category=d['category'],
                         document_type=d['document_type'],
                         project_folder=d['project_folder'],
+                        versioning_mode=d.get('versioning_mode', Document.VersioningMode.REVISION_ONLY),
                         revision_scheme=d.get('revision_scheme', 'numeric'),
+                        version_scheme=d.get('version_scheme', 'numeric'),
                         requires_ecn_for_revision=not d.get('ecn_exemption', False),
                         owner=request.user,
                         created_by=request.user,
@@ -516,7 +518,7 @@ def new_document(request):
                         document=doc,
                         created_by=request.user,
                         revision_label=d['revision_label'],
-                        revision_number=d['revision_number'],
+                        version_label=d.get('version_label', ''),
                         file=doc_file,
                         change_summary=d['change_summary'],
                     )
@@ -622,25 +624,31 @@ def new_revision(request, document_id):
             return redirect('document_new_revision', document_id=doc.pk)
 
     from documents.versioning import next_sequence_value, SequenceScheme
-    scheme = doc.revision_scheme or SequenceScheme.NUMERIC
+    rev_scheme = doc.revision_scheme or SequenceScheme.NUMERIC
     last_version = doc.versions.order_by('-revision_number').first()
     if last_version:
-        next_number = last_version.revision_number + 1
         try:
-            next_label = next_sequence_value(last_version.revision_label, scheme)
+            next_rev_label = next_sequence_value(last_version.revision_label, rev_scheme)
         except Exception:
-            # Ultimo label incompatibile con lo schema corrente: lo schema è stato
-            # cambiato manualmente. Propone il primo valore del nuovo schema;
-            # l'utente lo sostituisce liberamente.
-            next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
+            next_rev_label = '00' if rev_scheme == SequenceScheme.NUMERIC else 'A'
+        # Suggerisci prossima version_label se il documento usa la versione
+        ver_scheme = doc.version_scheme or SequenceScheme.NUMERIC
+        if last_version.version_label:
+            try:
+                next_ver_label = next_sequence_value(last_version.version_label, ver_scheme)
+            except Exception:
+                next_ver_label = '00' if ver_scheme == SequenceScheme.NUMERIC else 'A'
+        else:
+            next_ver_label = '00' if ver_scheme == SequenceScheme.NUMERIC else 'A'
     else:
-        next_number = 0
-        next_label = '00' if scheme == SequenceScheme.NUMERIC else 'A'
+        next_rev_label = '00' if rev_scheme == SequenceScheme.NUMERIC else 'A'
+        ver_scheme = doc.version_scheme or SequenceScheme.NUMERIC
+        next_ver_label = '00' if ver_scheme == SequenceScheme.NUMERIC else 'A'
 
     if request.method == 'POST':
         form = DocumentRevisionCreateForm(
             request.POST, request.FILES,
-            revision_scheme=scheme,
+            document=doc,
             current_user=request.user,
         )
         if form.is_valid():
@@ -654,7 +662,7 @@ def new_revision(request, document_id):
                         document=doc,
                         created_by=request.user,
                         revision_label=d['revision_label'],
-                        revision_number=d['revision_number'],
+                        version_label=d.get('version_label', ''),
                         file=doc_file,
                         change_summary=d['change_summary'],
                         ecn=ecn,
@@ -677,8 +685,8 @@ def new_revision(request, document_id):
                     messages.error(request, msg)
     else:
         form = DocumentRevisionCreateForm(
-            initial={'revision_label': next_label, 'revision_number': next_number},
-            revision_scheme=scheme,
+            initial={'revision_label': next_rev_label, 'version_label': next_ver_label},
+            document=doc,
             current_user=request.user,
         )
 
@@ -687,8 +695,9 @@ def new_revision(request, document_id):
         'document': doc,
         'ecn': ecn,
         'needs_ecn': needs_ecn,
-        'revision_scheme': scheme,
-        'revision_scheme_display': dict(SequenceScheme.choices).get(scheme, scheme),
+        'revision_scheme': rev_scheme,
+        'revision_scheme_display': dict(SequenceScheme.choices).get(rev_scheme, rev_scheme),
+        'versioning_mode': doc.versioning_mode,
     })
 
 
@@ -777,9 +786,9 @@ def edit_version(request, version_id):
     if not can_edit_version(request.user, version):
         raise PermissionDenied
 
-    scheme = version.document.revision_scheme
+    doc = version.document
     if request.method == 'POST':
-        form = DocumentVersionEditForm(request.POST, request.FILES, revision_scheme=scheme)
+        form = DocumentVersionEditForm(request.POST, request.FILES, document=doc)
         if form.is_valid():
             d = form.cleaned_data
             try:
@@ -790,13 +799,13 @@ def edit_version(request, version_id):
                     version=version,
                     user=request.user,
                     revision_label=d['revision_label'],
-                    revision_number=d['revision_number'],
+                    version_label=d.get('version_label', ''),
                     change_summary=d['change_summary'],
                     new_file=new_file,
                 )
                 messages.success(
                     request,
-                    f'Rev. {version.revision_label} di {version.document.code} aggiornata.',
+                    f'Rev. {version.revision_label} di {doc.code} aggiornata.',
                 )
                 return redirect('my_drafts')
             except ValidationError as exc:
@@ -806,10 +815,10 @@ def edit_version(request, version_id):
         form = DocumentVersionEditForm(
             initial={
                 'revision_label': version.revision_label,
-                'revision_number': version.revision_number,
+                'version_label': version.version_label,
                 'change_summary': version.change_summary,
             },
-            revision_scheme=scheme,
+            document=doc,
         )
 
     return render(request, 'documents/edit_version.html', {

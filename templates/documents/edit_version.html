@@ -27,7 +27,7 @@
     <dt>Documento</dt>
     <dd>{{ document.code }} — {{ document.title }}</dd>
     <dt>Revisione</dt>
-    <dd>Rev. {{ version.revision_label }} (n. {{ version.revision_number }})</dd>
+    <dd>Rev. {{ version.revision_label }}</dd>
     <dt>Stato</dt>
     <dd>
       {% if version.status == 'draft' %}
@@ -55,7 +55,7 @@
 <form method="post" enctype="multipart/form-data">
   {% csrf_token %}
 
-  <!-- Etichetta e numero revisione -->
+  <!-- Etichette revisione / versione -->
   <div class="form-section">
     <div class="form-section-title">Dati revisione</div>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -68,15 +68,18 @@
         <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
+      {% if document.versioning_mode != 'revision_only' %}
       <div class="form-group mb-0">
-        <label class="form-label" for="{{ form.revision_number.id_for_label }}">
-          {{ form.revision_number.label }}
+        <label class="form-label" for="{{ form.version_label.id_for_label }}">
+          {{ form.version_label.label }}{% if document.versioning_mode == 'version_only' %} <span class="text-red-500">*</span>{% endif %}
         </label>
-        {{ form.revision_number }}
-        {% for error in form.revision_number.errors %}
+        {{ form.version_label }}
+        {% if form.version_label.help_text %}<p class="form-help">{{ form.version_label.help_text }}</p>{% endif %}
+        {% for error in form.version_label.errors %}
         <p class="form-error">{{ error }}</p>
         {% endfor %}
       </div>
+      {% endif %}
     </div>
   </div>
 

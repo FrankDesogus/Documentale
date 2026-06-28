@@ -71,11 +71,6 @@ class CreateNewRevisionTests(TestCase):
         with self.assertRaises(ValidationError):
             create_new_revision(self.document, self.author, 'A', 2)
 
-    def test_duplicate_revision_number_raises(self):
-        create_new_revision(self.document, self.author, 'A', 1)
-        with self.assertRaises(ValidationError):
-            create_new_revision(self.document, self.author, 'B', 1)
-
     def test_inactive_document_raises(self):
         self.document.status = Document.Status.OBSOLETE
         self.document.save(update_fields=['status'])
@@ -283,9 +278,9 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento test UI',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'versioning_mode': 'revision_only',
                 'revision_scheme': 'numeric',
                 'revision_label': '00',
-                'revision_number': '0',
             })
         self.assertRedirects(response, reverse('my_drafts'))
         self.assertTrue(Document.objects.filter(code='UI-001').exists())
@@ -303,9 +298,9 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento con file',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'versioning_mode': 'revision_only',
                 'revision_scheme': 'numeric',
                 'revision_label': '00',
-                'revision_number': '0',
                 'file': uploaded,
             })
         version = DocumentVersion.objects.get(document__code='UI-002')
@@ -323,9 +318,9 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento revisioni',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'versioning_mode': 'revision_only',
                 'revision_scheme': 'numeric',
                 'revision_label': '00',
-                'revision_number': '0',
             })
             doc = Document.objects.get(code='UI-003')
             # Crea nuova revisione
@@ -349,9 +344,9 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Documento submit',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'versioning_mode': 'revision_only',
                 'revision_scheme': 'numeric',
                 'revision_label': '00',
-                'revision_number': '0',
             })
         doc = Document.objects.get(code='UI-004')
         version = doc.versions.first()
@@ -378,18 +373,18 @@ class AuthorWorkflowViewTests(TestCase):
                 'title': 'Primo',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'versioning_mode': 'revision_only',
                 'revision_scheme': 'numeric',
                 'revision_label': '00',
-                'revision_number': '0',
             })
             response = self.client.post(reverse('document_new'), {
                 'code': 'UI-DUP',
                 'title': 'Secondo con stesso codice',
                 'category': 'QUALITY',
                 'project_folder': self.folder.pk,
+                'versioning_mode': 'revision_only',
                 'revision_scheme': 'numeric',
                 'revision_label': '00',
-                'revision_number': '0',
             })
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'esiste già')
@@ -560,9 +555,9 @@ class PermissionGroupTests(TestCase):
             'title': 'Documento autore',
             'category': 'QUALITY',
             'project_folder': folder.pk,
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'numeric',
             'revision_label': '00',
-            'revision_number': '0',
         })
         self.assertRedirects(response, reverse('my_drafts'))
         self.assertTrue(Document.objects.filter(code='PG-AUTH').exists())
@@ -800,7 +795,6 @@ class ApproverFormSetTests(TestCase):
             document=self.doc,
             created_by=self.author,
             revision_label='01',
-            revision_number=1,
         )
 
     def _post_submit(self, version, approver_pks, policy='all'):
@@ -1039,9 +1033,9 @@ class NewDocumentFolderRequiredTests(TestCase):
             'category': 'QUALITY',
             'document_type': '',
             'description': '',
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'numeric',
             'revision_label': '00',
-            'revision_number': 0,
             'change_summary': '',
         }
         if extra_data:
@@ -1115,9 +1109,9 @@ class NewDocumentFolderRequiredTests(TestCase):
             'document_type': '',
             'description': '',
             'project_folder': self.folder.pk,
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'numeric',
             'revision_label': '00',
-            'revision_number': 0,
             'change_summary': '',
         })
         self.assertTrue(Document.objects.filter(code='NDFR-PRJ-DOC-001').exists())
@@ -2685,7 +2679,7 @@ class DemoSupervisorTests(TestCase):
         # Crea nuova revisione autorizzata dall'ECN
         ver01 = create_new_revision(
             document=doc, created_by=self.supervisor,
-            revision_label='01', revision_number=1,
+            revision_label='01',
             change_summary='Revisione ECN', ecn=ecn,
         )
         req = submit_version_for_approval(ver01, self.supervisor, [self.supervisor])
@@ -2876,7 +2870,7 @@ class DemoSupervisorEndToEndTests(TestCase):
         # 9. Crea nuova revisione autorizzata dall'ECN approvato
         v01 = create_new_revision(
             document=doc, created_by=sup,
-            revision_label='01', revision_number=1,
+            revision_label='01',
             change_summary='Revisione da ECN', ecn=ecn,
         )
 
@@ -3689,6 +3683,7 @@ class DocumentMetadataEditTests(TestCase):
         resp = self.client.post(self._url(), {
             'title': self.doc.title,
             'description': '',
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'alphabetic',
         })
         self.assertRedirects(resp, reverse('document_detail', args=[self.doc.pk]))
@@ -3702,6 +3697,7 @@ class DocumentMetadataEditTests(TestCase):
         resp = self.client.post(self._url(), {
             'title': self.doc.title,
             'description': '',
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'alphabetic',
         })
         self.assertEqual(resp.status_code, 200)
@@ -3716,6 +3712,7 @@ class DocumentMetadataEditTests(TestCase):
         resp = self.client.post(self._url(), {
             'title': self.doc.title,
             'description': '',
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'alphabetic',
         })
         self.assertEqual(resp.status_code, 200)
@@ -3730,6 +3727,7 @@ class DocumentMetadataEditTests(TestCase):
         self.client.post(self._url(), {
             'title': self.doc.title,
             'description': '',
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'alphabetic',
         })
         ver.refresh_from_db()
@@ -3741,6 +3739,7 @@ class DocumentMetadataEditTests(TestCase):
         self.client.post(self._url(), {
             'title': 'Titolo aggiornato',
             'description': 'Nuova descrizione',
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'numeric',
         })
         self.doc.refresh_from_db()
@@ -4073,9 +4072,9 @@ class ECNPolicyViewTests(TestCase):
                     'title': 'Doc sanatoria policy',
                     'category': 'QUALITY',
                     'project_folder': self.folder.pk,
+                    'versioning_mode': 'revision_only',
                     'revision_scheme': 'numeric',
                     'revision_label': '00',
-                    'revision_number': '0',
                     # ecn_exemption assente → requires_ecn_for_revision=True (default)
                 })
                 self.assertIn(r.status_code, [200, 302])
@@ -4091,9 +4090,9 @@ class ECNPolicyViewTests(TestCase):
             'title': 'Doc audit policy',
             'category': 'QUALITY',
             'project_folder': self.folder.pk,
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'numeric',
             'revision_label': '00',
-            'revision_number': '0',
             'ecn_exemption': 'on',   # spuntato → requires_ecn_for_revision=False
         })
         doc = Document.objects.filter(code='PV-AUDIT').first()

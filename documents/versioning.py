@@ -6,7 +6,7 @@ Supporta due schemi:
   ALPHABETIC -> A, B ... Z, AA, AB ... AZ, BA ...
 
 Regole:
-  - NUMERIC accetta solo /^\d+$/
+  - NUMERIC accetta solo /^\\d+$/
   - ALPHABETIC accetta solo /^[A-Z]+$/ (normalizza lowercase -> uppercase)
   - Valori vuoti sempre rifiutati
   - Nessuna conversione automatica tra schemi

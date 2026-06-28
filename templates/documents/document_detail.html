@@ -85,57 +85,75 @@
 
 <!-- Versione corrente -->
 {% if document.current_version %}
+{% with cv=document.current_version mode=document.versioning_mode %}
 <div class="card mb-4">
   <div class="card-header flex items-center justify-between">
-    <h2 class="section-title mb-0">Versione corrente — Rev. {{ document.current_version.revision_label }}</h2>
-    {% if document.current_version.file %}
-    <a href="{% url 'version_download' document.current_version.pk %}" class="btn-secondary btn-sm">⬇ Scarica</a>
+    <h2 class="section-title mb-0">
+      {% if mode == 'revision_only' %}
+        Revisione corrente — Rev. {{ cv.revision_label }}
+      {% elif mode == 'version_only' %}
+        Versione corrente — Ver. {{ cv.version_label }}
+      {% else %}
+        Revisione corrente — Rev. {{ cv.revision_label }} &nbsp;|&nbsp; Versione corrente — Ver. {{ cv.version_label }}
+      {% endif %}
+    </h2>
+    {% if cv.file %}
+    <a href="{% url 'version_download' cv.pk %}" class="btn-secondary btn-sm">⬇ Scarica</a>
     {% endif %}
   </div>
   <div class="detail-grid">
+    {% if mode != 'version_only' %}
     <div class="detail-item">
       <span class="detail-label">Revisione</span>
-      <span class="detail-value">{{ document.current_version.revision_label }} (n. {{ document.current_version.revision_number }})</span>
+      <span class="detail-value font-mono">{{ cv.revision_label }}</span>
     </div>
+    {% endif %}
+    {% if mode != 'revision_only' %}
+    <div class="detail-item">
+      <span class="detail-label">Versione</span>
+      <span class="detail-value font-mono">{{ cv.version_label }}</span>
+    </div>
+    {% endif %}
     <div class="detail-item">
       <span class="detail-label">Stato</span>
       <span class="detail-value">
-        {% with s=document.current_version.status %}
+        {% with s=cv.status %}
         {% if s == 'approved' %}<span class="badge-status-approved">Approvato</span>
         {% elif s == 'draft' %}<span class="badge-status-draft">Bozza</span>
         {% elif s == 'in_approval' %}<span class="badge-status-in_approval">In approvazione</span>
         {% elif s == 'rejected' %}<span class="badge-status-rejected">Rifiutato</span>
         {% elif s == 'superseded' %}<span class="badge-status-superseded">Superato</span>
         {% elif s == 'archived' %}<span class="badge-status-archived">Archiviato</span>
-        {% else %}<span>{{ document.current_version.get_status_display }}</span>
+        {% else %}<span>{{ cv.get_status_display }}</span>
         {% endif %}
         {% endwith %}
       </span>
     </div>
     <div class="detail-item">
       <span class="detail-label">Autore</span>
-      <span class="detail-value">{{ document.current_version.created_by.get_full_name|default:document.current_version.created_by.username }}</span>
+      <span class="detail-value">{{ cv.created_by.get_full_name|default:cv.created_by.username }}</span>
     </div>
-    {% if document.current_version.approved_at %}
+    {% if cv.approved_at %}
     <div class="detail-item">
       <span class="detail-label">Data approvazione</span>
-      <span class="detail-value">{{ document.current_version.approved_at|date:"d/m/Y H:i" }}</span>
+      <span class="detail-value">{{ cv.approved_at|date:"d/m/Y H:i" }}</span>
     </div>
     {% endif %}
-    {% if document.current_version.change_summary %}
+    {% if cv.change_summary %}
     <div class="detail-item md:col-span-2">
       <span class="detail-label">Sommario modifiche</span>
-      <span class="detail-value">{{ document.current_version.change_summary }}</span>
+      <span class="detail-value">{{ cv.change_summary }}</span>
     </div>
     {% endif %}
-    {% if document.current_version.file %}
+    {% if cv.file %}
     <div class="detail-item">
       <span class="detail-label">File</span>
-      <span class="detail-value font-mono text-xs">{{ document.current_version.file.original_filename }}</span>
+      <span class="detail-value font-mono text-xs">{{ cv.file.original_filename }}</span>
     </div>
     {% endif %}
   </div>
 </div>
+{% endwith %}
 {% endif %}
 
 <!-- Approvazione ultima revisione (se approvata) -->
@@ -280,8 +298,8 @@
   <div class="table-container mt-0 mb-0">
     <table class="data-table">
       <thead><tr>
-        <th>Revisione</th>
-        <th>N.</th>
+        {% if document.versioning_mode != 'version_only' %}<th>Revisione</th>{% endif %}
+        {% if document.versioning_mode != 'revision_only' %}<th>Versione</th>{% endif %}
         <th>Stato</th>
         <th>Corrente</th>
         <th>Autore</th>
@@ -291,10 +309,16 @@
       <tbody>
         {% for v in versions %}
         <tr class="cursor-pointer hover:bg-gray-50" onclick="window.location='{% url 'version_detail' v.pk %}'">
+          {% if document.versioning_mode != 'version_only' %}
           <td class="font-mono font-semibold">
             <a href="{% url 'version_detail' v.pk %}" class="text-brand-700 hover:underline">{{ v.revision_label }}</a>
           </td>
-          <td class="text-gray-500">{{ v.revision_number }}</td>
+          {% endif %}
+          {% if document.versioning_mode != 'revision_only' %}
+          <td class="font-mono font-semibold">
+            <a href="{% url 'version_detail' v.pk %}" class="text-brand-700 hover:underline">{{ v.version_label }}</a>
+          </td>
+          {% endif %}
           <td>
             {% if v.status == 'approved' %}<span class="badge-status-approved">Approvato</span>
             {% elif v.status == 'draft' %}<span class="badge-status-draft">Bozza</span>

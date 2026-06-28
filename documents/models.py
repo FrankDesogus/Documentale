@@ -46,8 +46,21 @@ class DocumentVersion(models.Model):
         related_name='versions',
         verbose_name='Documento',
     )
+    # Asse revisione
     revision_label = models.CharField(max_length=20, verbose_name='Etichetta revisione')
-    revision_number = models.PositiveIntegerField(verbose_name='Numero revisione')
+    revision_number = models.PositiveIntegerField(verbose_name='Numero revisione', db_index=True)
+    # Asse versione (blank quando versioning_mode != 'both' e != 'version_only')
+    version_label = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        verbose_name='Etichetta versione',
+    )
+    version_number = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Numero versione',
+        db_index=True,
+    )
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -123,12 +136,31 @@ class Document(models.Model):
         QUALITY = 'QUALITY', 'Documento di qualità'
         PROJECT = 'PROJECT', 'Documento di progetto'
 
+    class VersioningMode(models.TextChoices):
+        REVISION_ONLY = 'revision_only', 'Solo revisione'
+        VERSION_ONLY = 'version_only', 'Solo versione'
+        BOTH = 'both', 'Versione e revisione'
+
+    versioning_mode = models.CharField(
+        max_length=20,
+        choices=VersioningMode.choices,
+        default=VersioningMode.REVISION_ONLY,
+        verbose_name='Modalità versionamento',
+        help_text='Determina quali assi di versionamento usa questo documento.',
+    )
     revision_scheme = models.CharField(
         max_length=20,
         choices=SequenceScheme.choices,
         default=SequenceScheme.NUMERIC,
         verbose_name='Schema revisione',
-        help_text='Schema usato per le etichette di revisione future. Non modifica lo storico.',
+        help_text='Schema usato per le etichette di revisione. Non modifica lo storico.',
+    )
+    version_scheme = models.CharField(
+        max_length=20,
+        choices=SequenceScheme.choices,
+        default=SequenceScheme.NUMERIC,
+        verbose_name='Schema versione',
+        help_text='Schema usato per le etichette di versione. Non modifica lo storico.',
     )
     requires_ecn_for_revision = models.BooleanField(
         default=True,
@@ -190,13 +222,23 @@ class Document(models.Model):
 
     def clean(self):
         if self.pk:
-            old = Document.objects.filter(pk=self.pk).values('revision_scheme').first()
-            if old and old['revision_scheme'] != self.revision_scheme:
+            old = Document.objects.filter(pk=self.pk).values(
+                'revision_scheme', 'version_scheme'
+            ).first()
+            if old:
                 has_open = self.versions.filter(status__in=self._OPEN_STATUSES).exists()
-                if has_open:
+                if has_open and old['revision_scheme'] != self.revision_scheme:
                     raise ValidationError({
                         'revision_scheme': (
                             'Non è possibile modificare lo schema di revisione mentre esiste '
+                            'una revisione aperta o in approvazione. '
+                            'Gestire prima la revisione corrente.'
+                        )
+                    })
+                if has_open and old['version_scheme'] != self.version_scheme:
+                    raise ValidationError({
+                        'version_scheme': (
+                            'Non è possibile modificare lo schema di versione mentre esiste '
                             'una revisione aperta o in approvazione. '
                             'Gestire prima la revisione corrente.'
                         )

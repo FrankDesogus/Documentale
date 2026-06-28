@@ -33,11 +33,17 @@ class DocumentCreateForm(SanatoriaFieldsMixin, forms.Form):
         empty_label='— seleziona cartella —',
         help_text='La cartella determina dove il documento viene archiviato e quali utenti possono accedervi.',
     )
+    versioning_mode = forms.ChoiceField(
+        choices=Document.VersioningMode.choices,
+        initial=Document.VersioningMode.REVISION_ONLY,
+        label='Modalità versionamento',
+        help_text='Scegli se usare revisione, versione o entrambe.',
+    )
     revision_scheme = forms.ChoiceField(
         choices=SequenceScheme.choices,
         initial=SequenceScheme.NUMERIC,
         label='Schema revisione',
-        help_text='Numerica (00, 01…) o Alfabetica (A, B…). Applicato alle revisioni future.',
+        help_text='Numerica (00, 01…) o Alfabetica (A, B…).',
     )
     revision_label = forms.CharField(
         max_length=20,
@@ -45,10 +51,19 @@ class DocumentCreateForm(SanatoriaFieldsMixin, forms.Form):
         label='Etichetta prima revisione',
         help_text='Numerica: 00. Alfabetica: A.',
     )
-    revision_number = forms.IntegerField(
-        min_value=0,
-        initial=0,
-        label='Numero revisione',
+    version_scheme = forms.ChoiceField(
+        choices=SequenceScheme.choices,
+        initial=SequenceScheme.NUMERIC,
+        required=False,
+        label='Schema versione',
+        help_text='Numerica (00, 01…) o Alfabetica (A, B…). Solo se usi la versione.',
+    )
+    version_label = forms.CharField(
+        max_length=20,
+        initial='00',
+        required=False,
+        label='Etichetta prima versione',
+        help_text='Numerica: 00. Alfabetica: A. Solo se usi la versione.',
     )
     change_summary = forms.CharField(
         widget=forms.Textarea(attrs={'rows': 3}),
@@ -91,21 +106,49 @@ class DocumentCreateForm(SanatoriaFieldsMixin, forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        scheme = cleaned.get('revision_scheme', SequenceScheme.NUMERIC)
-        label = cleaned.get('revision_label', '')
-        if label:
+        mode = cleaned.get('versioning_mode', Document.VersioningMode.REVISION_ONLY)
+
+        # Valida revision_label rispetto a revision_scheme
+        rev_scheme = cleaned.get('revision_scheme', SequenceScheme.NUMERIC)
+        rev_label = cleaned.get('revision_label', '')
+        if rev_label:
             try:
-                label = normalize_sequence_value(label, scheme)
-                validate_sequence_value(label, scheme)
-                cleaned['revision_label'] = label
+                rev_label = normalize_sequence_value(rev_label, rev_scheme)
+                validate_sequence_value(rev_label, rev_scheme)
+                cleaned['revision_label'] = rev_label
             except Exception as exc:
                 self.add_error('revision_label', str(exc))
+
+        # Valida version_label solo se il modo usa la versione
+        uses_version = mode in (
+            Document.VersioningMode.VERSION_ONLY,
+            Document.VersioningMode.BOTH,
+        )
+        ver_scheme = cleaned.get('version_scheme', SequenceScheme.NUMERIC)
+        ver_label = cleaned.get('version_label', '')
+        if uses_version:
+            if not ver_label:
+                self.add_error('version_label', 'Inserire l\'etichetta della prima versione.')
+            else:
+                try:
+                    ver_label = normalize_sequence_value(ver_label, ver_scheme)
+                    validate_sequence_value(ver_label, ver_scheme)
+                    cleaned['version_label'] = ver_label
+                except Exception as exc:
+                    self.add_error('version_label', str(exc))
+        else:
+            cleaned['version_label'] = ''
+            cleaned['version_scheme'] = cleaned.get('version_scheme', SequenceScheme.NUMERIC)
+
         return cleaned
 
 
 class DocumentRevisionCreateForm(SanatoriaFieldsMixin, forms.Form):
     revision_label = forms.CharField(max_length=20, label='Etichetta revisione')
-    revision_number = forms.IntegerField(min_value=0, label='Numero revisione')
+    version_label = forms.CharField(
+        max_length=20, required=False, label='Etichetta versione',
+        help_text='Solo se il documento usa l\'asse versione.',
+    )
     change_summary = forms.CharField(
         widget=forms.Textarea(attrs={'rows': 3}),
         required=False,
@@ -113,25 +156,47 @@ class DocumentRevisionCreateForm(SanatoriaFieldsMixin, forms.Form):
     )
     file = forms.FileField(required=False, label='File operativo')
 
-    def __init__(self, *args, revision_scheme=None, current_user=None, **kwargs):
+    def __init__(self, *args, document=None, current_user=None, **kwargs):
         super().__init__(*args, current_user=current_user, **kwargs)
-        self._revision_scheme = revision_scheme
+        self._document = document
 
     def clean_revision_label(self):
         label = self.cleaned_data.get('revision_label', '')
-        if self._revision_scheme and label:
+        scheme = self._document.revision_scheme if self._document else SequenceScheme.NUMERIC
+        if label:
             from django.core.exceptions import ValidationError as DjVE
             try:
-                label = normalize_sequence_value(label, self._revision_scheme)
-                validate_sequence_value(label, self._revision_scheme)
+                label = normalize_sequence_value(label, scheme)
+                validate_sequence_value(label, scheme)
             except DjVE as exc:
                 raise forms.ValidationError(str(exc))
+        return label
+
+    def clean_version_label(self):
+        label = self.cleaned_data.get('version_label', '')
+        if not self._document or not label:
+            return label
+        uses_version = self._document.versioning_mode in (
+            Document.VersioningMode.VERSION_ONLY,
+            Document.VersioningMode.BOTH,
+        )
+        if not uses_version:
+            return ''
+        from django.core.exceptions import ValidationError as DjVE
+        try:
+            label = normalize_sequence_value(label, self._document.version_scheme)
+            validate_sequence_value(label, self._document.version_scheme)
+        except DjVE as exc:
+            raise forms.ValidationError(str(exc))
         return label
 
 
 class DocumentVersionEditForm(forms.Form):
     revision_label = forms.CharField(max_length=20, label='Etichetta revisione')
-    revision_number = forms.IntegerField(min_value=0, label='Numero revisione')
+    version_label = forms.CharField(
+        max_length=20, required=False, label='Etichetta versione',
+        help_text='Solo se il documento usa l\'asse versione.',
+    )
     change_summary = forms.CharField(
         widget=forms.Textarea(attrs={'rows': 3}),
         required=False,
@@ -143,19 +208,38 @@ class DocumentVersionEditForm(forms.Form):
         help_text='Lascia vuoto per mantenere il file esistente.',
     )
 
-    def __init__(self, *args, revision_scheme=None, **kwargs):
+    def __init__(self, *args, document=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self._revision_scheme = revision_scheme
+        self._document = document
 
     def clean_revision_label(self):
         label = self.cleaned_data.get('revision_label', '')
-        if self._revision_scheme and label:
+        scheme = self._document.revision_scheme if self._document else SequenceScheme.NUMERIC
+        if label:
             from django.core.exceptions import ValidationError as DjVE
             try:
-                label = normalize_sequence_value(label, self._revision_scheme)
-                validate_sequence_value(label, self._revision_scheme)
+                label = normalize_sequence_value(label, scheme)
+                validate_sequence_value(label, scheme)
             except DjVE as exc:
                 raise forms.ValidationError(str(exc))
+        return label
+
+    def clean_version_label(self):
+        label = self.cleaned_data.get('version_label', '')
+        if not self._document or not label:
+            return label
+        uses_version = self._document.versioning_mode in (
+            Document.VersioningMode.VERSION_ONLY,
+            Document.VersioningMode.BOTH,
+        )
+        if not uses_version:
+            return ''
+        from django.core.exceptions import ValidationError as DjVE
+        try:
+            label = normalize_sequence_value(label, self._document.version_scheme)
+            validate_sequence_value(label, self._document.version_scheme)
+        except DjVE as exc:
+            raise forms.ValidationError(str(exc))
         return label
 
 
@@ -168,13 +252,20 @@ class DocumentMetadataEditForm(forms.ModelForm):
             'La prima revisione successiva dovrà essere inserita manualmente.'
         ),
     )
+    version_scheme = forms.ChoiceField(
+        choices=SequenceScheme.choices,
+        label='Schema versione',
+        required=False,
+        help_text='Il cambio dello schema non modifica le versioni storiche.',
+    )
 
     class Meta:
         model = Document
-        fields = ['title', 'description', 'revision_scheme']
+        fields = ['title', 'description', 'versioning_mode', 'revision_scheme', 'version_scheme']
         labels = {
             'title': 'Titolo',
             'description': 'Descrizione',
+            'versioning_mode': 'Modalità versionamento',
         }
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),

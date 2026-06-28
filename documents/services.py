@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from documents.models import Document, DocumentFile, DocumentVersion
+from documents.versioning import sequence_label_to_number
 from auditlog.services import create_audit_log
 
 
@@ -14,7 +15,7 @@ def create_new_revision(
     document,
     created_by,
     revision_label,
-    revision_number,
+    version_label="",
     file=None,
     change_summary="",
     ecn=None,
@@ -70,10 +71,33 @@ def create_new_revision(
             f"Etichetta revisione '{revision_label}' già utilizzata per questo documento."
         )
 
-    if DocumentVersion.objects.filter(document=document, revision_number=revision_number).exists():
-        raise ValidationError(
-            f"Numero revisione {revision_number} già utilizzato per questo documento."
+    # Calcola automaticamente revision_number dall'etichetta e dallo schema del documento.
+    # Se l'etichetta non corrisponde allo schema dichiarato (es. chiamate interne da test),
+    # si prova l'altro schema prima di rinunciare.
+    try:
+        revision_number = sequence_label_to_number(revision_label, document.revision_scheme)
+    except Exception:
+        from documents.versioning import SequenceScheme as _SS
+        _other = _SS.ALPHABETIC if document.revision_scheme == _SS.NUMERIC else _SS.NUMERIC
+        try:
+            revision_number = sequence_label_to_number(revision_label, _other)
+        except Exception:
+            revision_number = 0
+
+    # version_label e version_number: rilevanti solo se il documento usa l'asse versione
+    uses_version = document.versioning_mode in (
+        Document.VersioningMode.VERSION_ONLY,
+        Document.VersioningMode.BOTH,
+    )
+    version_label_clean = str(version_label).strip() if uses_version else ""
+    try:
+        version_number = (
+            sequence_label_to_number(version_label_clean, document.version_scheme)
+            if version_label_clean
+            else 0
         )
+    except Exception:
+        version_number = 0
 
     replaces_version = document.current_version
 
@@ -81,6 +105,8 @@ def create_new_revision(
         document=document,
         revision_label=revision_label,
         revision_number=revision_number,
+        version_label=version_label_clean,
+        version_number=version_number,
         status=DocumentVersion.Status.DRAFT,
         file=file,
         created_by=created_by,
@@ -96,6 +122,8 @@ def create_new_revision(
         new_values={
             'revision_label': revision_label,
             'revision_number': revision_number,
+            'version_label': version_label_clean,
+            'version_number': version_number,
             'status': DocumentVersion.Status.DRAFT,
         },
         document=document,
@@ -248,7 +276,7 @@ def reopen_rejected_version_as_draft(version, user):
     return version
 
 
-def update_draft_version(version, user, revision_label, revision_number, change_summary, new_file=None):
+def update_draft_version(version, user, revision_label, version_label="", change_summary="", new_file=None):
     if version.status not in (DocumentVersion.Status.DRAFT, DocumentVersion.Status.REJECTED):
         raise ValidationError(
             f"Solo le bozze e le revisioni rifiutate possono essere modificate. "
@@ -256,35 +284,56 @@ def update_draft_version(version, user, revision_label, revision_number, change_
         )
 
     was_rejected = version.status == DocumentVersion.Status.REJECTED
+    document = version.document
 
     if revision_label != version.revision_label:
         if DocumentVersion.objects.filter(
-            document=version.document, revision_label=revision_label,
+            document=document, revision_label=revision_label,
         ).exclude(pk=version.pk).exists():
             raise ValidationError(
                 f"Etichetta revisione '{revision_label}' già utilizzata per questo documento."
             )
 
-    if revision_number != version.revision_number:
-        if DocumentVersion.objects.filter(
-            document=version.document, revision_number=revision_number,
-        ).exclude(pk=version.pk).exists():
-            raise ValidationError(
-                f"Numero revisione {revision_number} già utilizzato per questo documento."
-            )
+    try:
+        revision_number = sequence_label_to_number(revision_label, document.revision_scheme)
+    except Exception:
+        from documents.versioning import SequenceScheme as _SS
+        _other = _SS.ALPHABETIC if document.revision_scheme == _SS.NUMERIC else _SS.NUMERIC
+        try:
+            revision_number = sequence_label_to_number(revision_label, _other)
+        except Exception:
+            revision_number = 0
+
+    uses_version = document.versioning_mode in (
+        Document.VersioningMode.VERSION_ONLY,
+        Document.VersioningMode.BOTH,
+    )
+    version_label_clean = str(version_label).strip() if uses_version else ""
+    try:
+        version_number = (
+            sequence_label_to_number(version_label_clean, document.version_scheme)
+            if version_label_clean
+            else 0
+        )
+    except Exception:
+        version_number = 0
 
     old_values = {
         'revision_label': version.revision_label,
         'revision_number': version.revision_number,
+        'version_label': version.version_label,
+        'version_number': version.version_number,
         'change_summary': version.change_summary,
         'status': version.status,
     }
 
     with transaction.atomic():
-        update_fields = ['revision_label', 'revision_number', 'change_summary']
+        update_fields = ['revision_label', 'revision_number', 'version_label', 'version_number', 'change_summary']
 
         version.revision_label = revision_label
         version.revision_number = revision_number
+        version.version_label = version_label_clean
+        version.version_number = version_number
         version.change_summary = change_summary
 
         if new_file is not None:
@@ -311,6 +360,8 @@ def update_draft_version(version, user, revision_label, revision_number, change_
             new_values={
                 'revision_label': revision_label,
                 'revision_number': revision_number,
+                'version_label': version_label_clean,
+                'version_number': version_number,
                 'change_summary': change_summary,
                 'status': version.status,
             },

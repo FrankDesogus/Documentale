@@ -141,13 +141,16 @@
         {% if form.revision_label.help_text %}<p class="form-help">{{ form.revision_label.help_text }}</p>{% endif %}
         {% for error in form.revision_label.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
+      {% if versioning_mode != 'revision_only' %}
       <div class="form-group mb-0">
-        <label class="form-label" for="{{ form.revision_number.id_for_label }}">
-          {{ form.revision_number.label }} <span class="text-red-500">*</span>
+        <label class="form-label" for="{{ form.version_label.id_for_label }}">
+          {{ form.version_label.label }}{% if versioning_mode == 'version_only' %} <span class="text-red-500">*</span>{% endif %}
         </label>
-        {{ form.revision_number }}
-        {% for error in form.revision_number.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+        {{ form.version_label }}
+        {% if form.version_label.help_text %}<p class="form-help">{{ form.version_label.help_text }}</p>{% endif %}
+        {% for error in form.version_label.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
+      {% endif %}
       <div class="form-group mb-0 md:col-span-2">
         <label class="form-label" for="{{ form.change_summary.id_for_label }}">{{ form.change_summary.label }}</label>
         {{ form.change_summary }}

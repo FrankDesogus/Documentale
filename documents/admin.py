@@ -12,7 +12,7 @@ class DocumentVersionInline(admin.TabularInline):
     )
     readonly_fields = ('is_current', 'submitted_at', 'approved_at', 'created_at')
     show_change_link = True
-
+gi
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):

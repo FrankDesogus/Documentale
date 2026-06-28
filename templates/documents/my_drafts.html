@@ -32,7 +32,13 @@
           <a href="{% url 'document_detail' v.document.pk %}" class="font-semibold text-brand-800 font-mono hover:underline">{{ v.document.code }}</a>
           <div class="text-xs text-gray-500 mt-0.5">{{ v.document.title }}</div>
         </td>
-        <td class="whitespace-nowrap"><a href="{% url 'version_detail' v.pk %}" class="text-brand-600 hover:underline">Rev. {{ v.revision_label }}</a></td>
+        <td class="whitespace-nowrap">
+          <a href="{% url 'version_detail' v.pk %}" class="text-brand-600 hover:underline">
+            {% if v.document.versioning_mode != 'version_only' %}Rev. {{ v.revision_label }}{% endif %}
+            {% if v.document.versioning_mode == 'both' %}&nbsp;|&nbsp;{% endif %}
+            {% if v.document.versioning_mode != 'revision_only' %}Ver. {{ v.version_label }}{% endif %}
+          </a>
+        </td>
         <td>
           {% if v.status == 'draft' %}
           <span class="badge-status-draft">{{ v.get_status_display }}</span>

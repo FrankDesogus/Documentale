@@ -200,7 +200,6 @@ class Command(BaseCommand):
         rev00 = create_new_revision(
             doc, autore,
             revision_label='00',
-            revision_number=0,
             change_summary='Prima emissione.',
         )
         self._step(f'Rev.00 creata in bozza: {rev00}')
@@ -221,7 +220,6 @@ class Command(BaseCommand):
         rev01 = create_new_revision(
             doc, autore,
             revision_label='01',
-            revision_number=1,
             change_summary='Aggiornamento procedure operative sezione 3.',
             _bypass_ecn_check=True,
         )

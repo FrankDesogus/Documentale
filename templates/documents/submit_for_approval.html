@@ -21,8 +21,14 @@
     <dd class="font-mono font-semibold text-brand-800">{{ document.code }}</dd>
     <dt>Titolo</dt>
     <dd>{{ document.title }}</dd>
+    {% if document.versioning_mode != 'version_only' %}
     <dt>Revisione</dt>
-    <dd>Rev. {{ version.revision_label }} (n. {{ version.revision_number }})</dd>
+    <dd>Rev. {{ version.revision_label }}</dd>
+    {% endif %}
+    {% if document.versioning_mode != 'revision_only' %}
+    <dt>Versione</dt>
+    <dd>Ver. {{ version.version_label }}</dd>
+    {% endif %}
     <dt>Stato</dt>
     <dd>
       {% if version.status == 'draft' %}

@@ -1245,9 +1245,9 @@ class NewDocumentFromProjectTests(TestCase):
             'document_type': '',
             'description': '',
             'project_folder': self.folder.pk,
+            'versioning_mode': 'revision_only',
             'revision_scheme': 'numeric',
             'revision_label': '00',
-            'revision_number': 0,
             'change_summary': '',
         })
         self.assertTrue(Document.objects.filter(code='NDP-DOC-001').exists())
